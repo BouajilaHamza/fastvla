@@ -28,6 +28,11 @@ dependencies = [
     "unsloth[colab]",
     "xformers>=0.0.20",
     "ruff>=0.1.0",
+    "peft>=0.17.1",
+    "datasets>=4.3.0",
+    "torchvision>=0.23.0",
+    "timm>=1.0.26",
+    "typing-extensions>=4.15.0",
 ]
 
 

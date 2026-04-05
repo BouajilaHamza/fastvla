@@ -60,9 +60,10 @@ def _action_fwd_kernel(
                      mask=mask_h[:, None] & mask_a[None, :], other=0.0)
         out_acc += tl.dot(h1_tile.to(w2.dtype), w2)
 
-    # 3. Add bias2 and apply Tanh (stable sigmoid-based implementation for Triton 3.x)
+    # 3. Add bias2 and apply Tanh (Stable implementation for Triton 3.6.0)
+    # tanh(x) = 2 * sigmoid(2x) - 1
     b2 = tl.load(b2_ptr + off_a, mask=mask_a, other=0.0)
-    out = tl.sigmoid(2 * (out_acc + b2[None, :])) * 2 - 1
+    out = tl.sigmoid(2.0 * (out_acc + b2[None, :])) * 2.0 - 1.0
 
     tl.store(out_ptr + off_b[:, None] * stride_ob + off_a[None, :] * stride_oa, 
              out, mask=mask_b[:, None] & mask_a[None, :])
