@@ -5,9 +5,16 @@ Includes quantization-aware training, 8-bit optimizers, and memory optimizations
 import torch
 import torch.nn as nn
 from typing import Optional, Dict, Any
-from transformers import BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model, TaskType
-import bitsandbytes as bnb
+from peft import LoraConfig, TaskType
+
+# Optional: bitsandbytes (GPU-only, not available on CPU)
+BNB_AVAILABLE = False
+try:
+    import bitsandbytes as bnb
+    BNB_AVAILABLE = True
+    from transformers import BitsAndBytesConfig
+except ImportError:
+    BitsAndBytesConfig = None  # type: ignore
 
 
 def get_quantization_config(
@@ -15,28 +22,22 @@ def get_quantization_config(
     bnb_4bit_quant_type: str = "nf4",
     bnb_4bit_compute_dtype: str = "float16",
     bnb_4bit_use_double_quant: bool = True,
-) -> Optional[BitsAndBytesConfig]:
+) -> Optional[Any]:
     """
     Create BitsAndBytes quantization configuration.
-    
-    Args:
-        load_in_4bit: Whether to use 4-bit quantization
-        bnb_4bit_quant_type: Quantization type (nf4 or fp4)
-        bnb_4bit_compute_dtype: Compute dtype for 4-bit models
-        bnb_4bit_use_double_quant: Whether to use double quantization
-        
-    Returns:
-        BitsAndBytesConfig or None
+    Returns None if bitsandbytes is not installed (CPU environments).
     """
     if not load_in_4bit:
         return None
-    
+    if not BNB_AVAILABLE:
+        return None
+
     compute_dtype_map = {
         "float16": torch.float16,
         "bfloat16": torch.bfloat16,
         "float32": torch.float32,
     }
-    
+
     return BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type=bnb_4bit_quant_type,
@@ -47,32 +48,33 @@ def get_quantization_config(
 
 def get_8bit_optimizer(model: nn.Module, learning_rate: float = 5e-5):
     """
-    Create 8-bit optimizer using bitsandbytes.
-    
-    Args:
-        model: The model to optimize
-        learning_rate: Learning rate
-        
-    Returns:
-        8-bit AdamW optimizer
+    Create optimizer. Uses 8-bit AdamW from bitsandbytes if available,
+    otherwise falls back to standard AdamW.
     """
-    # Get all parameters that require gradients
     param_groups = [
         {
             "params": [p for p in model.parameters() if p.requires_grad],
             "lr": learning_rate,
         }
     ]
-    
-    # Use 8-bit AdamW from bitsandbytes
-    optimizer = bnb.optim.AdamW8bit(
-        param_groups,
-        lr=learning_rate,
-        betas=(0.9, 0.999),
-        eps=1e-8,
-        weight_decay=0.01,
-    )
-    
+
+    if BNB_AVAILABLE:
+        optimizer = bnb.optim.AdamW8bit(
+            param_groups,
+            lr=learning_rate,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0.01,
+        )
+    else:
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=learning_rate,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0.01,
+        )
+
     return optimizer
 
 

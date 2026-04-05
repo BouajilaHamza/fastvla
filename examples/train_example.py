@@ -10,9 +10,7 @@ from fastvla import (
     UnslothVLACollator,
     get_dataset,
     FastVLATrainer,
-    get_8bit_optimizer,
 )
-from transformers import AutoTokenizer
 
 
 def main():

@@ -5,14 +5,13 @@ Includes memory profiling, throughput measurement, and performance comparison.
 import torch
 import torch.nn as nn
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, Any
 from contextlib import contextmanager
 import psutil
 try:
     import GPUtil
 except ImportError:
     GPUtil = None
-from .optimization import estimate_memory_usage
 
 
 class PerformanceProfiler:
@@ -28,32 +27,32 @@ class PerformanceProfiler:
     def profile(self, name: str = "operation"):
         """
         Context manager for profiling an operation.
-        
+
         Args:
             name: Name of the operation
         """
-        # Clear cache
-        if self.device == "cuda":
+        # Clear cache (GPU only)
+        if self.device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
-        
+
         # Get initial memory
         initial_memory = self.get_memory_usage()
-        
+
         # Start timing
         start_time = time.time()
-        
+
         try:
             yield
         finally:
             # End timing
-            if self.device == "cuda":
+            if self.device == "cuda" and torch.cuda.is_available():
                 torch.cuda.synchronize()
             end_time = time.time()
-            
+
             # Get final memory
             final_memory = self.get_memory_usage()
-            
+
             # Record metrics
             metrics = {
                 "name": name,

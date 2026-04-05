@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Dict, List, Tuple
 import h5py
 import torch
 from torch.utils.data import Dataset
