@@ -8,6 +8,7 @@ Tests:
 
 This proves whether FastVLA can democratize VLA fine-tuning.
 """
+
 import time
 import gc
 import json
@@ -19,16 +20,20 @@ import torch
 def gpu_mem_gb():
     return torch.cuda.memory_allocated() / 1e9
 
+
 def gpu_mem_peak_gb():
     return torch.cuda.max_memory_allocated() / 1e9
 
+
 def gpu_mem_total_gb():
     return torch.cuda.get_device_properties(0).total_memory / 1e9
+
 
 def clear_gpu():
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
+
 
 def fmt_gb(mem_bytes):
     return f"{mem_bytes / 1e9:.2f} GB"
@@ -49,7 +54,9 @@ def test_naive_load():
         from transformers import AutoModelForVision2Seq, AutoProcessor
 
         print("  Loading processor and config...")
-        processor = AutoProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
+        AutoProcessor.from_pretrained(
+            "openvla/openvla-7b", trust_remote_code=True
+        )
         print(f"  Processor loaded in {time.time() - start:.1f}s")
 
         print("  Loading model in FP16 (no quantization)...")
@@ -80,7 +87,9 @@ def test_naive_load():
         try:
             # OpenVLA uses a fused vision backbone: [B, 6, 224, 224] = DINOv2(3ch) + SigLIP(3ch)
             # The FP16 model has vision encoder in FP16
-            pixel_values = torch.randn(1, 6, 224, 224, device="cuda", dtype=torch.float16)
+            pixel_values = torch.randn(
+                1, 6, 224, 224, device="cuda", dtype=torch.float16
+            )
             input_ids = torch.randint(0, 32000, (1, 32), device="cuda")
             attention_mask = torch.ones_like(input_ids)
 
@@ -92,10 +101,10 @@ def test_naive_load():
                     attention_mask=attention_mask,
                 )
             infer_time = time.time() - infer_start
-            print(f"  ✅ Inference: {infer_time*1000:.1f}ms")
+            print(f"  ✅ Inference: {infer_time * 1000:.1f}ms")
             if output.logits is not None:
                 print(f"  ✅ Logits shape: {output.logits.shape}")
-            elif hasattr(output, 'last_hidden_state'):
+            elif hasattr(output, "last_hidden_state"):
                 print(f"  ✅ Hidden state shape: {output.last_hidden_state.shape}")
         except Exception as e:
             print(f"  ⚠️ Inference skipped (timm compatibility): {e}")
@@ -125,6 +134,7 @@ def test_naive_load():
     except Exception as e:
         print(f"  ❌ Load failed: {e}")
         import traceback
+
         traceback.print_exc()
         clear_gpu()
         return {
@@ -145,7 +155,11 @@ def test_optimized_load():
     clear_gpu()
     start = time.time()
     try:
-        from transformers import AutoModelForVision2Seq, AutoProcessor, BitsAndBytesConfig
+        from transformers import (
+            AutoModelForVision2Seq,
+            AutoProcessor,
+            BitsAndBytesConfig,
+        )
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
         # 4-bit quantization config
@@ -157,7 +171,9 @@ def test_optimized_load():
         )
 
         print("  Loading processor...")
-        processor = AutoProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
+        AutoProcessor.from_pretrained(
+            "openvla/openvla-7b", trust_remote_code=True
+        )
 
         print("  Loading model in 4-bit...")
         model = AutoModelForVision2Seq.from_pretrained(
@@ -187,7 +203,15 @@ def test_optimized_load():
         lora_config = LoraConfig(
             r=16,
             lora_alpha=32,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
             lora_dropout=0.05,
             bias="none",
             task_type="CAUSAL_LM",
@@ -205,7 +229,9 @@ def test_optimized_load():
         try:
             # OpenVLA fused backbone expects 6 channels (DINOv2 + SigLIP)
             # 4-bit model keeps vision encoder in FP32
-            pixel_values = torch.randn(1, 6, 224, 224, device="cuda", dtype=torch.float32)
+            pixel_values = torch.randn(
+                1, 6, 224, 224, device="cuda", dtype=torch.float32
+            )
             input_ids = torch.randint(0, 32000, (1, 64), device="cuda")
             attention_mask = torch.ones_like(input_ids)
             labels = input_ids.clone()  # Causal LM loss
@@ -218,13 +244,15 @@ def test_optimized_load():
                 labels=labels,
             )
             fwd_time = time.time() - fwd_start
-            print(f"  ✅ Forward pass: {fwd_time*1000:.1f}ms, loss={output.loss.item():.4f}")
+            print(
+                f"  ✅ Forward pass: {fwd_time * 1000:.1f}ms, loss={output.loss.item():.4f}"
+            )
 
             # Backward
             bwd_start = time.time()
             output.loss.backward()
             bwd_time = time.time() - bwd_start
-            print(f"  ✅ Backward pass: {bwd_time*1000:.1f}ms")
+            print(f"  ✅ Backward pass: {bwd_time * 1000:.1f}ms")
 
             # Optimizer step (AdamW on LoRA params only)
             opt_start = time.time()
@@ -235,7 +263,7 @@ def test_optimized_load():
             optimizer.step()
             optimizer.zero_grad()
             opt_time = time.time() - opt_start
-            print(f"  ✅ Optimizer step: {opt_time*1000:.1f}ms")
+            print(f"  ✅ Optimizer step: {opt_time * 1000:.1f}ms")
             print(f"  ✅ VRAM after full training step: {gpu_mem_gb():.2f} GB")
         except Exception as e:
             print(f"  ⚠️ Forward/backward skipped (timm compatibility): {e}")
@@ -262,6 +290,7 @@ def test_optimized_load():
     except Exception as e:
         print(f"  ❌ Optimized load failed: {e}")
         import traceback
+
         traceback.print_exc()
         clear_gpu()
         return {
@@ -282,7 +311,11 @@ def test_finetune_throughput(results_optimized):
 
     clear_gpu()
     try:
-        from transformers import AutoModelForVision2Seq, AutoProcessor, BitsAndBytesConfig
+        from transformers import (
+            AutoModelForVision2Seq,
+            AutoProcessor,
+            BitsAndBytesConfig,
+        )
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
         bnb_config = BitsAndBytesConfig(
@@ -292,7 +325,9 @@ def test_finetune_throughput(results_optimized):
             bnb_4bit_use_double_quant=True,
         )
 
-        processor = AutoProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
+        AutoProcessor.from_pretrained(
+            "openvla/openvla-7b", trust_remote_code=True
+        )
         model = AutoModelForVision2Seq.from_pretrained(
             "openvla/openvla-7b",
             quantization_config=bnb_config,
@@ -303,9 +338,20 @@ def test_finetune_throughput(results_optimized):
         model = prepare_model_for_kbit_training(model)
 
         lora_config = LoraConfig(
-            r=16, lora_alpha=32,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-            lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
+            r=16,
+            lora_alpha=32,
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
         )
         model = get_peft_model(model, lora_config)
 
@@ -327,7 +373,9 @@ def test_finetune_throughput(results_optimized):
 
             # Synthetic batch — OpenVLA needs 6-channel (DINOv2 + SigLIP fused)
             # Use FP32 to avoid dtype mismatch with timm vision encoder
-            pixel_values = torch.randn(batch_size, 6, 224, 224, device="cuda", dtype=torch.float32)
+            pixel_values = torch.randn(
+                batch_size, 6, 224, 224, device="cuda", dtype=torch.float32
+            )
             input_ids = torch.randint(0, 32000, (batch_size, 64), device="cuda")
             attention_mask = torch.ones_like(input_ids)
             labels = input_ids.clone()
@@ -344,7 +392,7 @@ def test_finetune_throughput(results_optimized):
                 optimizer.step()
                 optimizer.zero_grad()
             except RuntimeError as e:
-                print(f"  ⚠️ Step {step+1} failed: {e}")
+                print(f"  ⚠️ Step {step + 1} failed: {e}")
                 continue
 
             step_time = time.time() - step_start
@@ -354,8 +402,10 @@ def test_finetune_throughput(results_optimized):
             if (step + 1) % 10 == 0:
                 avg_loss = sum(losses[-10:]) / 10
                 avg_time = sum(step_times[-10:]) / 10
-                print(f"    Step {step+1:3d}: loss={avg_loss:.4f}, step_time={avg_time*1000:.1f}ms, "
-                      f"VRAM={gpu_mem_gb():.2f}GB")
+                print(
+                    f"    Step {step + 1:3d}: loss={avg_loss:.4f}, step_time={avg_time * 1000:.1f}ms, "
+                    f"VRAM={gpu_mem_gb():.2f}GB"
+                )
 
         total_time = time.time() - start
         steps_per_sec = num_steps / total_time
@@ -363,7 +413,7 @@ def test_finetune_throughput(results_optimized):
 
         print(f"\n  ✅ {num_steps} steps completed in {total_time:.1f}s")
         print(f"  ✅ Steps/sec: {steps_per_sec:.1f}")
-        print(f"  ✅ Avg step time: {avg_step_time*1000:.1f}ms")
+        print(f"  ✅ Avg step time: {avg_step_time * 1000:.1f}ms")
         print(f"  ✅ Peak VRAM: {gpu_mem_peak_gb():.2f} GB")
         print(f"  ✅ Loss trend: {losses[0]:.4f} → {losses[-1]:.4f}")
 
@@ -384,6 +434,7 @@ def test_finetune_throughput(results_optimized):
     except Exception as e:
         print(f"  ❌ Throughput test failed: {e}")
         import traceback
+
         traceback.print_exc()
         clear_gpu()
         return {"status": "error", "error": str(e)}
@@ -406,18 +457,34 @@ def print_summary(results):
     print("├──────────────────────────┼──────────────┼──────────────┤")
 
     if naive.get("status") == "oom":
-        print(f"│ VRAM Usage               │ OOM (>{gpu_mem_total_gb():.0f}GB) │ {opt.get('vram_used_gb', 'N/A'):>10} GB   │")
+        print(
+            f"│ VRAM Usage               │ OOM (>{gpu_mem_total_gb():.0f}GB) │ {opt.get('vram_used_gb', 'N/A'):>10} GB   │"
+        )
     elif naive.get("status") == "success":
-        print(f"│ VRAM Usage               │ {naive.get('vram_used_gb', 'N/A'):>10} GB   │ {opt.get('vram_used_gb', 'N/A'):>10} GB   │")
+        print(
+            f"│ VRAM Usage               │ {naive.get('vram_used_gb', 'N/A'):>10} GB   │ {opt.get('vram_used_gb', 'N/A'):>10} GB   │"
+        )
     else:
-        print(f"│ VRAM Usage               │ {naive.get('error', 'Failed'):>10} │ {opt.get('vram_used_gb', 'N/A'):>10} GB   │")
+        print(
+            f"│ VRAM Usage               │ {naive.get('error', 'Failed'):>10} │ {opt.get('vram_used_gb', 'N/A'):>10} GB   │"
+        )
 
     if opt.get("status") == "success":
-        print(f"│ Trainable params         │ {naive.get('total_params', 0):>10,} │ {opt.get('trainable_params', 0):>10,} │")
-        print(f"│ Trainable %              │      100.00% │ {opt.get('trainable_pct', 0):>9.2f}% │")
-        print(f"│ Load time                │ {naive.get('load_time_sec', 0):>9.1f}s │ {opt.get('load_time_sec', 0):>9.1f}s │")
-        print(f"│ Forward pass             │ {naive.get('inference_ms', 0):>8.1f}ms │ {opt.get('forward_ms', 0):>8.1f}ms │")
-        print(f"│ Backward pass            │       N/A    │ {opt.get('backward_ms', 0):>8.1f}ms │")
+        print(
+            f"│ Trainable params         │ {naive.get('total_params', 0):>10,} │ {opt.get('trainable_params', 0):>10,} │"
+        )
+        print(
+            f"│ Trainable %              │      100.00% │ {opt.get('trainable_pct', 0):>9.2f}% │"
+        )
+        print(
+            f"│ Load time                │ {naive.get('load_time_sec', 0):>9.1f}s │ {opt.get('load_time_sec', 0):>9.1f}s │"
+        )
+        print(
+            f"│ Forward pass             │ {naive.get('inference_ms', 0):>8.1f}ms │ {opt.get('forward_ms', 0):>8.1f}ms │"
+        )
+        print(
+            f"│ Backward pass            │       N/A    │ {opt.get('backward_ms', 0):>8.1f}ms │"
+        )
 
     print("└──────────────────────────┴──────────────┴──────────────┘")
 
@@ -435,7 +502,9 @@ def print_summary(results):
     fits = opt.get("status") == "success"
     if fits:
         print("  │  ✅ OpenVLA-7B FITS on Tesla T4 with 4-bit QLoRA  │")
-        print(f"  │  ✅ Fine-tuning works with {opt.get('trainable_params', 0):,} params      │")
+        print(
+            f"  │  ✅ Fine-tuning works with {opt.get('trainable_params', 0):,} params      │"
+        )
     else:
         print("  │  ❌ OpenVLA-7B does NOT fit on Tesla T4           │")
     print("  └─────────────────────────────────────────────────────┘")

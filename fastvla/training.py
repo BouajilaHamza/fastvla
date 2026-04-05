@@ -3,6 +3,7 @@ Training loop for FastVLA models.
 Includes training, evaluation, and checkpointing utilities.
 CPU/GPU auto-selected.
 """
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -80,7 +81,10 @@ class FastVLATrainer:
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
 
-        batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch = {
+            k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+            for k, v in batch.items()
+        }
 
         # Forward pass
         if self.use_mixed_precision:
@@ -111,11 +115,15 @@ class FastVLATrainer:
         if (self.global_step + 1) % self.gradient_accumulation_steps == 0:
             if self.use_mixed_precision:
                 self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.max_grad_norm
+                )
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.max_grad_norm
+                )
                 self.optimizer.step()
 
             if self.lr_scheduler is not None:
@@ -138,7 +146,10 @@ class FastVLATrainer:
 
         with torch.no_grad():
             for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
-                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                batch = {
+                    k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                    for k, v in batch.items()
+                }
 
                 action_preds, loss = self.model(
                     pixel_values=batch["pixel_values"],
@@ -150,7 +161,11 @@ class FastVLATrainer:
                 total_loss += loss.item()
                 num_samples += batch["pixel_values"].size(0)
 
-        avg_loss = total_loss / len(self.eval_dataloader) if len(self.eval_dataloader) > 0 else 0.0
+        avg_loss = (
+            total_loss / len(self.eval_dataloader)
+            if len(self.eval_dataloader) > 0
+            else 0.0
+        )
 
         return {
             "eval_loss": avg_loss,
@@ -189,7 +204,9 @@ class FastVLATrainer:
             epoch_loss = 0.0
             num_batches = 0
 
-            progress_bar = tqdm(self.train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}")
+            progress_bar = tqdm(
+                self.train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}"
+            )
 
             for batch in progress_bar:
                 metrics = self.train_step(batch)
@@ -199,19 +216,28 @@ class FastVLATrainer:
 
                 if self.global_step % self.logging_steps == 0:
                     avg_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
-                    progress_bar.set_postfix({
-                        "loss": f"{avg_loss:.4f}",
-                        "lr": f"{metrics['learning_rate']:.2e}",
-                    })
-                    self.training_history.append({
-                        "step": self.global_step,
-                        "loss": avg_loss,
-                        "learning_rate": metrics["learning_rate"],
-                    })
+                    progress_bar.set_postfix(
+                        {
+                            "loss": f"{avg_loss:.4f}",
+                            "lr": f"{metrics['learning_rate']:.2e}",
+                        }
+                    )
+                    self.training_history.append(
+                        {
+                            "step": self.global_step,
+                            "loss": avg_loss,
+                            "learning_rate": metrics["learning_rate"],
+                        }
+                    )
 
-                if self.eval_dataloader is not None and self.global_step % self.eval_steps == 0:
+                if (
+                    self.eval_dataloader is not None
+                    and self.global_step % self.eval_steps == 0
+                ):
                     eval_metrics = self.evaluate()
-                    print(f"\nStep {self.global_step} - Eval Loss: {eval_metrics.get('eval_loss', 0.0):.4f}")
+                    print(
+                        f"\nStep {self.global_step} - Eval Loss: {eval_metrics.get('eval_loss', 0.0):.4f}"
+                    )
                     self.training_history[-1].update(eval_metrics)
 
                 if self.global_step % self.save_steps == 0:

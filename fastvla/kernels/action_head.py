@@ -7,6 +7,7 @@ class ActionDecodeFunction(torch.autograd.Function):
     """
     Triton-optimized action decoding with gradient checkpointing.
     """
+
     @staticmethod
     def forward(ctx, hidden, weight1, bias1, weight2, bias2):
         # We only save what's absolutely necessary for recomputation
@@ -27,6 +28,7 @@ class TritonActionHead(nn.Module):
     Memory-efficient Action Head using custom Triton kernels.
     Fuses: Linear -> ReLU -> Linear -> Tanh
     """
+
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         super().__init__()
         self.weight1 = nn.Parameter(torch.empty(input_dim, hidden_dim))

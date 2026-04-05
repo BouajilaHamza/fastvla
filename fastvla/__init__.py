@@ -6,7 +6,12 @@ from .model import FastVLAModel
 from .config import FastVLAConfig
 from .utils import get_device
 from .data.collator import UnslothVLACollator
-from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset
+from .data.datasets import (
+    get_dataset,
+    RoboticsDataset,
+    LIBERODataset,
+    FrankaKitchenDataset,
+)
 from .training import FastVLATrainer
 from .optimization import (
     get_quantization_config,

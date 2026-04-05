@@ -2,6 +2,7 @@
 Vision-Language Fusion Triton Kernel — Fixed for GPU execution.
 Fuses visual and text features via weighted sum: out = alpha * visual + (1-alpha) * text
 """
+
 import torch
 import triton
 import triton.language as tl
@@ -9,11 +10,21 @@ import triton.language as tl
 
 @triton.jit
 def _fusion_fwd_kernel(
-    visual_ptr, text_ptr, out_ptr,
-    B, T, D,
-    stride_vb, stride_vt, stride_vd,
-    stride_tb, stride_tt, stride_td,
-    stride_ob, stride_ot, stride_od,
+    visual_ptr,
+    text_ptr,
+    out_ptr,
+    B,
+    T,
+    D,
+    stride_vb,
+    stride_vt,
+    stride_vd,
+    stride_tb,
+    stride_tt,
+    stride_td,
+    stride_ob,
+    stride_ot,
+    stride_od,
     BLOCK_D: tl.constexpr,
 ):
     """Each program handles one (batch, seq) element across the full feature dim D."""
@@ -40,11 +51,21 @@ def _fusion_fwd_kernel(
 
 @triton.jit
 def _fusion_bwd_kernel(
-    grad_out_ptr, grad_visual_ptr, grad_text_ptr,
-    B, T, D,
-    stride_gb, stride_gt, stride_gd,
-    stride_gvb, stride_gvt, stride_gvd,
-    stride_gtb, stride_gtt, stride_gtd,
+    grad_out_ptr,
+    grad_visual_ptr,
+    grad_text_ptr,
+    B,
+    T,
+    D,
+    stride_gb,
+    stride_gt,
+    stride_gd,
+    stride_gvb,
+    stride_gvt,
+    stride_gvd,
+    stride_gtb,
+    stride_gtt,
+    stride_gtd,
     BLOCK_D: tl.constexpr,
 ):
     pid_b = tl.program_id(0)
@@ -89,11 +110,21 @@ class _FusionAutograd(torch.autograd.Function):
             return (B, T_t)
 
         _fusion_fwd_kernel[grid](
-            visual, text, out,
-            B, T_t, D,
-            visual.stride(0), visual.stride(1), visual.stride(2),
-            text.stride(0), text.stride(1), text.stride(2),
-            out.stride(0), out.stride(1), out.stride(2),
+            visual,
+            text,
+            out,
+            B,
+            T_t,
+            D,
+            visual.stride(0),
+            visual.stride(1),
+            visual.stride(2),
+            text.stride(0),
+            text.stride(1),
+            text.stride(2),
+            out.stride(0),
+            out.stride(1),
+            out.stride(2),
             BLOCK_D=BLOCK_D,
         )
 
@@ -116,18 +147,30 @@ class _FusionAutograd(torch.autograd.Function):
             return (B, T_t)
 
         _fusion_bwd_kernel[grid](
-            grad_out, grad_visual, grad_text,
-            B, T_t, D,
-            grad_out.stride(0), grad_out.stride(1), grad_out.stride(2),
-            grad_visual.stride(0), grad_visual.stride(1), grad_visual.stride(2),
-            grad_text.stride(0), grad_text.stride(1), grad_text.stride(2),
+            grad_out,
+            grad_visual,
+            grad_text,
+            B,
+            T_t,
+            D,
+            grad_out.stride(0),
+            grad_out.stride(1),
+            grad_out.stride(2),
+            grad_visual.stride(0),
+            grad_visual.stride(1),
+            grad_visual.stride(2),
+            grad_text.stride(0),
+            grad_text.stride(1),
+            grad_text.stride(2),
             BLOCK_D=BLOCK_D,
         )
 
         return grad_visual, grad_text
 
 
-def vision_language_fusion_forward(visual: torch.Tensor, text: torch.Tensor) -> torch.Tensor:
+def vision_language_fusion_forward(
+    visual: torch.Tensor, text: torch.Tensor
+) -> torch.Tensor:
     """Fusion forward with autograd support."""
     return _FusionAutograd.apply(visual, text)
 

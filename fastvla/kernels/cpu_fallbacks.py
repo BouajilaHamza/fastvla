@@ -2,11 +2,14 @@
 Pure PyTorch CPU fallbacks for custom Triton kernels.
 Used when GPU is not available.
 """
+
 import torch
 import torch.nn.functional as F
 
 
-def vision_language_fusion_cpu(visual_feat: torch.Tensor, text_feat: torch.Tensor) -> torch.Tensor:
+def vision_language_fusion_cpu(
+    visual_feat: torch.Tensor, text_feat: torch.Tensor
+) -> torch.Tensor:
     """
     Fuse visual and language features using weighted sum.
     Matches the Triton kernel's alpha=0.5 behavior.

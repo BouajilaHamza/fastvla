@@ -37,7 +37,9 @@ def _use_triton(tensor: torch.Tensor) -> bool:
     return tensor.is_cuda
 
 
-def vision_language_fusion_forward(visual_feat: torch.Tensor, text_feat: torch.Tensor) -> torch.Tensor:
+def vision_language_fusion_forward(
+    visual_feat: torch.Tensor, text_feat: torch.Tensor
+) -> torch.Tensor:
     """Fuse visual and language features. Uses Triton on GPU, PyTorch on CPU."""
     if _use_triton(visual_feat):
         return _triton_fusion_forward(visual_feat, text_feat)
@@ -94,7 +96,9 @@ def action_decode_backward(
 ):
     """Backward for action decoding."""
     if _use_triton(hidden):
-        return _triton_action_backward(grad_output, hidden, weight1, bias1, weight2, bias2)
+        return _triton_action_backward(
+            grad_output, hidden, weight1, bias1, weight2, bias2
+        )
     return action_decode_cpu(hidden.clone(), weight1, bias1, weight2, bias2)
 
 

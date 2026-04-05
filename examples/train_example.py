@@ -2,6 +2,7 @@
 Example training script for FastVLA.
 Demonstrates how to use the FastVLA API for training on robotics tasks.
 """
+
 import torch
 from torch.utils.data import DataLoader
 from fastvla import (
@@ -27,7 +28,7 @@ def main():
         lora_alpha=32,
         lora_dropout=0.05,
     )
-    
+
     # Load model
     print("Loading model...")
     model = FastVLAModel.from_pretrained(
@@ -36,10 +37,10 @@ def main():
         gradient_checkpointing=True,
         use_peft=True,
     )
-    
+
     # Load tokenizer
     tokenizer = model.tokenizer
-    
+
     # Load dataset (example with LIBERO)
     print("Loading dataset...")
     dataset = get_dataset(
@@ -50,21 +51,21 @@ def main():
         action_key="action",
         instruction_key="instruction",
     )
-    
+
     # Create data collator
     collator = UnslothVLACollator(
         tokenizer=tokenizer,
         max_length=512,
         padding=True,
     )
-    
+
     # Create data loaders
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(
         dataset, [train_size, val_size]
     )
-    
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=4,
@@ -72,7 +73,7 @@ def main():
         collate_fn=collator,
         num_workers=2,
     )
-    
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=4,
@@ -80,7 +81,7 @@ def main():
         collate_fn=collator,
         num_workers=2,
     )
-    
+
     # Create trainer
     print("Creating trainer...")
     trainer = FastVLATrainer(
@@ -97,15 +98,14 @@ def main():
         eval_steps=500,
         logging_steps=100,
     )
-    
+
     # Train
     print("Starting training...")
     history = trainer.train(num_epochs=3, max_steps=1000)
-    
+
     print("Training completed!")
     print(f"Training history: {history[-5:]}")  # Print last 5 entries
 
 
 if __name__ == "__main__":
     main()
-

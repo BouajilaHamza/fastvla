@@ -1,4 +1,5 @@
 """Integration tests for the FastVLA model."""
+
 import torch
 import pytest
 from fastvla import FastVLAModel, FastVLAConfig
@@ -29,7 +30,9 @@ class TestFastVLAModel:
         seq_len = 8
         return {
             "pixel_values": torch.randn(batch_size, 2, 3, 32, 32),
-            "input_ids": torch.randint(0, dummy_config.vocab_size, (batch_size, seq_len)),
+            "input_ids": torch.randint(
+                0, dummy_config.vocab_size, (batch_size, seq_len)
+            ),
             "attention_mask": torch.ones(batch_size, seq_len),
             "labels": torch.randn(batch_size, dummy_config.action_dim),
         }
@@ -42,7 +45,7 @@ class TestFastVLAModel:
             pixel_values=dummy_batch["pixel_values"],
             input_ids=dummy_batch["input_ids"],
             attention_mask=dummy_batch["attention_mask"],
-            labels=dummy_batch["labels"]
+            labels=dummy_batch["labels"],
         )
 
         action_preds, loss = outputs
@@ -60,7 +63,7 @@ class TestFastVLAModel:
             pixel_values=dummy_batch["pixel_values"],
             input_ids=dummy_batch["input_ids"],
             attention_mask=dummy_batch["attention_mask"],
-            labels=dummy_batch["labels"]
+            labels=dummy_batch["labels"],
         )
         loss.backward()
         optimizer.step()
@@ -79,6 +82,7 @@ class TestFastVLAModel:
         )
         assert model is not None
         assert model.config.dummy is True
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

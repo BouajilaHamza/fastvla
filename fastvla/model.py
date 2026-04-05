@@ -29,6 +29,7 @@ try:
         patch_model,
         patch_saving_functions,
     )
+
     UNSLOTH_AVAILABLE = True
 except ImportError:
     pass
@@ -38,11 +39,15 @@ except ImportError:
 class DummyVisionEncoder(nn.Module):
     """Tiny vision encoder that mimics ViT output shape."""
 
-    def __init__(self, hidden_size: int = 768, image_size: int = 224, patch_size: int = 16):
+    def __init__(
+        self, hidden_size: int = 768, image_size: int = 224, patch_size: int = 16
+    ):
         super().__init__()
         self.config = type("Config", (), {"hidden_size": hidden_size})()
         self.patch_size = patch_size
-        self.patch_embed = nn.Conv2d(3, hidden_size, kernel_size=patch_size, stride=patch_size)
+        self.patch_embed = nn.Conv2d(
+            3, hidden_size, kernel_size=patch_size, stride=patch_size
+        )
         self.norm = nn.LayerNorm(hidden_size)
 
     def forward(self, pixel_values, return_dict=False):
@@ -51,8 +56,14 @@ class DummyVisionEncoder(nn.Module):
         num_patches = h_out * w_out
 
         # Create positional embedding as a buffer (not parameter) to avoid registration issues
-        if not hasattr(self, "pos_embed_buf") or self.pos_embed_buf.shape[1] != num_patches or self.pos_embed_buf.device != x.device:
-            pos_embed = torch.randn(1, num_patches, h, device=x.device, dtype=x.dtype) * 0.02
+        if (
+            not hasattr(self, "pos_embed_buf")
+            or self.pos_embed_buf.shape[1] != num_patches
+            or self.pos_embed_buf.device != x.device
+        ):
+            pos_embed = (
+                torch.randn(1, num_patches, h, device=x.device, dtype=x.dtype) * 0.02
+            )
             self.register_buffer("pos_embed_buf", pos_embed, persistent=False)
 
         x = x.flatten(2).transpose(1, 2)  # [B, num_patches, H]
@@ -66,31 +77,50 @@ class DummyVisionEncoder(nn.Module):
 class DummyLanguageModel(nn.Module):
     """Tiny transformer-like model using MLPs (avoids SDPA bugs on CPU)."""
 
-    def __init__(self, hidden_size: int = 128, num_layers: int = 2, num_heads: int = 4, vocab_size: int = 1000):
+    def __init__(
+        self,
+        hidden_size: int = 128,
+        num_layers: int = 2,
+        num_heads: int = 4,
+        vocab_size: int = 1000,
+    ):
         super().__init__()
-        self.config = type("Config", (), {
-            "hidden_size": hidden_size,
-            "num_hidden_layers": num_layers,
-            "vocab_size": vocab_size,
-        })()
+        self.config = type(
+            "Config",
+            (),
+            {
+                "hidden_size": hidden_size,
+                "num_hidden_layers": num_layers,
+                "vocab_size": vocab_size,
+            },
+        )()
         self.embed_tokens = nn.Embedding(vocab_size, hidden_size)
         # Simple MLP blocks instead of attention (avoids SDPA issues)
         layers = []
         for _ in range(num_layers):
-            layers.append(nn.Sequential(
-                nn.LayerNorm(hidden_size),
-                nn.Linear(hidden_size, hidden_size * 4),
-                nn.GELU(),
-                nn.Linear(hidden_size * 4, hidden_size),
-            ))
+            layers.append(
+                nn.Sequential(
+                    nn.LayerNorm(hidden_size),
+                    nn.Linear(hidden_size, hidden_size * 4),
+                    nn.GELU(),
+                    nn.Linear(hidden_size * 4, hidden_size),
+                )
+            )
         self.layers = nn.ModuleList(layers)
         self.norm = nn.LayerNorm(hidden_size)
 
     def get_input_embeddings(self):
         return self.embed_tokens
 
-    def forward(self, input_ids=None, inputs_embeds=None, attention_mask=None,
-                output_hidden_states=True, use_cache=False, **kwargs):
+    def forward(
+        self,
+        input_ids=None,
+        inputs_embeds=None,
+        attention_mask=None,
+        output_hidden_states=True,
+        use_cache=False,
+        **kwargs,
+    ):
         if inputs_embeds is not None:
             x = inputs_embeds
         else:
@@ -102,10 +132,14 @@ class DummyLanguageModel(nn.Module):
             hidden_states_list.append(x)
 
         x = self.norm(x)
-        return type("Output", (), {
-            "last_hidden_state": x,
-            "hidden_states": tuple(hidden_states_list),
-        })()
+        return type(
+            "Output",
+            (),
+            {
+                "last_hidden_state": x,
+                "hidden_states": tuple(hidden_states_list),
+            },
+        )()
 
 
 # ── Main model ────────────────────────────────────────────────────────────
@@ -114,6 +148,7 @@ class FastVLAModel(PreTrainedModel):
     FastVLA: Flexible Vision-Language-Action model for robotics.
     Accepts any HuggingFace vision encoder + language model.
     """
+
     config_class = FastVLAConfig
 
     def __init__(self, config: FastVLAConfig):
@@ -235,6 +270,7 @@ class FastVLAModel(PreTrainedModel):
 
         if config.use_peft:
             from peft import get_peft_model
+
             peft_config = get_peft_config(
                 r=config.lora_rank,
                 lora_alpha=config.lora_alpha,
@@ -288,7 +324,9 @@ class FastVLAModel(PreTrainedModel):
 
         # ── LLM forward ───────────────────────────────────────────────
         if get_device() == "cuda":
-            with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=True):
+            with torch.backends.cuda.sdp_kernel(
+                enable_flash=True, enable_math=False, enable_mem_efficient=True
+            ):
                 outputs = self.llm(
                     inputs_embeds=fused_embeds,
                     attention_mask=attention_mask,
@@ -348,7 +386,8 @@ class FastVLAModel(PreTrainedModel):
         """
         if config is None:
             config = FastVLAConfig(
-                vision_encoder_name=vision_encoder_name or "google/vit-base-patch16-224",
+                vision_encoder_name=vision_encoder_name
+                or "google/vit-base-patch16-224",
                 llm_name=llm_name or "meta-llama/Llama-2-7b-hf",
                 max_sequence_length=max_seq_length,
                 load_in_4bit=load_in_4bit,

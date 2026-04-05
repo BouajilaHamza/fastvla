@@ -6,6 +6,7 @@ Compares:
 
 Measures: kernel speed, end-to-end model, memory, max batch size.
 """
+
 import time
 import gc
 import json
@@ -22,8 +23,10 @@ from fastvla.kernels import (
 def gpu_mem_gb():
     return torch.cuda.memory_allocated() / 1e9
 
+
 def gpu_mem_peak_gb():
     return torch.cuda.max_memory_allocated() / 1e9
+
 
 def timed(fn, warmup=3, iters=20):
     for _ in range(warmup):
@@ -39,6 +42,7 @@ def timed(fn, warmup=3, iters=20):
     std = (sum((t - avg) ** 2 for t in times) / len(times)) ** 0.5
     return avg, std
 
+
 def clear_gpu():
     gc.collect()
     torch.cuda.empty_cache()
@@ -52,20 +56,24 @@ def bench_vl_fusion():
     print("=" * 70)
 
     configs = [
-        ("Small",  2,  32,  128),
-        ("Medium", 4,  64,  256),
-        ("Large",  4, 128,  768),
+        ("Small", 2, 32, 128),
+        ("Medium", 4, 64, 256),
+        ("Large", 4, 128, 768),
     ]
     results = []
 
     for name, B, T, D in configs:
         visual = torch.randn(B, T, D, device="cuda")
-        text   = torch.randn(B, T, D, device="cuda")
+        text = torch.randn(B, T, D, device="cuda")
 
         # Baseline: standard PyTorch
         def fn_baseline():
             alpha = 0.5
-            v = visual.mean(dim=1, keepdim=True).expand(-1, T, -1) if visual.size(1) != T else visual
+            v = (
+                visual.mean(dim=1, keepdim=True).expand(-1, T, -1)
+                if visual.size(1) != T
+                else visual
+            )
             return alpha * v + (1 - alpha) * text
 
         b_avg, b_std = timed(fn_baseline, warmup=5, iters=50)
@@ -76,17 +84,23 @@ def bench_vl_fusion():
 
         def fn_fast():
             alpha = 0.5
-            v = visual_f16.mean(dim=1, keepdim=True).expand(-1, T, -1) if visual_f16.size(1) != T else visual_f16
+            v = (
+                visual_f16.mean(dim=1, keepdim=True).expand(-1, T, -1)
+                if visual_f16.size(1) != T
+                else visual_f16
+            )
             return (alpha * v + (1 - alpha) * text_f16).to(text.dtype)
 
         f_avg, f_std = timed(fn_fast, warmup=5, iters=50)
 
         speedup = b_avg / f_avg if f_avg > 0 else float("inf")
         results.append((name, B, T, D, b_avg, b_std, f_avg, f_std, speedup))
-        print(f"  {name:6s} (B={B}, T={T}, D={D}): "
-              f"baseline {b_avg:.3f}±{b_std:.3f}ms, "
-              f"fastvla {f_avg:.3f}±{f_std:.3f}ms, "
-              f"speedup {speedup:.2f}x")
+        print(
+            f"  {name:6s} (B={B}, T={T}, D={D}): "
+            f"baseline {b_avg:.3f}±{b_std:.3f}ms, "
+            f"fastvla {f_avg:.3f}±{f_std:.3f}ms, "
+            f"speedup {speedup:.2f}x"
+        )
         clear_gpu()
 
     return results
@@ -99,10 +113,10 @@ def bench_action_decode():
     print("=" * 70)
 
     configs = [
-        ("Small",  2,  64,   7),
-        ("Medium", 4, 128,   7),
-        ("Large",  4, 256,  12),
-        ("XL",     8, 512,  12),
+        ("Small", 2, 64, 7),
+        ("Medium", 4, 128, 7),
+        ("Large", 4, 256, 12),
+        ("XL", 8, 512, 12),
     ]
     results = []
 
@@ -136,10 +150,12 @@ def bench_action_decode():
 
         speedup = b_avg / t_avg if t_avg > 0 else float("inf")
         results.append((name, B, D, A, b_avg, b_std, t_avg, t_std, speedup))
-        print(f"  {name:6s} (B={B}, D={D}, A={A}): "
-              f"baseline {b_avg:.3f}±{b_std:.3f}ms, "
-              f"triton {t_avg:.3f}±{t_std:.3f}ms, "
-              f"speedup {speedup:.2f}x")
+        print(
+            f"  {name:6s} (B={B}, D={D}, A={A}): "
+            f"baseline {b_avg:.3f}±{b_std:.3f}ms, "
+            f"triton {t_avg:.3f}±{t_std:.3f}ms, "
+            f"speedup {speedup:.2f}x"
+        )
         clear_gpu()
 
     return results
@@ -181,6 +197,7 @@ def bench_model():
 
     # Forward + Backward
     model.zero_grad()
+
     def train_fn():
         _, loss = model(**batch)
         loss.backward()
@@ -319,11 +336,15 @@ def print_summary(results):
 
     for name, *rest in results["vl_fusion"]:
         _, _, _, b_avg, _, f_avg, _, speedup = rest
-        print(f"│ VL Fusion ({name:6s})         │ {b_avg:7.3f}ms │ {f_avg:7.3f}ms │ {speedup:6.2f}x │")
+        print(
+            f"│ VL Fusion ({name:6s})         │ {b_avg:7.3f}ms │ {f_avg:7.3f}ms │ {speedup:6.2f}x │"
+        )
 
     for name, *rest in results["action"]:
         _, _, _, b_avg, _, f_avg, _, speedup = rest
-        print(f"│ ActionHead ({name:6s})         │ {b_avg:7.3f}ms │ {f_avg:7.3f}ms │ {speedup:6.2f}x │")
+        print(
+            f"│ ActionHead ({name:6s})         │ {b_avg:7.3f}ms │ {f_avg:7.3f}ms │ {speedup:6.2f}x │"
+        )
 
     print("└────────────────────────────┴───────────┴───────────┴─────────┘")
 
