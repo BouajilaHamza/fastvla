@@ -4,6 +4,7 @@ __version__ = "0.1.0"
 
 from .model import FastVLAModel
 from .config import FastVLAConfig
+from .utils import get_device
 from .data.collator import UnslothVLACollator
 from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset
 from .training import FastVLATrainer
@@ -20,6 +21,7 @@ from .benchmarking import PerformanceProfiler, compare_models, print_benchmark_r
 __all__ = [
     "FastVLAModel",
     "FastVLAConfig",
+    "get_device",
     "UnslothVLACollator",
     "get_dataset",
     "RoboticsDataset",
