@@ -3,6 +3,14 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Agents and Work Directories
+.agent/
+.qwen/
+
+# Benchmark and Training Results
+benchmark_results.json
+finetune_results.json
+
 # C extensions
 *.so
 

@@ -24,9 +24,10 @@ dependencies = [
     "sphinx-rtd-theme>=1.2.0",
     "torch>=2.0.0",
     "transformers>=4.30.0",
-    "triton>=2.0.0",
+    "triton>=3.6.0",
     "unsloth[colab]",
     "xformers>=0.0.20",
+    "ruff>=0.1.0",
 ]
 
 

@@ -13,7 +13,6 @@ from transformers import ViTModel, AutoModelForCausalLM
 from .config import FastVLAConfig
 from .kernels import vision_language_fusion_forward, TritonActionHead
 from .optimization import (
-    get_quantization_config,
     enable_gradient_checkpointing,
     get_peft_config,
 )
