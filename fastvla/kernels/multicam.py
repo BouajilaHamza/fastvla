@@ -127,7 +127,9 @@ def multi_cam_pack_forward(cams: torch.Tensor) -> torch.Tensor:
                         dtype=cams.dtype)
     
     # Launch kernel
-    grid = lambda _: (B, num_cams * C, H, W)
+    def grid(_):
+        return (B, num_cams * C, H, W)
+
     _multi_cam_pack_forward_kernel[grid](
         cams, output,
         B, C, H, W, 3,  # D=3 for RGB
@@ -149,7 +151,9 @@ def multi_cam_pack_backward(grad_output: torch.Tensor, num_cams: int) -> torch.T
                            dtype=grad_output.dtype)
     
     # Launch kernel
-    grid = lambda _: (B, num_cams * C, H, W)
+    def grid(_):
+        return (B, num_cams * C, H, W)
+
     _multi_cam_pack_backward_kernel[grid](
         grad_output, grad_cams,
         B, C, H, W, 3,  # D=3 for RGB
