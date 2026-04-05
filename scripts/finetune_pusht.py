@@ -42,7 +42,13 @@ def main():
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument(
-        "--output", type=str, default="finetune_real_corrected_results.json"
+        "--output", type=str, default="results/finetune_pusht_results.json"
+    )
+    parser.add_argument(
+        "--checkpoint_dir", type=str, default="checkpoints/vla-pusht"
+    )
+    parser.add_argument(
+        "--save_steps", type=int, default=200
     )
     args = parser.parse_args()
 
@@ -203,6 +209,13 @@ def main():
                 f"  Step {step + 1:4d} | Loss: {avg_loss:.4f} | Time: {dt * 1000:.0f}ms | VRAM: {torch.cuda.memory_allocated() / 1e9:.2f}GB"
             )
 
+        # 4.1 Checkpointing
+        if (step + 1) % args.save_steps == 0:
+            checkpoint_path = f"{args.checkpoint_dir}/step-{step+1}"
+            print(f"  Saving checkpoint to {checkpoint_path}...")
+            model.save_pretrained(checkpoint_path)
+            tokenizer.save_pretrained(checkpoint_path)
+
     # 5. Save Results
     print("\nTraining Complete!")
     results = {
@@ -216,6 +229,12 @@ def main():
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Results saved to {args.output}")
+
+    # 6. Final Save
+    final_path = f"{args.checkpoint_dir}/final"
+    print(f"Saving final model to {final_path}...")
+    model.save_pretrained(final_path)
+    tokenizer.save_pretrained(final_path)
 
 
 if __name__ == "__main__":
