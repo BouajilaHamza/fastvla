@@ -49,5 +49,7 @@ class TritonActionHead(nn.Module):
                 x, self.weight1, self.bias1, self.weight2, self.bias2
             )
         # Fallback for CPU (using the same logic for consistency)
+        # Ensure input dtype matches weight dtype for mixed precision compatibility
+        x = x.to(self.weight1.dtype)
         h = torch.nn.functional.relu(x @ self.weight1 + self.bias1)
         return torch.tanh(h @ self.weight2 + self.bias2)
