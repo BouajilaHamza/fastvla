@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import h5py
 import torch
 from torch.utils.data import Dataset
@@ -140,18 +140,58 @@ class FrankaKitchenDataset(RoboticsDataset):
         return data
 
 
+class LeRobotDataset(RoboticsDataset):
+    """Dataset wrapper for LeRobot format datasets on HuggingFace."""
+    
+    def _load_data(self):
+        """Load dataset from HuggingFace."""
+        from datasets import load_dataset
+        print(f"📥 Loading dataset {self.data_path} from HuggingFace...")
+        
+        # Load the dataset (usually 'train' split)
+        hf_ds = load_dataset(self.data_path, split='train')
+        
+        data = []
+        # LeRobot PushT format mapping
+        for item in hf_ds:
+            data.append({
+                'rgb': item.get('observation.image', item.get('image')),
+                'state': item.get('observation.state', item.get('state', [])),
+                'action': item.get('action', []),
+                'instruction': item.get('instruction', 'push the block to the goal')
+            })
+            
+            # Limit for demo purposes if needed, but here we load all
+            if len(data) >= 1000: # Sufficient for a demo
+                break
+                
+        return data
+
+
 def get_dataset(
     dataset_name: str,
-    data_path: str,
+    data_path: Optional[str] = None,
     **kwargs
 ) -> RoboticsDataset:
     """Factory function to get the appropriate dataset."""
     dataset_map = {
         'libero': LIBERODataset,
         'franka_kitchen': FrankaKitchenDataset,
+        'pusht': LeRobotDataset,
+        'lerobot/pusht_image': LeRobotDataset,
     }
     
-    if dataset_name.lower() not in dataset_map:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
+    name_lower = dataset_name.lower()
     
-    return dataset_map[dataset_name.lower()](data_path, **kwargs)
+    # Auto-resolve path for HF datasets if not provided
+    if data_path is None:
+        if name_lower in ['pusht', 'lerobot/pusht_image']:
+            data_path = "lerobot/pusht_image"
+        else:
+            raise ValueError(f"data_path must be provided for {dataset_name}")
+            
+    if name_lower not in dataset_map:
+        # Fallback to LeRobot for unknown names (assumed to be HF repos)
+        return LeRobotDataset(dataset_name if data_path is None else data_path, **kwargs)
+    
+    return dataset_map[name_lower](data_path, **kwargs)
