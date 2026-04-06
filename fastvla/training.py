@@ -14,6 +14,7 @@ import json
 from .optimization import get_8bit_optimizer
 from .data.collator import UnslothVLACollator
 from .utils import get_device
+from accelerate import Accelerator
 
 
 class FastVLATrainer:
@@ -48,20 +49,12 @@ class FastVLATrainer:
         eval_steps: int = 500,
         logging_steps: int = 100,
     ):
-        self.device = device if device is not None else get_device()
+        # Prefer 'lr' over 'learning_rate' if both provided
+        self.learning_rate = lr if lr is not None else learning_rate
         
-        # ── Distributed Awareness ──────────────────────────────────────
-        # Only move if not distributed via accelerate (device_map="auto")
-        self.is_distributed = hasattr(model, "hf_device_map")
-        if not self.is_distributed:
-            self.model = model.to(self.device)
-        else:
-            self.model = model
-            # Use the first device of the map as our reference for logging/collating
-            # (though individual components will use their own devices)
-            self.device = next(iter(model.hf_device_map.values()))
-            if isinstance(self.device, int):
-                self.device = f"cuda:{self.device}"
+        # Handle dataset aliases
+        if train_dataset is None:
+            train_dataset = dataset
 
         # ── Auto-initialize Data Collator ──────────────────────────────
         if data_collator is None:
@@ -70,16 +63,26 @@ class FastVLATrainer:
                 data_collator = UnslothVLACollator(tokenizer=tokenizer)
             else:
                 print("⚠️ Warning: No tokenizer found on model. Using default collator.")
-        
-        # Prefer 'lr' over 'learning_rate' if both provided
-        self.learning_rate = lr if lr is not None else learning_rate
-        self.max_steps = max_steps
-        self.num_epochs = num_epochs
-        
-        # Handle dataset aliases
-        if train_dataset is None:
-            train_dataset = dataset
-            
+
+        # ── Initialize Accelerator ────────────────────────────────────
+        self.accelerator = Accelerator(
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            mixed_precision="fp16" if (use_mixed_precision and torch.cuda.is_available()) else "no",
+        )
+        self.device = self.accelerator.device
+
+        # Setup optimizer
+        if optimizer is None:
+            if use_8bit_optimizer:
+                optimizer = get_8bit_optimizer(model, learning_rate=self.learning_rate)
+            else:
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=self.learning_rate,
+                    weight_decay=0.01,
+                )
+        self.optimizer = optimizer
+
         # Auto-create dataloaders if datasets are provided
         if train_dataloader is None and train_dataset is not None:
             train_dataloader = DataLoader(
@@ -97,32 +100,39 @@ class FastVLATrainer:
                 collate_fn=data_collator
             )
 
-        self.train_dataloader = train_dataloader
-        self.eval_dataloader = eval_dataloader
+        # ── Prepare for Distributed Training ──────────────────────────
+        # Note: We don't prepare the model if it's already dispatched (device_map="auto")
+        if hasattr(model, "hf_device_map") or hasattr(model, "is_loaded_in_4bit"):
+            self.model = model
+        else:
+            self.model = self.accelerator.prepare(model)
+            
+        self.optimizer = self.accelerator.prepare(self.optimizer)
         
+        if train_dataloader is not None:
+            self.train_dataloader = self.accelerator.prepare(train_dataloader)
+        else:
+            self.train_dataloader = None
+        
+        if eval_dataloader is not None:
+            self.eval_dataloader = self.accelerator.prepare(eval_dataloader)
+        else:
+            self.eval_dataloader = None
+
+        if lr_scheduler is not None:
+            self.lr_scheduler = self.accelerator.prepare(lr_scheduler)
+        else:
+            self.lr_scheduler = None
+
         if self.train_dataloader is None:
-            raise ValueError("You must provide either 'train_dataloader' or 'train_dataset'.")
+             raise ValueError("You must provide either 'train_dataloader' or 'train_dataset'.")
+             
+        self.max_steps = max_steps
+        self.num_epochs = num_epochs
+        self.max_grad_norm = max_grad_norm 
+        self.gradient_accumulation_steps = gradient_accumulation_steps # Restore missing attribute
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Setup optimizer
-        if optimizer is None:
-            if use_8bit_optimizer:
-                self.optimizer = get_8bit_optimizer(model, learning_rate=self.learning_rate)
-            else:
-                self.optimizer = torch.optim.AdamW(
-                    model.parameters(),
-                    lr=self.learning_rate,
-                    weight_decay=0.01,
-                )
-        else:
-            self.optimizer = optimizer
-
-        self.lr_scheduler = lr_scheduler
-        # Mixed precision only meaningful on GPU
-        self.use_mixed_precision = use_mixed_precision and self.device == "cuda"
-        self.gradient_accumulation_steps = gradient_accumulation_steps
-        self.max_grad_norm = max_grad_norm
         self.save_steps = save_steps
         self.eval_steps = eval_steps
         self.logging_steps = logging_steps
@@ -132,12 +142,6 @@ class FastVLATrainer:
         self.epoch = 0
         self.training_history = []
 
-        # Setup mixed precision scaler (GPU only)
-        if self.use_mixed_precision:
-            self.scaler = torch.cuda.amp.GradScaler()
-        else:
-            self.scaler = None
-
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
 
@@ -146,16 +150,8 @@ class FastVLATrainer:
             for k, v in batch.items()
         }
 
-        # Forward pass
-        if self.use_mixed_precision:
-            with torch.cuda.amp.autocast():
-                action_preds, loss = self.model(
-                    pixel_values=batch["pixel_values"],
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch.get("attention_mask"),
-                    labels=batch.get("labels"),
-                )
-        else:
+        # Forward pass (Mixed precision handled by Accelerator)
+        with self.accelerator.accumulate(self.model):
             action_preds, loss = self.model(
                 pixel_values=batch["pixel_values"],
                 input_ids=batch["input_ids"],
@@ -163,28 +159,19 @@ class FastVLATrainer:
                 labels=batch.get("labels"),
             )
 
-        loss = loss / self.gradient_accumulation_steps
+            # Backward pass
+            self.accelerator.backward(loss)
 
-        # Backward pass
-        if self.use_mixed_precision:
-            self.scaler.scale(loss).backward()
-        else:
-            loss.backward()
-
-        # Gradient accumulation step
-        if (self.global_step + 1) % self.gradient_accumulation_steps == 0:
-            if self.use_mixed_precision:
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
+            # Step optimizer & scheduler
+            if self.accelerator.sync_gradients:
+                self.accelerator.clip_grad_norm_(
                     self.model.parameters(), self.max_grad_norm
                 )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.max_grad_norm
-                )
-                self.optimizer.step()
+            
+            self.optimizer.step()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+            self.optimizer.zero_grad()
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
@@ -284,7 +271,7 @@ class FastVLATrainer:
                 num_batches += 1
                 self.global_step += 1
 
-                if self.global_step % self.logging_steps == 0:
+                if self.accelerator.is_main_process and self.global_step % self.logging_steps == 0:
                     avg_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
                     progress_bar.set_postfix(
                         {
@@ -305,18 +292,20 @@ class FastVLATrainer:
                     and self.global_step % self.eval_steps == 0
                 ):
                     eval_metrics = self.evaluate()
-                    print(
-                        f"\nStep {self.global_step} - Eval Loss: {eval_metrics.get('eval_loss', 0.0):.4f}"
-                    )
-                    self.training_history[-1].update(eval_metrics)
+                    if self.accelerator.is_main_process:
+                        print(
+                            f"\nStep {self.global_step} - Eval Loss: {eval_metrics.get('eval_loss', 0.0):.4f}"
+                        )
+                        self.training_history[-1].update(eval_metrics)
 
-                if self.global_step % self.save_steps == 0:
+                if self.accelerator.is_main_process and self.global_step % self.save_steps == 0:
                     self.save_checkpoint()
 
                 if max_steps is not None and self.global_step >= max_steps:
                     break
 
-            self.save_checkpoint()
+            if self.accelerator.is_main_process:
+                self.save_checkpoint()
 
             if max_steps is not None and self.global_step >= max_steps:
                 break
