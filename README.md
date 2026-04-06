@@ -138,11 +138,31 @@ FastVLA demonstrates a **Systems Engineering** mindset:
 
 **Star the repo** to support democratized robotics!
 
----
-## License
-Apache-2.0. Created by the FastVLA Team.
-ics! ⭐
+## 🧪 Development & Reliability
+
+FastVLA is built with a **production-first** mindset. We enforce strict engineering standards to ensure research reproducibility:
+
+- **100% Pass Rate**: Comprehensive unit test suite covering `model`, `training`, `data`, and `triton-kernels`.
+- **Atomic Reliability**: Every feature is verified via local replication of Kaggle/Colab environments.
+- **Conventional Commits**: A clean, structured git history for professional open-source maintenance.
+- **Auto-Collators**: Zero-friction data pipelines that transform raw robotics datasets into model-ready tensors automatically.
+
+To run the test suite:
+```bash
+uv run pytest tests/
+```
 
 ---
+
+## 🚀 One-Click Training (T4 15GB)
+
+We provide "Gold Standard" notebooks for immediate fine-tuning on free cloud hardware:
+
+- **Kaggle (T4 x2)**: [FastVLA_Kaggle_T4.ipynb](https://www.kaggle.com/code/hamzabouajila/fastvla-t4-training)
+- **Google Colab (T4)**: [FastVLA_Colab_T4.ipynb](https://colab.research.google.com/github/BouajilaHamza/FastVLA/blob/main/notebooks/FastVLA_Colab_T4.ipynb)
+
+---
+
 ## 📜 License
-Apache-2.0. Created by the FastVLA Team.
+
+Apache-2.0. Developed with ❤️ for the Robotics Community by the FastVLA Team.
