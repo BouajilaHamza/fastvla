@@ -174,6 +174,9 @@ class FastVLAModel(PreTrainedModel):
                 num_layers=config.llm_num_layers,
                 vocab_size=config.vocab_size,
             )
+            # Add a placeholder tokenizer for dummy mode to avoid collator failures
+            self._tokenizer = AutoTokenizer.from_pretrained("gpt2")
+            self._tokenizer.pad_token = self._tokenizer.eos_token
         else:
             self.llm = self._load_language_model(config)
 

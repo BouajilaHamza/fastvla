@@ -12,6 +12,7 @@ from tqdm import tqdm
 from pathlib import Path
 import json
 from .optimization import get_8bit_optimizer
+from .data.collator import UnslothVLACollator
 from .utils import get_device
 
 
@@ -49,6 +50,14 @@ class FastVLATrainer:
     ):
         self.device = device if device is not None else get_device()
         self.model = model.to(self.device)
+
+        # ── Auto-initialize Data Collator ──────────────────────────────
+        if data_collator is None:
+            tokenizer = getattr(model, "tokenizer", None)
+            if tokenizer is not None:
+                data_collator = UnslothVLACollator(tokenizer=tokenizer)
+            else:
+                print("⚠️ Warning: No tokenizer found on model. Using default collator.")
         
         # Prefer 'lr' over 'learning_rate' if both provided
         self.learning_rate = lr if lr is not None else learning_rate
