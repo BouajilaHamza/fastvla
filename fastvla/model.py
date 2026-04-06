@@ -227,10 +227,12 @@ class FastVLAModel(PreTrainedModel):
             except Exception:
                 pass
 
+        device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
+        
         return ViTModel.from_pretrained(
             config.vision_encoder_name,
             torch_dtype=torch.float16 if config.load_in_4bit else torch.float32,
-            device_map="auto" if get_device() == "cuda" else None,
+            device_map=device_map,
         )
 
     def _load_language_model(self, config):
@@ -259,11 +261,13 @@ class FastVLAModel(PreTrainedModel):
             except Exception:
                 pass
 
+        device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
+        
         # Standard HuggingFace fallback
         llm = AutoModelForCausalLM.from_pretrained(
             config.llm_name,
             torch_dtype=torch.float16 if config.load_in_4bit else torch.float32,
-            device_map="auto" if get_device() == "cuda" else None,
+            device_map=device_map,
         )
         self._tokenizer = AutoTokenizer.from_pretrained(
             config.llm_name,
@@ -413,6 +417,7 @@ class FastVLAModel(PreTrainedModel):
                 gradient_checkpointing=gradient_checkpointing,
                 hf_token=token,
                 dummy=dummy,
+                device_map=device_map,
                 **kwargs,
             )
 
