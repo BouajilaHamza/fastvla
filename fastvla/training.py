@@ -7,7 +7,7 @@ CPU/GPU auto-selected.
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from tqdm import tqdm
 from pathlib import Path
 import json
@@ -24,8 +24,13 @@ class FastVLATrainer:
     def __init__(
         self,
         model: nn.Module,
-        train_dataloader: DataLoader,
+        train_dataloader: Optional[DataLoader] = None,
         eval_dataloader: Optional[DataLoader] = None,
+        train_dataset: Optional[torch.utils.data.Dataset] = None,
+        eval_dataset: Optional[torch.utils.data.Dataset] = None,
+        dataset: Optional[torch.utils.data.Dataset] = None, # Alias for train_dataset
+        data_collator: Optional[Any] = None,
+        batch_size: int = 1,
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         use_8bit_optimizer: bool = True,
@@ -40,8 +45,33 @@ class FastVLATrainer:
     ):
         self.device = device if device is not None else get_device()
         self.model = model.to(self.device)
+        
+        # Handle dataset aliases
+        if train_dataset is None:
+            train_dataset = dataset
+            
+        # Auto-create dataloaders if datasets are provided
+        if train_dataloader is None and train_dataset is not None:
+            train_dataloader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                collate_fn=data_collator
+            )
+        
+        if eval_dataloader is None and eval_dataset is not None:
+            eval_dataloader = DataLoader(
+                eval_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                collate_fn=data_collator
+            )
+
         self.train_dataloader = train_dataloader
         self.eval_dataloader = eval_dataloader
+        
+        if self.train_dataloader is None:
+            raise ValueError("You must provide either 'train_dataloader' or 'train_dataset'.")
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
