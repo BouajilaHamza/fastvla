@@ -180,6 +180,19 @@ class FastVLAModel(PreTrainedModel):
         else:
             self.llm = self._load_language_model(config)
 
+        # ── Synchronize hidden sizes (Auto-detect) ────────────────────
+        if not config.dummy:
+            # Update config with actual loaded hidden sizes
+            if hasattr(self.vision_encoder.config, "hidden_size"):
+                config.vision_hidden_size = self.vision_encoder.config.hidden_size
+            elif hasattr(self.vision_encoder.config, "projection_dim"):
+                config.vision_hidden_size = self.vision_encoder.config.projection_dim
+                
+            if hasattr(self.llm.config, "hidden_size"):
+                config.llm_hidden_size = self.llm.config.hidden_size
+            elif hasattr(self.llm.config, "word_embed_proj_dim"):
+                config.llm_hidden_size = self.llm.config.word_embed_proj_dim
+
         # ── Action head ───────────────────────────────────────────────
         self.action_head = TritonActionHead(
             config.llm_hidden_size,
