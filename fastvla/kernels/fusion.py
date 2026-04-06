@@ -171,8 +171,23 @@ class _FusionAutograd(torch.autograd.Function):
 def vision_language_fusion_forward(
     visual: torch.Tensor, text: torch.Tensor
 ) -> torch.Tensor:
-    """Fusion forward with autograd support."""
-    return _FusionAutograd.apply(visual, text)
+    """Fusion forward with autograd support and robust fallback."""
+    # 1. Normalize dtypes (Zero-copy if already matched)
+    if visual.dtype != text.dtype:
+        visual = visual.to(text.dtype)
+
+    try:
+        if visual.is_cuda and text.is_cuda:
+            return _FusionAutograd.apply(visual, text)
+        else:
+            # Fallback to PyTorch/CPU implementation
+            from .cpu_fallbacks import vision_language_fusion_cpu
+            return vision_language_fusion_cpu(visual, text)
+    except Exception as e:
+        # ⚠️ Fail-soft: Fallback to native PyTorch implementation
+        print(f"⚠️ Warning: Triton Fusion Kernel failed ({e}). Falling back to torch.add.")
+        from .cpu_fallbacks import vision_language_fusion_cpu
+        return vision_language_fusion_cpu(visual, text)
 
 
 def vision_language_fusion_backward(grad_out, visual, text):

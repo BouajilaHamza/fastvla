@@ -105,44 +105,57 @@ def action_decode_forward(
     weight2: torch.Tensor,
     bias2: torch.Tensor,
 ) -> torch.Tensor:
-    """Forward pass using optimized Triton kernel."""
+    """Forward pass using optimized Triton kernel with robust fallback."""
     B, D = hidden.shape
     D_chk, H = weight1.shape
     H_chk, A = weight2.shape
     assert D == D_chk and H == H_chk
 
-    out = torch.empty(B, A, device=hidden.device, dtype=hidden.dtype)
+    # 1. Normalize dtypes (Zero-copy if already matched)
+    dtype = hidden.dtype
+    if weight1.dtype != dtype: weight1 = weight1.to(dtype)
+    if bias1.dtype != dtype: bias1 = bias1.to(dtype)
+    if weight2.dtype != dtype: weight2 = weight2.to(dtype)
+    if bias2.dtype != dtype: bias2 = bias2.to(dtype)
 
-    BLOCK_B = 16
-    BLOCK_H = 256  # Fixed block size to avoid shared memory limits on T4
-    BLOCK_A = 32 if A > 16 else 16
+    try:
+        out = torch.empty(B, A, device=hidden.device, dtype=hidden.dtype)
 
-    grid = (triton.cdiv(B, BLOCK_B), triton.cdiv(A, BLOCK_A))
+        BLOCK_B = 16
+        BLOCK_H = 256  # Fixed block size to avoid shared memory limits on T4
+        BLOCK_A = 32 if A > 16 else 16
 
-    _action_fwd_kernel[grid](
-        hidden,
-        weight1,
-        bias1,
-        weight2,
-        bias2,
-        out,
-        B,
-        D,
-        H,
-        A,
-        hidden.stride(0),
-        hidden.stride(1),
-        weight1.stride(0),
-        weight1.stride(1),
-        weight2.stride(0),
-        weight2.stride(1),
-        out.stride(0),
-        out.stride(1),
-        BLOCK_B=BLOCK_B,
-        BLOCK_H=BLOCK_H,
-        BLOCK_A=BLOCK_A,
-    )
-    return out
+        grid = (triton.cdiv(B, BLOCK_B), triton.cdiv(A, BLOCK_A))
+
+        _action_fwd_kernel[grid](
+            hidden,
+            weight1,
+            bias1,
+            weight2,
+            bias2,
+            out,
+            B,
+            D,
+            H,
+            A,
+            hidden.stride(0),
+            hidden.stride(1),
+            weight1.stride(0),
+            weight1.stride(1),
+            weight2.stride(0),
+            weight2.stride(1),
+            out.stride(0),
+            out.stride(1),
+            BLOCK_B=BLOCK_B,
+            BLOCK_H=BLOCK_H,
+            BLOCK_A=BLOCK_A,
+        )
+        return out
+    except Exception as e:
+        # ⚠️ Fail-soft: Fallback to high-performance PyTorch implementation
+        print(f"⚠️ Warning: Triton Action Kernel failed ({e}). Falling back to torch.linear.")
+        from .cpu_fallbacks import action_decode_cpu
+        return action_decode_cpu(hidden, weight1, bias1, weight2, bias2)
 
 
 def action_decode_backward(grad_output, hidden, weight1, bias1, weight2, bias2):
