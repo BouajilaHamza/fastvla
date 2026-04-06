@@ -62,7 +62,7 @@ def get_8bit_optimizer(model: nn.Module, learning_rate: float = 5e-5):
         }
     ]
 
-    if BNB_AVAILABLE:
+    if BNB_AVAILABLE and torch.cuda.is_available():
         optimizer = bnb.optim.AdamW8bit(
             param_groups,
             lr=learning_rate,

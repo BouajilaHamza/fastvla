@@ -49,7 +49,19 @@ class FastVLATrainer:
         logging_steps: int = 100,
     ):
         self.device = device if device is not None else get_device()
-        self.model = model.to(self.device)
+        
+        # ── Distributed Awareness ──────────────────────────────────────
+        # Only move if not distributed via accelerate (device_map="auto")
+        self.is_distributed = hasattr(model, "hf_device_map")
+        if not self.is_distributed:
+            self.model = model.to(self.device)
+        else:
+            self.model = model
+            # Use the first device of the map as our reference for logging/collating
+            # (though individual components will use their own devices)
+            self.device = next(iter(model.hf_device_map.values()))
+            if isinstance(self.device, int):
+                self.device = f"cuda:{self.device}"
 
         # ── Auto-initialize Data Collator ──────────────────────────────
         if data_collator is None:
