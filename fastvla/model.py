@@ -307,8 +307,9 @@ class FastVLAModel(PreTrainedModel):
 
         # ── Encode each camera view ───────────────────────────────────
         visual_features = []
+        vision_device = next(self.vision_encoder.parameters()).device
         for cam_idx in range(num_cameras):
-            cam_images = pixel_values[:, cam_idx]  # [B, C, H, W]
+            cam_images = pixel_values[:, cam_idx].to(vision_device)
             vision_out = self.vision_encoder(pixel_values=cam_images, return_dict=True)
             cam_feats = self.vision_proj(vision_out.last_hidden_state)
             visual_features.append(cam_feats)
@@ -317,7 +318,8 @@ class FastVLAModel(PreTrainedModel):
         visual_features = torch.stack(visual_features, dim=0).mean(dim=0)
 
         # ── Text embeddings ───────────────────────────────────────────
-        text_embeds = self.llm.get_input_embeddings()(input_ids)
+        llm_device = next(self.llm.parameters()).device
+        text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
 
         # ── Fuse visual + text ────────────────────────────────────────
         if visual_features.size(1) != text_embeds.size(1):
@@ -402,6 +404,7 @@ class FastVLAModel(PreTrainedModel):
                 gradient_checkpointing=gradient_checkpointing,
                 hf_token=token,
                 dummy=dummy,
+                **kwargs,
             )
 
         model = cls(config)
