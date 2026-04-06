@@ -31,6 +31,10 @@ class FastVLATrainer:
         dataset: Optional[torch.utils.data.Dataset] = None, # Alias for train_dataset
         data_collator: Optional[Any] = None,
         batch_size: int = 1,
+        lr: Optional[float] = None,
+        learning_rate: float = 5e-5,
+        max_steps: Optional[int] = None,
+        num_epochs: int = 1,
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         use_8bit_optimizer: bool = True,
@@ -45,6 +49,11 @@ class FastVLATrainer:
     ):
         self.device = device if device is not None else get_device()
         self.model = model.to(self.device)
+        
+        # Prefer 'lr' over 'learning_rate' if both provided
+        self.learning_rate = lr if lr is not None else learning_rate
+        self.max_steps = max_steps
+        self.num_epochs = num_epochs
         
         # Handle dataset aliases
         if train_dataset is None:
@@ -78,11 +87,11 @@ class FastVLATrainer:
         # Setup optimizer
         if optimizer is None:
             if use_8bit_optimizer:
-                self.optimizer = get_8bit_optimizer(model, learning_rate=5e-5)
+                self.optimizer = get_8bit_optimizer(model, learning_rate=self.learning_rate)
             else:
                 self.optimizer = torch.optim.AdamW(
                     model.parameters(),
-                    lr=5e-5,
+                    lr=self.learning_rate,
                     weight_decay=0.01,
                 )
         else:
@@ -226,8 +235,18 @@ class FastVLATrainer:
 
         print(f"Checkpoint saved to {checkpoint_dir}")
 
-    def train(self, num_epochs: int = 1, max_steps: Optional[int] = None):
+    def train(
+        self,
+        num_epochs: Optional[int] = None,
+        max_steps: Optional[int] = None,
+    ):
         self.model.train()
+        
+        # Priority: method argument > __init__ attribute > default (1 for epochs)
+        if num_epochs is None:
+            num_epochs = self.num_epochs if self.num_epochs is not None else 1
+        if max_steps is None:
+            max_steps = self.max_steps
 
         for epoch in range(num_epochs):
             self.epoch = epoch
