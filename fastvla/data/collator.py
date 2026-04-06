@@ -101,5 +101,26 @@ class UnslothVLACollator:
             )
             batch["input_ids"] = text_inputs["input_ids"]
             batch["attention_mask"] = text_inputs["attention_mask"]
+        else:
+            # Provide default empty text input if instructions are missing
+            # This prevents model crashes when text data is missing
+            if hasattr(self.tokenizer, 'pad_token_id'):
+                batch["input_ids"] = torch.full(
+                    (len(features), 1),
+                    fill_value=self.tokenizer.pad_token_id,
+                    dtype=torch.long
+                )
+            else:
+                batch["input_ids"] = torch.zeros((len(features), 1), dtype=torch.long)
+            batch["attention_mask"] = torch.ones((len(features), 1), dtype=torch.long)
+
+        # Validate required keys exist
+        required_keys = ["pixel_values", "input_ids", "labels"]
+        missing_keys = [k for k in required_keys if k not in batch]
+        if missing_keys:
+            raise ValueError(
+                f"Batch is missing required keys: {missing_keys}. "
+                f"Ensure your dataset provides images, instructions (text), and actions."
+            )
 
         return batch

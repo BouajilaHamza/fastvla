@@ -375,9 +375,10 @@ class FastVLAModel(PreTrainedModel):
         last_hidden = outputs.hidden_states[-1]
         pooled = last_hidden.mean(dim=1)
 
-        # Ensure action head receives input on its correct device
+        # Ensure action head receives input on its correct device AND dtype
         head_device = next(self.action_head.parameters()).device
-        action_preds = self.action_head(pooled.to(head_device))
+        head_dtype = next(self.action_head.parameters()).dtype
+        action_preds = self.action_head(pooled.to(device=head_device, dtype=head_dtype))
 
         # ── Loss ──────────────────────────────────────────────────────
         loss = None

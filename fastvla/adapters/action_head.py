@@ -55,6 +55,8 @@ class DiscreteActionHead(BaseActionHead):
         Returns:
             actions: [B, action_dim] (discrete actions in [0, 1])
         """
+        # Ensure input dtype matches layer weights dtype for mixed precision compatibility
+        hidden_states = hidden_states.to(self.fc1.weight.dtype)
         h = F.relu(self.fc1(hidden_states))
         logits = self.fc2(h)  # [B, action_dim * num_bins]
         logits = logits.view(-1, self.action_dim, self.num_bins)
@@ -101,6 +103,8 @@ class ContinuousActionHead(BaseActionHead):
         if self.triton_head is not None:
             return self.triton_head(hidden_states)
 
+        # Ensure input dtype matches layer weights dtype for mixed precision compatibility
+        hidden_states = hidden_states.to(self.fc1.weight.dtype)
         h = F.relu(self.fc1(hidden_states))
         return torch.tanh(self.fc2(h))
 
@@ -125,6 +129,8 @@ class FlowMatchingActionHead(BaseActionHead):
         self.fc2 = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # Ensure input dtype matches layer weights dtype for mixed precision compatibility
+        hidden_states = hidden_states.to(self.fc1.weight.dtype)
         h = F.relu(self.fc1(hidden_states))
         return torch.tanh(self.fc2(h))
 

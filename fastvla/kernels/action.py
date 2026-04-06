@@ -163,6 +163,13 @@ def action_decode_backward(grad_output, hidden, weight1, bias1, weight2, bias2):
     Custom autograd-compatible backward.
     Optimized for robotics action dimensions with gradient checkpointing.
     """
+    # Normalize dtypes for all inputs to prevent mixed precision issues
+    dtype = hidden.dtype
+    if weight1.dtype != dtype: weight1 = weight1.to(dtype)
+    if bias1.dtype != dtype: bias1 = bias1.to(dtype)
+    if weight2.dtype != dtype: weight2 = weight2.to(dtype)
+    if bias2.dtype != dtype: bias2 = bias2.to(dtype)
+
     # Recompute intermediate hidden state (Gradient Checkpointing)
     # This avoids storing h1 during the forward pass of the model.
     h1 = torch.nn.functional.relu(hidden @ weight1 + bias1)
