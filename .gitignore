@@ -38,7 +38,7 @@ uv.lock
 checkpoints/
 mvp_checkpoints/
 results/
-data/
+/data/
 *.json
 *.parquet
 *.pt
