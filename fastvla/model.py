@@ -308,20 +308,26 @@ class FastVLAModel(PreTrainedModel):
         # ── Encode each camera view ───────────────────────────────────
         visual_features = []
         vision_device = next(self.vision_encoder.parameters()).device
+        proj_device = next(self.vision_proj.parameters()).device
+        
         for cam_idx in range(num_cameras):
+            # Move inputs to vision device (usually first GPU)
             cam_images = pixel_values[:, cam_idx].to(vision_device)
             vision_out = self.vision_encoder(pixel_values=cam_images, return_dict=True)
-            cam_feats = self.vision_proj(vision_out.last_hidden_state)
+            
+            # Project onto LLM space (move outputs to projector device)
+            cam_feats = self.vision_proj(vision_out.last_hidden_state.to(proj_device))
             visual_features.append(cam_feats)
 
-        # Average across cameras
-        visual_features = torch.stack(visual_features, dim=0).mean(dim=0)
+        # Average across cameras (move stack to common device)
+        visual_features = torch.stack(visual_features, dim=0).to(proj_device).mean(dim=0)
 
         # ── Text embeddings ───────────────────────────────────────────
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
 
         # ── Fuse visual + text ────────────────────────────────────────
+        visual_features = visual_features.to(llm_device)
         if visual_features.size(1) != text_embeds.size(1):
             visual_features = visual_features.mean(dim=1, keepdim=True)
             visual_features = visual_features.expand(-1, text_embeds.size(1), -1)
@@ -350,12 +356,15 @@ class FastVLAModel(PreTrainedModel):
         # ── Pool & predict action ─────────────────────────────────────
         last_hidden = outputs.hidden_states[-1]
         pooled = last_hidden.mean(dim=1)
-        action_preds = self.action_head(pooled)
+        
+        # Ensure action head receives input on its correct device
+        head_device = next(self.action_head.parameters()).device
+        action_preds = self.action_head(pooled.to(head_device))
 
         # ── Loss ──────────────────────────────────────────────────────
         loss = None
         if labels is not None:
-            loss = nn.MSELoss()(action_preds, labels)
+            loss = nn.MSELoss()(action_preds, labels.to(head_device))
 
         return action_preds, loss
 
