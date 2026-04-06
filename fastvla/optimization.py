@@ -85,19 +85,31 @@ def get_8bit_optimizer(model: nn.Module, learning_rate: float = 5e-5):
 def enable_gradient_checkpointing(model: nn.Module):
     """
     Enable gradient checkpointing for memory efficiency.
-
-    Args:
-        model: The model to enable gradient checkpointing for
+    Handles delegation to submodules like LLM and Vision Encoder.
     """
-    if hasattr(model, "gradient_checkpointing_enable"):
-        model.gradient_checkpointing_enable()
-    elif hasattr(model, "enable_gradient_checkpointing"):
-        model.enable_gradient_checkpointing()
+    # ── Attempt to enable on root model once ──────────────────────────
+    try:
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable()
+        elif hasattr(model, "enable_gradient_checkpointing"):
+            model.enable_gradient_checkpointing()
+    except (ValueError, TypeError):
+        # Fallback if the class claims support but fails on submodules
+        pass
 
-    # Recursively enable for submodules
+    # ── Explicitly enable for critical submodules ─────────────────────
     for module in model.modules():
-        if hasattr(module, "gradient_checkpointing_enable"):
-            module.gradient_checkpointing_enable()
+        if module is model:
+            continue
+            
+        for method_name in ["gradient_checkpointing_enable", "enable_gradient_checkpointing"]:
+            if hasattr(module, method_name):
+                try:
+                    if hasattr(module, "supports_gradient_checkpointing") and not module.supports_gradient_checkpointing:
+                        continue
+                    getattr(module, method_name)()
+                except Exception:
+                    pass
 
 
 def setup_mixed_precision_training():

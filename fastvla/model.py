@@ -150,6 +150,7 @@ class FastVLAModel(PreTrainedModel):
     """
 
     config_class = FastVLAConfig
+    supports_gradient_checkpointing = True
 
     def __init__(self, config: FastVLAConfig):
         super().__init__(config)
