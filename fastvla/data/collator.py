@@ -17,6 +17,7 @@ class UnslothVLACollator:
     max_length: int = 512
     padding: Union[bool, str] = True
     return_tensors: str = "pt"
+    action_dim: int = 7  # Expected action dimension for validation
 
     def __call__(self, features: List[Dict[str, any]]) -> Dict[str, torch.Tensor]:
         """
@@ -58,8 +59,33 @@ class UnslothVLACollator:
 
         # ── Handle actions (used as labels) ──────────────────────────
         if "actions" in features[0]:
-            actions = [torch.as_tensor(f["actions"]) for f in features]
+            actions = []
+            for f in features:
+                action_tensor = torch.as_tensor(f["actions"])
+                # Validate action dimension
+                if action_tensor.dim() == 0:
+                    # Scalar action, reshape to [1]
+                    action_tensor = action_tensor.unsqueeze(0)
+                actions.append(action_tensor)
+            
             batch["labels"] = torch.stack(actions)
+            
+            # Validate action dimensions are consistent
+            action_shapes = [a.shape for a in actions]
+            if len(set(action_shapes)) > 1:
+                raise ValueError(
+                    f"Inconsistent action dimensions in batch: {action_shapes}. "
+                    f"All actions must have the same dimension. Expected {self.action_dim}."
+                )
+            
+            # Check if action dimension matches expected
+            if actions[0].shape[-1] != self.action_dim:
+                print(
+                    f"⚠️ Warning: Action dimension mismatch. "
+                    f"Expected {self.action_dim}, got {actions[0].shape[-1]}. "
+                    f"Updating action_dim to {actions[0].shape[-1]}."
+                )
+                self.action_dim = actions[0].shape[-1]
 
         # ── Handle text instructions ────────────────────────────────
         if "instructions" in features[0]:
