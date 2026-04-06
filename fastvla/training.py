@@ -60,14 +60,28 @@ class FastVLATrainer:
         if data_collator is None:
             tokenizer = getattr(model, "tokenizer", None)
             if tokenizer is not None:
-                data_collator = UnslothVLACollator(tokenizer=tokenizer)
+                # Get action_dim from model config if available
+                action_dim = getattr(model.config, "action_dim", 7)
+                data_collator = UnslothVLACollator(
+                    tokenizer=tokenizer,
+                    action_dim=action_dim
+                )
             else:
                 print("⚠️ Warning: No tokenizer found on model. Using default collator.")
 
         # ── Initialize Accelerator ────────────────────────────────────
+        # Handle mixed precision based on availability
+        mixed_precision = "no"
+        if use_mixed_precision:
+            if torch.cuda.is_available():
+                # Use fp16 for T4 GPUs, bf16 for newer GPUs
+                mixed_precision = "fp16"
+            else:
+                mixed_precision = "no"
+
         self.accelerator = Accelerator(
             gradient_accumulation_steps=gradient_accumulation_steps,
-            mixed_precision="fp16" if (use_mixed_precision and torch.cuda.is_available()) else "no",
+            mixed_precision=mixed_precision,
         )
         self.device = self.accelerator.device
 
@@ -145,11 +159,6 @@ class FastVLATrainer:
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
 
-        batch = {
-            k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-            for k, v in batch.items()
-        }
-
         # Forward pass (Mixed precision handled by Accelerator)
         with self.accelerator.accumulate(self.model):
             action_preds, loss = self.model(
@@ -162,24 +171,18 @@ class FastVLATrainer:
             # Backward pass
             self.accelerator.backward(loss)
 
-            # Step optimizer & scheduler
+            # Step optimizer & scheduler only when gradients are synchronized
             if self.accelerator.sync_gradients:
                 self.accelerator.clip_grad_norm_(
                     self.model.parameters(), self.max_grad_norm
                 )
-            
-            self.optimizer.step()
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
-            self.optimizer.zero_grad()
-
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
-
-            self.optimizer.zero_grad()
+                self.optimizer.step()
+                if self.lr_scheduler is not None:
+                    self.lr_scheduler.step()
+                self.optimizer.zero_grad()
 
         return {
-            "loss": loss.item() * self.gradient_accumulation_steps,
+            "loss": loss.item(),
             "learning_rate": self.optimizer.param_groups[0]["lr"],
         }
 
@@ -193,11 +196,6 @@ class FastVLATrainer:
 
         with torch.no_grad():
             for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
-                batch = {
-                    k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                    for k, v in batch.items()
-                }
-
                 action_preds, loss = self.model(
                     pixel_values=batch["pixel_values"],
                     input_ids=batch["input_ids"],
