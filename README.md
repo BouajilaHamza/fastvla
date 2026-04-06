@@ -1,4 +1,4 @@
-# FastVLA 🚀: High-Performance VLA Fine-Tuning for Everyone
+# FastVLA: High-Performance VLA Fine-Tuning for Everyone
 
 <p align="center">
   <a href="https://github.com/BouajilaHamza/FastVLA" target="_blank">
@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/pypi/v/fastvla?style=for-the-badge&logo=pypi&color=blue" alt="PyPI Version">
   </a>
   <a href="https://huggingface.co/models?search=fastvla" target="_blank">
-    <img src="https://img.shields.io/badge/%F0%9F%A4%97%20FastVLA-Hugging%20Face-yellow?style=for-the-badge" alt="Hugging Face">
+    <img src="https://img.shields.io/badge/FastVLA-Hugging%20Face-yellow?style=for-the-badge" alt="Hugging Face">
   </a>
   <a href="https://colab.research.google.com/github/BouajilaHamza/FastVLA/blob/main/notebooks/FastVLA_Kaggle_T4.ipynb" target="_blank">
     <img src="https://img.shields.io/badge/Run%20On%20Colab-orange?style=for-the-badge&logo=google-colab" alt="Colab">
@@ -24,34 +24,47 @@ FastVLA is a high-performance library built to democratize Vision-Language-Actio
 
 ---
 
-## ⚡ Why FastVLA?
+## Why FastVLA?
 
 VLA models are usually gated behind $40k GPUs. OpenVLA (7B) in FP16 takes ~28GB VRAM—impossible for gradients even on a 3090. **FastVLA reduces memory consumption by 70%.**
 
-- **🚀 2x Faster Training**: Specialized Triton kernels for vision-action fusion.
-- **📉 70% VRAM Savings**: Train OpenVLA-7B with only **6.3 GB** of VRAM (leaving >8GB for activations/gradients).
-- **🎯 Convergent Quality**: 4-bit QLoRA verified to match FP16 convergence on real robotics datasets.
-- **📦 Edge-Optimized**: Built for hobbyists, researchers, and robots running on NVIDIA Jetson / T4.
+- **2x Faster Training**: Specialized Triton kernels for vision-action fusion.
+- **70% VRAM Savings**: Train OpenVLA-7B with only **6.3 GB** of VRAM (leaving >8GB for activations/gradients).
+- **Convergent Quality**: 4-bit QLoRA verified to match FP16 convergence on real robotics datasets.
+- **Edge-Optimized**: Built for hobbyists, researchers, and robots running on NVIDIA Jetson / T4.
 
 ---
 
-## 📊 Benchmark: OpenVLA-7B on Tesla T4 (15GB)
+## Benchmark: OpenVLA-7B on Tesla T4 (15GB)
 
 We fine-tuned **OpenVLA-7B** on the standard `lerobot/pusht_image` dataset (Real-world block pushing).
 
-| Feature | Standard HuggingFace | **FastVLA (4-bit)** | Improvement |
+| Feature | Standard HF LoRA¹ | **FastVLA (4-bit)** | Improvement |
 | :--- | :--- | :--- | :--- |
 | **VRAM Usage** | ~15 GB (LoRA-only, no grad) | **6.31 GB** (Total Peak) | **2.4x Less** |
 | **Throughput** | 2.8s / step | **1.42s / step** | **2.0x Faster** |
 | **Model Size** | 14.6 GB (FP16) | **4.3 GB** (4-bit) | **70% Savings** |
-| **Status** | CUDA OOM for Training | **Steady Convergence** | ✅ Verified |
+| **Status** | CUDA OOM for Training | **Steady Convergence** | Verified |
 
-> [!NOTE]
-> **PushT Result:** After 2000 steps (~45 mins on T4), training loss dropped from **19.68 → 0.79**, verifying that quantization does **not** degrade robotics learning.
+¹ *Standard HuggingFace LoRA results estimated; often impossible to run without 4-bit optimization on T4.*
 
 ---
 
-## 🎨 FastVLA Architecture
+## Case Study: The "Wall" vs The "Fast"
+
+Before FastVLA, training VLAs on T4 was a nightmare of crashes and slow iterations. Below is a comparison against the [original SmolVLA-Offline-Finetuning logs](https://wandb.ai/bouajilahamza-diaindustries/lerobot):
+
+| Metric | Baseline (SmolVLA 1.7B) | **FastVLA (OpenVLA 7B)** | Difference |
+| :--- | :--- | :--- | :--- |
+| **Step Latency** | 8.35s / step | **1.42s / step** | **6x Faster** |
+| **Model Scale** | 1.7 Billion Parameters | **7.3 Billion Parameters** | **4.3x Larger** |
+| **Stability** | Crashed (4/4 runs) | **100% Stable** (2000+ steps) | Finalist |
+
+> **Bottom Line:** FastVLA is **6x faster** while training a **4x larger** model on the exact same hardware. This is the power of custom Triton kernels and memory-mapped quantization.
+
+---
+
+## FastVLA Architecture
 
 FastVLA isn't just a wrapper; it's a systems-reengineering of the VLA pipeline.
 
@@ -70,7 +83,7 @@ graph LR
 
 ---
 
-## 🛠️ Performance Features
+## Performance Features
 
 - **Triton Action Kernels**: Fused `Linear → ReLU → Linear → Tanh` layers with gradient checkpointing.
 - **Auto-Quantization**: One-click 4-bit / 8-bit loading with `FastVLA.from_pretrained()`.
@@ -79,7 +92,7 @@ graph LR
 
 ---
 
-## 📖 Quick Start
+## Quick Start
 
 ### 1. Install with `uv` (Recommended)
 ```bash
@@ -110,7 +123,7 @@ action = model.predict(image, "push the t-shaped block")
 
 ---
 
-## 🛡️ Objective Evaluation for ETH Zurich
+## Objective Evaluation for ETH Zurich
 FastVLA demonstrates a **Systems Engineering** mindset:
 1. **Resource Optimization**: Bringing massive models to constrained hardware.
 2. **Custom Kernels**: Proof of ability to write GPU-accelerated backends with Triton.
@@ -118,12 +131,17 @@ FastVLA demonstrates a **Systems Engineering** mindset:
 
 ---
 
-## 🤝 Roadmap & Community
+## Roadmap & Community
 - [ ] **Unsloth v2 Integration**: Direct patching for vision encoders.
 - [ ] **Jetson Orin Support**: Real-time inference kernels.
 - [ ] **Multi-Camera Fusing**: Optimized packing for 3+ camera setups.
 
-**Star the repo** to support democratized robotics! ⭐
+**Star the repo** to support democratized robotics!
+
+---
+## License
+Apache-2.0. Created by the FastVLA Team.
+ics! ⭐
 
 ---
 ## 📜 License

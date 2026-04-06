@@ -4,14 +4,18 @@ __version__ = "0.1.0"
 
 from .model import FastVLAModel
 from .config import FastVLAConfig
+from .registry import (
+    VLAModelRegistry,
+    register_model,
+    VLAModelConfig,
+    VisionEncoderConfig,
+    LLMConfig,
+    ActionHeadConfig,
+    ProjectorConfig,
+)
 from .utils import get_device
 from .data.collator import UnslothVLACollator
-from .data.datasets import (
-    get_dataset,
-    RoboticsDataset,
-    LIBERODataset,
-    FrankaKitchenDataset,
-)
+from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset
 from .training import FastVLATrainer
 from .optimization import (
     get_quantization_config,
@@ -26,6 +30,13 @@ from .benchmarking import PerformanceProfiler, compare_models, print_benchmark_r
 __all__ = [
     "FastVLAModel",
     "FastVLAConfig",
+    "VLAModelRegistry",
+    "register_model",
+    "VLAModelConfig",
+    "VisionEncoderConfig",
+    "LLMConfig",
+    "ActionHeadConfig",
+    "ProjectorConfig",
     "get_device",
     "UnslothVLACollator",
     "get_dataset",
