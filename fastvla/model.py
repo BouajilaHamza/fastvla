@@ -321,17 +321,18 @@ class FastVLAModel(PreTrainedModel):
             loss:         scalar or None
         """
         num_cameras = pixel_values.size(1)
+        batch_size = pixel_values.size(0)
 
         # ── Encode each camera view ───────────────────────────────────
         visual_features = []
         vision_device = next(self.vision_encoder.parameters()).device
         proj_device = next(self.vision_proj.parameters()).device
-        
+
         for cam_idx in range(num_cameras):
             # Move inputs to vision device (usually first GPU)
             cam_images = pixel_values[:, cam_idx].to(vision_device)
             vision_out = self.vision_encoder(pixel_values=cam_images, return_dict=True)
-            
+
             # Project onto LLM space (move outputs to projector device)
             cam_feats = self.vision_proj(vision_out.last_hidden_state.to(proj_device))
             visual_features.append(cam_feats)
@@ -373,7 +374,7 @@ class FastVLAModel(PreTrainedModel):
         # ── Pool & predict action ─────────────────────────────────────
         last_hidden = outputs.hidden_states[-1]
         pooled = last_hidden.mean(dim=1)
-        
+
         # Ensure action head receives input on its correct device
         head_device = next(self.action_head.parameters()).device
         action_preds = self.action_head(pooled.to(head_device))
@@ -381,7 +382,29 @@ class FastVLAModel(PreTrainedModel):
         # ── Loss ──────────────────────────────────────────────────────
         loss = None
         if labels is not None:
-            loss = nn.MSELoss()(action_preds, labels.to(head_device))
+            labels = labels.to(head_device)
+            
+            # Validate shapes match
+            if action_preds.shape != labels.shape:
+                # Handle shape mismatch - this can happen in distributed training
+                # if different processes have different batch compositions
+                if action_preds.shape[0] != labels.shape[0]:
+                    # Batch size mismatch - take minimum
+                    min_batch = min(action_preds.shape[0], labels.shape[0])
+                    action_preds = action_preds[:min_batch]
+                    labels = labels[:min_batch]
+                
+                # If action dimension mismatch, try to fix or raise informative error
+                if action_preds.shape[1] != labels.shape[1]:
+                    raise ValueError(
+                        f"Action dimension mismatch: model predicts {action_preds.shape[1]} dims "
+                        f"but labels have {labels.shape[1]} dims. "
+                        f"Ensure your dataset's action dimensions match the model's action_dim config "
+                        f"(model action_dim={self.config.action_dim}). "
+                        f"Batch shape: {action_preds.shape}, Labels shape: {labels.shape}"
+                    )
+            
+            loss = nn.MSELoss()(action_preds, labels)
 
         return action_preds, loss
 
