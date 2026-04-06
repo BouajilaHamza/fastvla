@@ -15,7 +15,7 @@ from .registry import (
 )
 from .utils import get_device
 from .data.collator import UnslothVLACollator
-from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset
+from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset, LeRobotDataset
 from .training import FastVLATrainer
 from .optimization import (
     get_quantization_config,
@@ -43,6 +43,7 @@ __all__ = [
     "RoboticsDataset",
     "LIBERODataset",
     "FrankaKitchenDataset",
+    "LeRobotDataset",
     "FastVLATrainer",
     "get_quantization_config",
     "get_8bit_optimizer",
