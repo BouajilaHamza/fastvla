@@ -7,8 +7,8 @@ Unsloth optimizations, dummy mode for testing, and CPU/GPU auto-selection.
 import torch
 import torch.nn as nn
 from typing import Optional
-from transformers import AutoTokenizer, PreTrainedModel
-from transformers import ViTModel, AutoModelForCausalLM
+from transformers import AutoTokenizer, PreTrainedModel, AutoModel
+from transformers import AutoModelForCausalLM
 
 from .config import FastVLAConfig
 from .kernels import vision_language_fusion_forward, TritonActionHead
@@ -302,13 +302,11 @@ class FastVLAModel(PreTrainedModel):
                       f"{' (4-bit QLoRA)' if config.load_in_4bit else ''}")
                 return encoder
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load vision encoder '{config.vision_encoder_name}' "
-                    f"via Unsloth: {e}"
-                ) from e
+                print(f"  ℹ Unsloth: Vision encoder '{config.vision_encoder_name}' failed to load via FastVisionModel: {e}")
+                print("    Falling back to standard HuggingFace loader...")
 
         # ── Path 2: HF + BitsAndBytes (4-bit without Unsloth) ─────────
-        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
+        if config.load_in_4bit:
             from .optimization import get_quantization_config, BNB_AVAILABLE
             if not BNB_AVAILABLE:
                 raise ImportError(
@@ -319,21 +317,23 @@ class FastVLAModel(PreTrainedModel):
                     "  3. Set load_in_4bit=False       (uses more VRAM)"
                 )
             bnb_config = get_quantization_config(load_in_4bit=True)
-            print("  ℹ Unsloth not available — using HF BitsAndBytes for 4-bit loading")
+            print("  ℹ Unsloth not available or failed — using HF BitsAndBytes for 4-bit loading")
             print("    (Install Unsloth for faster 4-bit inference: pip install unsloth)")
-            return ViTModel.from_pretrained(
+            return AutoModel.from_pretrained(
                 config.vision_encoder_name,
                 quantization_config=bnb_config,
                 device_map="auto",
+                token=config.hf_token,
             )
 
         # ── Path 3: Standard HF fallback (FP32) ──────────────────────
         device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
         print(f"  ℹ Loading vision encoder via HuggingFace (no Unsloth)")
-        return ViTModel.from_pretrained(
+        return AutoModel.from_pretrained(
             config.vision_encoder_name,
             torch_dtype=torch.float32,
             device_map=device_map,
+            token=config.hf_token,
         )
 
     def _load_language_model(self, config):
@@ -368,13 +368,11 @@ class FastVLAModel(PreTrainedModel):
                       f"{' (4-bit QLoRA)' if config.load_in_4bit else ''}")
                 return llm
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load language model '{config.llm_name}' "
-                    f"via Unsloth: {e}"
-                ) from e
+                print(f"  ℹ Unsloth: Language model '{config.llm_name}' failed to load via FastLanguageModel: {e}")
+                print("    Falling back to standard HuggingFace loader...")
 
         # ── Path 2: HF + BitsAndBytes (4-bit without Unsloth) ─────────
-        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
+        if config.load_in_4bit:
             from .optimization import get_quantization_config, BNB_AVAILABLE
             if not BNB_AVAILABLE:
                 raise ImportError(
@@ -385,7 +383,7 @@ class FastVLAModel(PreTrainedModel):
                     "  3. Set load_in_4bit=False       (uses more VRAM)"
                 )
             bnb_config = get_quantization_config(load_in_4bit=True)
-            print("  ℹ Unsloth not available — using HF BitsAndBytes for 4-bit loading")
+            print("  ℹ Unsloth not available or failed — using HF BitsAndBytes for 4-bit loading")
             print("    (Install Unsloth for faster 4-bit inference: pip install unsloth)")
             llm = AutoModelForCausalLM.from_pretrained(
                 config.llm_name,
@@ -420,10 +418,12 @@ class FastVLAModel(PreTrainedModel):
             config.llm_name,
             torch_dtype=torch.float32,
             device_map=device_map,
+            token=config.hf_token,
         )
         self._tokenizer = AutoTokenizer.from_pretrained(
             config.llm_name,
             padding_side="right",
+            token=config.hf_token,
         )
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
