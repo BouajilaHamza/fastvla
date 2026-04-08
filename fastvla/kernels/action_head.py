@@ -62,15 +62,14 @@ class TritonActionHead(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Fix dtype mismatch for mixed precision training
-        # Ensure input dtype matches weight dtype
-        target_dtype = self.weight1.dtype
-        if x.dtype != target_dtype:
-            x = x.to(target_dtype)
-        
+        # We ensure weights and biases match the input x's dtype
+        dtype = x.dtype
+        w1, b1 = self.weight1.to(dtype), self.bias1.to(dtype)
+        w2, b2 = self.weight2.to(dtype), self.bias2.to(dtype)
+
         if x.is_cuda:
-            return ActionDecodeFunction.apply(
-                x, self.weight1, self.bias1, self.weight2, self.bias2
-            )
-        # Fallback for CPU (using the same logic for consistency)
-        h = torch.nn.functional.relu(x @ self.weight1 + self.bias1)
-        return torch.tanh(h @ self.weight2 + self.bias2)
+            return ActionDecodeFunction.apply(x, w1, b1, w2, b2)
+        
+        # Fallback for CPU / No-Triton
+        h = torch.nn.functional.relu(x @ w1 + b1)
+        return torch.tanh(h @ w2 + b2)
