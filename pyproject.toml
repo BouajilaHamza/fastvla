@@ -1,6 +1,6 @@
 [project]
 name = "fastvla"
-version = "0.1.1"
+version = "0.1.2"
 description = "A high-performance Vision-Language-Action (VLA) model fine-tuning library optimized for Tesla T4 hardware."
 authors = [
     { name = "FastVLA Team", email = "hamza@fastvla.ai" }
@@ -18,10 +18,17 @@ dependencies = [
     "datasets>=2.16.0",
     "torchvision>=0.17.0",
     "timm>=0.9.12",
-    "typing-extensions>=4.10.0",
-    "wandb>=0.25.1",
-    "h5py>=3.16.0",
-    "pandas>=2.3.3",
+    "typing-extensions>=4.8.0",
+    "h5py>=3.10.0",
+    "pandas>=1.5.0",
+]
+
+[project.optional-dependencies]
+logging = [
+    "wandb>=0.16.0",
+]
+all = [
+    "fastvla[logging]",
 ]
 readme = "README.md"
 requires-python = ">=3.10"
