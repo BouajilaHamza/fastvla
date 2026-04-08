@@ -18,18 +18,17 @@ from accelerate import Accelerator
 
 
 def _detect_4bit_model(model: nn.Module) -> bool:
-    """Bulletproof 4-bit model detection.
+    """Reliable 4-bit model detection.
 
-    Checks all possible locations where the 4-bit flag might live, since
-    different loading paths (Unsloth, HF, wrapper) set it in different places.
-    This prevents the silent "Attempting to unscale FP16 gradients" error.
+    Checks explicit quantization flags only. Does NOT scan parameter dtypes
+    because standard FP16 models produce FP16 params without being quantized.
 
     Check order (first match wins):
     1. Wrapper flag: model.is_loaded_in_4bit
     2. Config flag: model.config.load_in_4bit
-    3. Submodule flags: model.llm.is_loaded_in_4bit, model.vision_encoder.is_loaded_in_4bit
-    4. HF quantizer: model.hf_quantizer or model.llm.hf_quantizer
-    5. Fallback: scan parameters for FP16 dtype (catches edge cases)
+    3. Submodule flags: model.llm.is_loaded_in_4bit, etc.
+    4. HF quantizer: model.hf_quantizer or submodule.hf_quantizer
+    5. BitsAndBytes quantization_config on config
     """
     # 1. Wrapper flag (set by FastVLAModel.__init__)
     if getattr(model, "is_loaded_in_4bit", False):
@@ -54,10 +53,11 @@ def _detect_4bit_model(model: nn.Module) -> bool:
     if getattr(model, "hf_quantizer", None) is not None:
         return True
 
-    # 5. Fallback: check if any parameters are FP16 (strong signal for 4-bit or mixed precision)
-    has_fp16_params = any(p.dtype == torch.float16 for p in model.parameters())
-    if has_fp16_params:
-        return True
+    # 5. BitsAndBytes quantization config (HF native 4-bit path)
+    if config is not None:
+        bnb_config = getattr(config, "quantization_config", None)
+        if bnb_config is not None and getattr(bnb_config, "load_in_4bit", False):
+            return True
 
     return False
 
@@ -121,8 +121,13 @@ class FastVLATrainer:
         mixed_precision = "no"
         if use_mixed_precision and not is_4bit_model:
             if torch.cuda.is_available():
-                # Use fp16 for T4 GPUs, bf16 for newer GPUs
-                mixed_precision = "fp16"
+                # Use bf16 for Ampere+ GPUs (compute capability >= 8.0),
+                # fp16 for older GPUs (T4, V100). bf16 avoids gradient
+                # overflow issues that plague fp16 on newer hardware.
+                if torch.cuda.get_device_capability()[0] >= 8:
+                    mixed_precision = "bf16"
+                else:
+                    mixed_precision = "fp16"
             else:
                 mixed_precision = "no"
 
@@ -174,8 +179,9 @@ class FastVLATrainer:
             )
 
         # ── Prepare for Distributed Training ──────────────────────────
-        # Note: We don't prepare the model if it's already dispatched (device_map="auto")
-        if hasattr(model, "hf_device_map") or hasattr(model, "is_loaded_in_4bit"):
+        # Only skip Accelerator wrapping if the model is genuinely dispatched
+        # across devices (hf_device_map) or is actually 4-bit (not just has the attribute).
+        if hasattr(model, "hf_device_map") or getattr(model, "is_loaded_in_4bit", False):
             self.model = model
         else:
             self.model = self.accelerator.prepare(model)

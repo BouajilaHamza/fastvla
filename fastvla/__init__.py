@@ -1,6 +1,6 @@
 """FastVLA: Efficient Vision-Language-Action Models for Robotics."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 
 from .model import FastVLAModel
 from .config import FastVLAConfig
@@ -35,7 +35,10 @@ def _print_env_once():
     global _printed_env
     if not _printed_env:
         _printed_env = True
-        print_environment_summary()
+        try:
+            print_environment_summary()
+        except Exception:
+            pass  # Never crash on env diagnostic
 
 _print_env_once()
 

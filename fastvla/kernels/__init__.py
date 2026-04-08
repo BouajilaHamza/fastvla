@@ -1,4 +1,4 @@
-"""Custom Triton kernels for FastVLA with CPU fallbacks."""
+"""Custom Triton kernels for FastVLA with automatic CPU/PyTorch fallbacks."""
 
 import torch
 
@@ -9,39 +9,57 @@ from .cpu_fallbacks import (
 )
 
 
-def _is_gpu_available() -> bool:
-    """Check if GPU with Triton is available."""
-    return torch.cuda.is_available()
+# ── Triton availability check ────────────────────────────────────────────
+# Must check BOTH cuda AND triton importability.
+# Kaggle/Colab always have CUDA but triton may not be installed yet.
+TRITON_AVAILABLE = False
 
+def _check_triton_available() -> bool:
+    """Return True only if CUDA is present AND triton can be imported."""
+    if not torch.cuda.is_available():
+        return False
+    try:
+        import triton  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
-if _is_gpu_available():
-    from .action import (
-        action_decode_backward as _triton_action_backward,
-    )
-    from .action import (
-        action_decode_forward as _triton_action_forward,
-    )
-    from .action_head import TritonActionHead
-    from .fusion import (
-        vision_language_fusion_backward as _triton_fusion_backward,
-    )
-    from .fusion import (
-        vision_language_fusion_forward as _triton_fusion_forward,
-    )
-else:
-    from .action_head import TritonActionHead
+TRITON_AVAILABLE = _check_triton_available()
+
+# ── Conditional Triton imports ───────────────────────────────────────────
+_triton_action_forward = None
+_triton_action_backward = None
+_triton_fusion_forward = None
+_triton_fusion_backward = None
+
+if TRITON_AVAILABLE:
+    try:
+        from .action import (
+            action_decode_backward as _triton_action_backward,
+            action_decode_forward as _triton_action_forward,
+        )
+        from .fusion import (
+            vision_language_fusion_backward as _triton_fusion_backward,
+            vision_language_fusion_forward as _triton_fusion_forward,
+        )
+    except Exception:
+        # If Triton kernels fail to compile (version mismatch, etc.)
+        TRITON_AVAILABLE = False
+
+# TritonActionHead always works — it has its own internal CPU fallback
+from .action_head import TritonActionHead
 
 
 def _use_triton(tensor: torch.Tensor) -> bool:
-    """Use Triton only if tensor is on a CUDA device."""
-    return tensor.is_cuda
+    """Use Triton only if tensor is on CUDA AND Triton is available."""
+    return TRITON_AVAILABLE and tensor.is_cuda
 
 
 def vision_language_fusion_forward(
     visual_feat: torch.Tensor, text_feat: torch.Tensor
 ) -> torch.Tensor:
     """Fuse visual and language features. Uses Triton on GPU, PyTorch on CPU."""
-    if _use_triton(visual_feat):
+    if _use_triton(visual_feat) and _triton_fusion_forward is not None:
         return _triton_fusion_forward(visual_feat, text_feat)
     return vision_language_fusion_cpu(visual_feat, text_feat)
 
@@ -52,7 +70,7 @@ def vision_language_fusion_backward(
     text_feat: torch.Tensor,
 ) -> tuple:
     """Compute gradients for fusion."""
-    if _use_triton(grad_output):
+    if _use_triton(grad_output) and _triton_fusion_backward is not None:
         return _triton_fusion_backward(grad_output, visual_feat, text_feat)
     visual_feat = visual_feat.clone().requires_grad_(True)
     text_feat = text_feat.clone().requires_grad_(True)
@@ -81,7 +99,7 @@ def action_decode_forward(
     bias2: torch.Tensor,
 ) -> torch.Tensor:
     """Action decoding MLP."""
-    if _use_triton(hidden):
+    if _use_triton(hidden) and _triton_action_forward is not None:
         return _triton_action_forward(hidden, weight1, bias1, weight2, bias2)
     return action_decode_cpu(hidden, weight1, bias1, weight2, bias2)
 
@@ -95,7 +113,7 @@ def action_decode_backward(
     bias2: torch.Tensor,
 ):
     """Backward for action decoding."""
-    if _use_triton(hidden):
+    if _use_triton(hidden) and _triton_action_backward is not None:
         return _triton_action_backward(
             grad_output, hidden, weight1, bias1, weight2, bias2
         )
@@ -108,6 +126,7 @@ __all__ = [
     "multi_cam_pack_backward",
     "multi_cam_pack_forward",
     "TritonActionHead",
+    "TRITON_AVAILABLE",
     "vision_language_fusion_backward",
     "vision_language_fusion_forward",
 ]

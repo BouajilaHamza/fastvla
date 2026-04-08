@@ -283,21 +283,12 @@ class FastVLAModel(PreTrainedModel):
     def _load_vision_encoder(self, config):
         """Load a HuggingFace vision encoder.
 
-        If load_in_4bit is requested, Unsloth is REQUIRED.
-        No silent fallback — that caused subtle dtype bugs across environments.
+        Loading priority:
+        1. Unsloth (best performance, 4-bit or standard)
+        2. HuggingFace + BitsAndBytes (4-bit without Unsloth)
+        3. HuggingFace vanilla (FP32, no quantization)
         """
-        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
-            raise ImportError(
-                "Cannot load vision encoder in 4-bit: Unsloth is not installed.\n"
-                "4-bit QLoRA loading requires Unsloth for proper quantization.\n\n"
-                "Fix — choose one:\n"
-                "  1. Install Unsloth:\n"
-                "     pip install git+https://github.com/unslothai/unsloth.git\n"
-                "  2. Set load_in_4bit=False (model loads in FP32, higher VRAM)\n"
-                "     e.g. FastVLAModel.from_pretrained(..., load_in_4bit=False)"
-            )
-
-        # Unsloth path (GPU + 4-bit or standard)
+        # ── Path 1: Unsloth (GPU + available) ─────────────────────────
         if UNSLOTH_AVAILABLE and get_device() == "cuda":
             try:
                 encoder = FastVisionModel.from_pretrained(
@@ -316,33 +307,44 @@ class FastVLAModel(PreTrainedModel):
                     f"via Unsloth: {e}"
                 ) from e
 
-        # Standard HF fallback (no 4-bit)
+        # ── Path 2: HF + BitsAndBytes (4-bit without Unsloth) ─────────
+        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
+            from .optimization import get_quantization_config, BNB_AVAILABLE
+            if not BNB_AVAILABLE:
+                raise ImportError(
+                    "Cannot load vision encoder in 4-bit: neither Unsloth nor bitsandbytes is installed.\n\n"
+                    "Fix — choose one:\n"
+                    "  1. pip install bitsandbytes   (simplest, works on Colab/Kaggle)\n"
+                    "  2. pip install unsloth         (best performance)\n"
+                    "  3. Set load_in_4bit=False       (uses more VRAM)"
+                )
+            bnb_config = get_quantization_config(load_in_4bit=True)
+            print("  ℹ Unsloth not available — using HF BitsAndBytes for 4-bit loading")
+            print("    (Install Unsloth for faster 4-bit inference: pip install unsloth)")
+            return ViTModel.from_pretrained(
+                config.vision_encoder_name,
+                quantization_config=bnb_config,
+                device_map="auto",
+            )
+
+        # ── Path 3: Standard HF fallback (FP32) ──────────────────────
         device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
         print(f"  ℹ Loading vision encoder via HuggingFace (no Unsloth)")
         return ViTModel.from_pretrained(
             config.vision_encoder_name,
-            torch_dtype=torch.float32,  # FP32 for reliability
+            torch_dtype=torch.float32,
             device_map=device_map,
         )
 
     def _load_language_model(self, config):
         """Load a HuggingFace language model + tokenizer.
 
-        If load_in_4bit is requested, Unsloth is REQUIRED.
-        No silent fallback — that caused subtle dtype bugs across environments.
+        Loading priority:
+        1. Unsloth (best performance, 4-bit or standard)
+        2. HuggingFace + BitsAndBytes (4-bit without Unsloth)
+        3. HuggingFace vanilla (FP32, no quantization)
         """
-        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
-            raise ImportError(
-                "Cannot load language model in 4-bit: Unsloth is not installed.\n"
-                "4-bit QLoRA loading requires Unsloth for proper quantization.\n\n"
-                "Fix — choose one:\n"
-                "  1. Install Unsloth:\n"
-                "     pip install git+https://github.com/unslothai/unsloth.git\n"
-                "  2. Set load_in_4bit=False (model loads in FP32, higher VRAM)\n"
-                "     e.g. FastVLAModel.from_pretrained(..., load_in_4bit=False)"
-            )
-
-        # Unsloth path (GPU + 4-bit or standard)
+        # ── Path 1: Unsloth (GPU + available) ─────────────────────────
         if UNSLOTH_AVAILABLE and get_device() == "cuda":
             try:
                 llm, tokenizer = FastLanguageModel.from_pretrained(
@@ -371,12 +373,52 @@ class FastVLAModel(PreTrainedModel):
                     f"via Unsloth: {e}"
                 ) from e
 
-        # Standard HF fallback (no 4-bit)
+        # ── Path 2: HF + BitsAndBytes (4-bit without Unsloth) ─────────
+        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
+            from .optimization import get_quantization_config, BNB_AVAILABLE
+            if not BNB_AVAILABLE:
+                raise ImportError(
+                    "Cannot load language model in 4-bit: neither Unsloth nor bitsandbytes is installed.\n\n"
+                    "Fix — choose one:\n"
+                    "  1. pip install bitsandbytes   (simplest, works on Colab/Kaggle)\n"
+                    "  2. pip install unsloth         (best performance)\n"
+                    "  3. Set load_in_4bit=False       (uses more VRAM)"
+                )
+            bnb_config = get_quantization_config(load_in_4bit=True)
+            print("  ℹ Unsloth not available — using HF BitsAndBytes for 4-bit loading")
+            print("    (Install Unsloth for faster 4-bit inference: pip install unsloth)")
+            llm = AutoModelForCausalLM.from_pretrained(
+                config.llm_name,
+                quantization_config=bnb_config,
+                device_map="auto",
+                token=config.hf_token,
+            )
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                config.llm_name,
+                padding_side="right",
+                token=config.hf_token,
+            )
+            if self._tokenizer.pad_token is None:
+                self._tokenizer.pad_token = self._tokenizer.eos_token
+
+            if config.use_peft:
+                from peft import get_peft_model
+                peft_cfg = get_peft_config(
+                    r=config.lora_rank,
+                    lora_alpha=config.lora_alpha,
+                    lora_dropout=config.lora_dropout,
+                )
+                llm = get_peft_model(llm, peft_cfg)
+
+            print(f"  ✓ Loaded language model via BitsAndBytes (4-bit)")
+            return llm
+
+        # ── Path 3: Standard HF fallback (FP32) ──────────────────────
         device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
         print(f"  ℹ Loading language model via HuggingFace (no Unsloth)")
         llm = AutoModelForCausalLM.from_pretrained(
             config.llm_name,
-            torch_dtype=torch.float32,  # FP32 for reliability
+            torch_dtype=torch.float32,
             device_map=device_map,
         )
         self._tokenizer = AutoTokenizer.from_pretrained(

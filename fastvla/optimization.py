@@ -6,7 +6,6 @@ Includes quantization-aware training, 8-bit optimizers, and memory optimizations
 import torch
 import torch.nn as nn
 from typing import Optional, Dict, Any
-from peft import LoraConfig, TaskType
 
 # Optional: bitsandbytes (GPU-only, not available on CPU)
 BNB_AVAILABLE = False
@@ -178,8 +177,8 @@ def get_peft_config(
     lora_alpha: int = 32,
     lora_dropout: float = 0.05,
     target_modules: Optional[list] = None,
-    task_type: TaskType = TaskType.CAUSAL_LM,
-) -> LoraConfig:
+    task_type = None,
+) -> "LoraConfig":
     """
     Create PEFT (LoRA) configuration.
 
@@ -188,11 +187,26 @@ def get_peft_config(
         lora_alpha: LoRA alpha parameter
         lora_dropout: LoRA dropout rate
         target_modules: Target modules for LoRA
-        task_type: Task type for PEFT
+        task_type: Task type for PEFT (defaults to CAUSAL_LM)
 
     Returns:
         LoraConfig
+
+    Raises:
+        ImportError: If peft is not installed
     """
+    try:
+        from peft import LoraConfig, TaskType
+    except ImportError:
+        raise ImportError(
+            "peft is required for LoRA fine-tuning but is not installed.\n"
+            "Install it with: pip install peft\n"
+            "Or install FastVLA with LoRA support: pip install fastvla[lora]"
+        )
+
+    if task_type is None:
+        task_type = TaskType.CAUSAL_LM
+
     if target_modules is None:
         target_modules = [
             "q_proj",
