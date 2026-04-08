@@ -286,10 +286,10 @@ class FastVLAModel(PreTrainedModel):
         if not config.dummy:
             try:
                 import torch._dynamo
-                torch._dynamo.disable(self.vision_encoder)
-                torch._dynamo.disable(self.llm)
-                torch._dynamo.disable(self.vision_proj)
-                torch._dynamo.disable(self.action_head)
+                torch._dynamo.disable(self.vision_encoder.forward)
+                torch._dynamo.disable(self.llm.forward)
+                torch._dynamo.disable(self.vision_proj.forward)
+                torch._dynamo.disable(self.action_head.forward)
             except (ImportError, AttributeError):
                 pass
 

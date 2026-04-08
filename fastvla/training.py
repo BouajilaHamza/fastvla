@@ -224,45 +224,44 @@ class FastVLATrainer:
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
 
-        # ── Prevent Dynamo/Accelerate Conflicts ────────────────────────
-        # Disable Dynamo capture for the step to avoid conflicts with 
-        # Accelerate hooks in Unsloth environments.
-        try:
-            import torch._dynamo
-            dynamo_ctx = torch._dynamo.disable()
-        except:
-            from contextlib import nullcontext
-            dynamo_ctx = nullcontext()
-
-        with dynamo_ctx:
-            # Forward pass (Mixed precision handled by Accelerator)
+        def _forward_step():
             with self.accelerator.accumulate(self.model):
-                action_preds, loss = self.model(
+                return self.model(
                     pixel_values=batch["pixel_values"],
                     input_ids=batch["input_ids"],
                     attention_mask=batch.get("attention_mask"),
                     labels=batch.get("labels"),
                 )
 
-            # Backward pass
-            self.accelerator.backward(loss)
+        # ── Prevent Dynamo/Accelerate Conflicts ────────────────────────
+        # Wrap forward call in a disabled context to avoid graph capture.
+        try:
+            import torch._dynamo
+            _run_forward = torch._dynamo.disable(_forward_step)
+        except:
+            _run_forward = _forward_step
 
-            # Step optimizer & scheduler only when gradients are synchronized
-            if self.accelerator.sync_gradients:
-                # CRITICAL: 4-bit models have FP16 gradients which GradScaler cannot handle
-                # Use direct clip_grad_norm_ for 4-bit models to avoid "Attempting to unscale FP16 gradients" error
-                if self.is_4bit_model:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), self.max_grad_norm
-                    )
-                else:
-                    self.accelerator.clip_grad_norm_(
-                        self.model.parameters(), self.max_grad_norm
-                    )
-                self.optimizer.step()
-                if self.lr_scheduler is not None:
-                    self.lr_scheduler.step()
-                self.optimizer.zero_grad()
+        action_preds, loss = _run_forward()
+
+        # Backward pass
+        self.accelerator.backward(loss)
+
+        # Step optimizer & scheduler only when gradients are synchronized
+        if self.accelerator.sync_gradients:
+            # CRITICAL: 4-bit models have FP16 gradients which GradScaler cannot handle
+            # Use direct clip_grad_norm_ for 4-bit models to avoid "Attempting to unscale FP16 gradients" error
+            if self.is_4bit_model:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.max_grad_norm
+                )
+            else:
+                self.accelerator.clip_grad_norm_(
+                    self.model.parameters(), self.max_grad_norm
+                )
+            self.optimizer.step()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+            self.optimizer.zero_grad()
 
         return {
             "loss": loss.item(),
@@ -277,23 +276,23 @@ class FastVLATrainer:
         total_loss = 0.0
         num_samples = 0
 
-        # ── Prevent Dynamo/Accelerate Conflicts ────────────────────────
+        def _eval_step(batch):
+            return self.model(
+                pixel_values=batch["pixel_values"],
+                input_ids=batch["input_ids"],
+                attention_mask=batch.get("attention_mask"),
+                labels=batch.get("labels"),
+            )
+
         try:
             import torch._dynamo
-            dynamo_ctx = torch._dynamo.disable()
+            _run_eval = torch._dynamo.disable(_eval_step)
         except:
-            from contextlib import nullcontext
-            dynamo_ctx = nullcontext()
+            _run_eval = _eval_step
 
-        with torch.no_grad(), dynamo_ctx:
+        with torch.no_grad():
             for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
-                action_preds, loss = self.model(
-                    pixel_values=batch["pixel_values"],
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch.get("attention_mask"),
-                    labels=batch.get("labels"),
-                )
-
+                action_preds, loss = _run_eval(batch)
                 total_loss += loss.item()
                 num_samples += batch["pixel_values"].size(0)
 
