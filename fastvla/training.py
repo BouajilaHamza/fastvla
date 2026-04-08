@@ -71,8 +71,14 @@ class FastVLATrainer:
 
         # ── Initialize Accelerator ────────────────────────────────────
         # Handle mixed precision based on availability
+        # CRITICAL: 4-bit quantized models cannot use GradScaler (FP16 gradients incompatibility)
+        is_4bit_model = (
+            getattr(model, "is_loaded_in_4bit", False) or
+            getattr(model, "hf_quantizer", None) is not None
+        )
+
         mixed_precision = "no"
-        if use_mixed_precision:
+        if use_mixed_precision and not is_4bit_model:
             if torch.cuda.is_available():
                 # Use fp16 for T4 GPUs, bf16 for newer GPUs
                 mixed_precision = "fp16"
@@ -84,6 +90,7 @@ class FastVLATrainer:
             mixed_precision=mixed_precision,
         )
         self.device = self.accelerator.device
+        self.is_4bit_model = is_4bit_model  # Store for use in train_step
 
         # Setup optimizer
         if optimizer is None:
@@ -173,9 +180,16 @@ class FastVLATrainer:
 
             # Step optimizer & scheduler only when gradients are synchronized
             if self.accelerator.sync_gradients:
-                self.accelerator.clip_grad_norm_(
-                    self.model.parameters(), self.max_grad_norm
-                )
+                # CRITICAL: 4-bit models have FP16 gradients which GradScaler cannot handle
+                # Use direct clip_grad_norm_ for 4-bit models to avoid "Attempting to unscale FP16 gradients" error
+                if self.is_4bit_model:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.max_grad_norm
+                    )
+                else:
+                    self.accelerator.clip_grad_norm_(
+                        self.model.parameters(), self.max_grad_norm
+                    )
                 self.optimizer.step()
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.step()
