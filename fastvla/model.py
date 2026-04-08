@@ -21,35 +21,63 @@ from .utils import get_device
 
 # ── Optional Unsloth import ──────────────────────────────────────────────
 UNSLOTH_AVAILABLE = False
-try:
-    # Try importing core Unsloth components
-    from unsloth import FastLanguageModel, FastVisionModel
+FastLanguageModel = None
+FastVisionModel = None
 
-    # Try to get patching functions (API changed in newer versions)
+def _dummy_patch_model(model):
+    """Dummy patch model when Unsloth patching is unavailable."""
+    return model
+
+def _dummy_patch_forward(model):
+    """Dummy patch forward when Unsloth patching is unavailable."""
+    pass
+
+def _dummy_patch_saving_functions():
+    """Dummy patch saving when Unsloth patching is unavailable."""
+    pass
+
+# Create module-level references to dummy functions
+patch_model = _dummy_patch_model
+patch_forward = _dummy_patch_forward
+patch_saving_functions = _dummy_patch_saving_functions
+
+try:
+    # Try importing core Unsloth components for 4-bit loading
+    from unsloth import FastLanguageModel as _FastLanguageModel
+    from unsloth import FastVisionModel as _FastVisionModel
+    
+    FastLanguageModel = _FastLanguageModel
+    FastVisionModel = _FastVisionModel
+    
+    # Try to get patching functions (may not exist in newer versions)
+    _patch_functions_found = False
     try:
-        from unsloth import patch_forward, patch_model, patch_saving_functions
-        UNSLOTH_AVAILABLE = True
+        from unsloth import patch_forward as _pf, patch_model as _pm, patch_saving_functions as _ps
+        patch_forward = _pf
+        patch_model = _pm
+        patch_saving_functions = _ps
+        _patch_functions_found = True
     except ImportError:
-        # Newer Unsloth versions may have different API
+        pass
+    
+    if not _patch_functions_found:
         # Try alternative import paths
         try:
-            from unsloth.models.patcher import patch_forward, patch_model
-            from unsloth.models.loader import patch_saving_functions
-            UNSLOTH_AVAILABLE = True
+            from unsloth.models.patcher import patch_forward as _pf, patch_model as _pm
+            from unsloth.models.loader import patch_saving_functions as _ps
+            patch_forward = _pf
+            patch_model = _pm
+            patch_saving_functions = _ps
+            _patch_functions_found = True
         except ImportError:
-            # If patching functions unavailable, we can still use FastLanguageModel/FastVisionModel
-            # for 4-bit loading, but skip the forward patching
-            print("  ⚠ Unsloth: patch_forward/patch_model not available (API changed)")
-            print("  ℹ Using Unsloth for 4-bit loading only (no forward patching)")
-            # Create dummy patching functions to avoid breaking existing code
-            def patch_model(model):
-                return model
-            def patch_forward(model):
-                pass
-            def patch_saving_functions():
-                pass
-            UNSLOTH_AVAILABLE = True
-
+            pass
+    
+    # Mark as available if we got the core components
+    UNSLOTH_AVAILABLE = True
+    
+    if not _patch_functions_found:
+        print("  ℹ Unsloth: Using for 4-bit loading (forward patching unavailable in this version)")
+    
 except ImportError:
     pass
 
