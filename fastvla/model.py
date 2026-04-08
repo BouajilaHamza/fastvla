@@ -22,15 +22,34 @@ from .utils import get_device
 # ── Optional Unsloth import ──────────────────────────────────────────────
 UNSLOTH_AVAILABLE = False
 try:
-    from unsloth import (
-        FastLanguageModel,
-        FastVisionModel,
-        patch_forward,
-        patch_model,
-        patch_saving_functions,
-    )
+    # Try importing core Unsloth components
+    from unsloth import FastLanguageModel, FastVisionModel
 
-    UNSLOTH_AVAILABLE = True
+    # Try to get patching functions (API changed in newer versions)
+    try:
+        from unsloth import patch_forward, patch_model, patch_saving_functions
+        UNSLOTH_AVAILABLE = True
+    except ImportError:
+        # Newer Unsloth versions may have different API
+        # Try alternative import paths
+        try:
+            from unsloth.models.patcher import patch_forward, patch_model
+            from unsloth.models.loader import patch_saving_functions
+            UNSLOTH_AVAILABLE = True
+        except ImportError:
+            # If patching functions unavailable, we can still use FastLanguageModel/FastVisionModel
+            # for 4-bit loading, but skip the forward patching
+            print("  ⚠ Unsloth: patch_forward/patch_model not available (API changed)")
+            print("  ℹ Using Unsloth for 4-bit loading only (no forward patching)")
+            # Create dummy patching functions to avoid breaking existing code
+            def patch_model(model):
+                return model
+            def patch_forward(model):
+                pass
+            def patch_saving_functions():
+                pass
+            UNSLOTH_AVAILABLE = True
+
 except ImportError:
     pass
 
