@@ -17,6 +17,51 @@ from .utils import get_device
 from accelerate import Accelerator
 
 
+def _detect_4bit_model(model: nn.Module) -> bool:
+    """Bulletproof 4-bit model detection.
+
+    Checks all possible locations where the 4-bit flag might live, since
+    different loading paths (Unsloth, HF, wrapper) set it in different places.
+    This prevents the silent "Attempting to unscale FP16 gradients" error.
+
+    Check order (first match wins):
+    1. Wrapper flag: model.is_loaded_in_4bit
+    2. Config flag: model.config.load_in_4bit
+    3. Submodule flags: model.llm.is_loaded_in_4bit, model.vision_encoder.is_loaded_in_4bit
+    4. HF quantizer: model.hf_quantizer or model.llm.hf_quantizer
+    5. Fallback: scan parameters for FP16 dtype (catches edge cases)
+    """
+    # 1. Wrapper flag (set by FastVLAModel.__init__)
+    if getattr(model, "is_loaded_in_4bit", False):
+        return True
+
+    # 2. Config flag (FastVLAConfig.load_in_4bit)
+    config = getattr(model, "config", None)
+    if getattr(config, "load_in_4bit", False):
+        return True
+
+    # 3. Submodule flags (HuggingFace sets these on the inner model)
+    for submodule_name in ("llm", "vision_encoder", "model", "base_model"):
+        submodule = getattr(model, submodule_name, None)
+        if submodule is not None:
+            if getattr(submodule, "is_loaded_in_4bit", False):
+                return True
+            # HF quantizer flag
+            if getattr(submodule, "hf_quantizer", None) is not None:
+                return True
+
+    # 4. HF quantizer on the wrapper itself
+    if getattr(model, "hf_quantizer", None) is not None:
+        return True
+
+    # 5. Fallback: check if any parameters are FP16 (strong signal for 4-bit or mixed precision)
+    has_fp16_params = any(p.dtype == torch.float16 for p in model.parameters())
+    if has_fp16_params:
+        return True
+
+    return False
+
+
 class FastVLATrainer:
     """
     Trainer for FastVLA models with Unsloth-style optimizations.
@@ -70,12 +115,8 @@ class FastVLATrainer:
                 print("⚠️ Warning: No tokenizer found on model. Using default collator.")
 
         # ── Initialize Accelerator ────────────────────────────────────
-        # Handle mixed precision based on availability
-        # CRITICAL: 4-bit quantized models cannot use GradScaler (FP16 gradients incompatibility)
-        is_4bit_model = (
-            getattr(model, "is_loaded_in_4bit", False) or
-            getattr(model, "hf_quantizer", None) is not None
-        )
+        # Bulletproof 4-bit detection (checks all possible locations)
+        is_4bit_model = _detect_4bit_model(model)
 
         mixed_precision = "no"
         if use_mixed_precision and not is_4bit_model:
@@ -91,6 +132,17 @@ class FastVLATrainer:
         )
         self.device = self.accelerator.device
         self.is_4bit_model = is_4bit_model  # Store for use in train_step
+
+        # Print clear status so the user knows exactly what's happening
+        if is_4bit_model:
+            print(f"\nFastVLATrainer: Mixed precision DISABLED (4-bit model detected)")
+            print(f"  → Using direct gradient clipping (no GradScaler)")
+            print(f"  → 4-bit models produce FP16 gradients which GradScaler cannot handle\n")
+        elif use_mixed_precision and torch.cuda.is_available():
+            print(f"\nFastVLATrainer: Mixed precision ENABLED (fp16)")
+            print(f"  → Using GradScaler for gradient clipping\n")
+        else:
+            print(f"\nFastVLATrainer: Full precision mode\n")
 
         # Setup optimizer
         if optimizer is None:

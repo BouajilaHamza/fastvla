@@ -220,37 +220,82 @@ class FastVLAModel(PreTrainedModel):
             except Exception:
                 pass  # Skip Unsloth patches if they fail
 
+        # ── 4-bit quantization flag propagation ───────────────────────
+        # Set on wrapper AND submodules so FastVLATrainer can detect it reliably
+        self.is_loaded_in_4bit = config.load_in_4bit
+        if hasattr(self.llm, "is_loaded_in_4bit"):
+            self.llm.is_loaded_in_4bit = config.load_in_4bit
+        if hasattr(self.vision_encoder, "is_loaded_in_4bit"):
+            self.vision_encoder.is_loaded_in_4bit = config.load_in_4bit
+
         # ── Gradient checkpointing ────────────────────────────────────
         if config.gradient_checkpointing:
             enable_gradient_checkpointing(self)
 
     # ── Loader helpers ─────────────────────────────────────────────────
     def _load_vision_encoder(self, config):
-        """Load a HuggingFace vision encoder."""
-        # Try Unsloth first (GPU only), fall back to standard HF
+        """Load a HuggingFace vision encoder.
+
+        If load_in_4bit is requested, Unsloth is REQUIRED.
+        No silent fallback — that caused subtle dtype bugs across environments.
+        """
+        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
+            raise ImportError(
+                "Cannot load vision encoder in 4-bit: Unsloth is not installed.\n"
+                "4-bit QLoRA loading requires Unsloth for proper quantization.\n\n"
+                "Fix — choose one:\n"
+                "  1. Install Unsloth:\n"
+                "     pip install git+https://github.com/unslothai/unsloth.git\n"
+                "  2. Set load_in_4bit=False (model loads in FP32, higher VRAM)\n"
+                "     e.g. FastVLAModel.from_pretrained(..., load_in_4bit=False)"
+            )
+
+        # Unsloth path (GPU + 4-bit or standard)
         if UNSLOTH_AVAILABLE and get_device() == "cuda":
             try:
-                return FastVisionModel.from_pretrained(
+                encoder = FastVisionModel.from_pretrained(
                     config.vision_encoder_name,
                     load_in_4bit=config.load_in_4bit,
                     token=config.hf_token,
                     device_map="auto",
                     torch_dtype=torch.bfloat16,
                 )
-            except Exception:
-                pass
+                print(f"  ✓ Loaded vision encoder via Unsloth"
+                      f"{' (4-bit QLoRA)' if config.load_in_4bit else ''}")
+                return encoder
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load vision encoder '{config.vision_encoder_name}' "
+                    f"via Unsloth: {e}"
+                ) from e
 
+        # Standard HF fallback (no 4-bit)
         device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
-        
+        print(f"  ℹ Loading vision encoder via HuggingFace (no Unsloth)")
         return ViTModel.from_pretrained(
             config.vision_encoder_name,
-            torch_dtype=torch.float16 if config.load_in_4bit else torch.float32,
+            torch_dtype=torch.float32,  # FP32 for reliability
             device_map=device_map,
         )
 
     def _load_language_model(self, config):
-        """Load a HuggingFace language model + tokenizer."""
-        # Try Unsloth first (GPU only), fall back to standard HF
+        """Load a HuggingFace language model + tokenizer.
+
+        If load_in_4bit is requested, Unsloth is REQUIRED.
+        No silent fallback — that caused subtle dtype bugs across environments.
+        """
+        if config.load_in_4bit and not UNSLOTH_AVAILABLE:
+            raise ImportError(
+                "Cannot load language model in 4-bit: Unsloth is not installed.\n"
+                "4-bit QLoRA loading requires Unsloth for proper quantization.\n\n"
+                "Fix — choose one:\n"
+                "  1. Install Unsloth:\n"
+                "     pip install git+https://github.com/unslothai/unsloth.git\n"
+                "  2. Set load_in_4bit=False (model loads in FP32, higher VRAM)\n"
+                "     e.g. FastVLAModel.from_pretrained(..., load_in_4bit=False)"
+            )
+
+        # Unsloth path (GPU + 4-bit or standard)
         if UNSLOTH_AVAILABLE and get_device() == "cuda":
             try:
                 llm, tokenizer = FastLanguageModel.from_pretrained(
@@ -270,16 +315,21 @@ class FastVLAModel(PreTrainedModel):
                         lora_dropout=config.lora_dropout,
                     )
                     llm = FastLanguageModel.get_peft_model(llm, peft_config)
+                print(f"  ✓ Loaded language model via Unsloth"
+                      f"{' (4-bit QLoRA)' if config.load_in_4bit else ''}")
                 return llm
-            except Exception:
-                pass
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load language model '{config.llm_name}' "
+                    f"via Unsloth: {e}"
+                ) from e
 
+        # Standard HF fallback (no 4-bit)
         device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
-        
-        # Standard HuggingFace fallback
+        print(f"  ℹ Loading language model via HuggingFace (no Unsloth)")
         llm = AutoModelForCausalLM.from_pretrained(
             config.llm_name,
-            torch_dtype=torch.float16 if config.load_in_4bit else torch.float32,
+            torch_dtype=torch.float32,  # FP32 for reliability
             device_map=device_map,
         )
         self._tokenizer = AutoTokenizer.from_pretrained(
@@ -463,4 +513,29 @@ class FastVLAModel(PreTrainedModel):
         if gradient_checkpointing and not dummy:
             enable_gradient_checkpointing(model)
 
+        # Print a clear summary of what was loaded
+        _print_load_summary(model, config)
+
         return model
+
+
+def _print_load_summary(model: "FastVLAModel", config: FastVLAConfig) -> None:
+    """Print a clear summary of the loaded model configuration."""
+    quant_info = "4-bit QLoRA" if config.load_in_4bit else "Full precision (FP32/FP16)"
+    lora_info = f"enabled (rank={config.lora_rank}, alpha={config.lora_alpha})" if config.use_peft else "disabled"
+    ckpt_info = "enabled" if config.gradient_checkpointing and not config.dummy else "disabled"
+
+    vram_used = "N/A"
+    if torch.cuda.is_available():
+        vram_used = f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB"
+
+    print("\n" + "=" * 60)
+    print("FastVLA Model Loaded Successfully")
+    print("=" * 60)
+    print(f"  Model:             {config.llm_name}")
+    print(f"  Vision encoder:    {config.vision_encoder_name}")
+    print(f"  Quantization:      {quant_info}")
+    print(f"  LoRA:              {lora_info}")
+    print(f"  Gradient ckpt:     {ckpt_info}")
+    print(f"  VRAM used:         {vram_used}")
+    print("=" * 60 + "\n")

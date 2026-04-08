@@ -13,7 +13,7 @@ from .registry import (
     ActionHeadConfig,
     ProjectorConfig,
 )
-from .utils import get_device
+from .utils import get_device, print_environment_summary
 from .data.collator import UnslothVLACollator
 from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset, LeRobotDataset
 from .training import FastVLATrainer
@@ -27,6 +27,18 @@ from .optimization import (
 )
 from .benchmarking import PerformanceProfiler, compare_models, print_benchmark_results
 
+# Print environment summary on first import so users immediately see
+# what's available (Unsloth, BnB, Triton, GPU) and can diagnose mismatches.
+_printed_env = False
+
+def _print_env_once():
+    global _printed_env
+    if not _printed_env:
+        _printed_env = True
+        print_environment_summary()
+
+_print_env_once()
+
 __all__ = [
     "FastVLAModel",
     "FastVLAConfig",
@@ -38,6 +50,7 @@ __all__ = [
     "ActionHeadConfig",
     "ProjectorConfig",
     "get_device",
+    "print_environment_summary",
     "UnslothVLACollator",
     "get_dataset",
     "RoboticsDataset",
