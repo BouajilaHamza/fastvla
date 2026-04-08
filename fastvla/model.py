@@ -279,6 +279,20 @@ class FastVLAModel(PreTrainedModel):
         if config.gradient_checkpointing:
             enable_gradient_checkpointing(self)
 
+        # ── Prevent Dynamo / Accelerate Conflicts ─────────────────────
+        # Unsloth often triggers torch.compile which conflicts with 
+        # Accelerate's AlignDevicesHook (wrapped in torch.compiler.disable).
+        # We explicitly disable Dynamo for the submodules to avoid this.
+        if not config.dummy:
+            try:
+                import torch._dynamo
+                torch._dynamo.disable(self.vision_encoder)
+                torch._dynamo.disable(self.llm)
+                torch._dynamo.disable(self.vision_proj)
+                torch._dynamo.disable(self.action_head)
+            except (ImportError, AttributeError):
+                pass
+
     # ── Loader helpers ─────────────────────────────────────────────────
     def _load_vision_encoder(self, config):
         """Load a HuggingFace vision encoder.

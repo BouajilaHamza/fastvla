@@ -224,14 +224,25 @@ class FastVLATrainer:
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
 
-        # Forward pass (Mixed precision handled by Accelerator)
-        with self.accelerator.accumulate(self.model):
-            action_preds, loss = self.model(
-                pixel_values=batch["pixel_values"],
-                input_ids=batch["input_ids"],
-                attention_mask=batch.get("attention_mask"),
-                labels=batch.get("labels"),
-            )
+        # ── Prevent Dynamo/Accelerate Conflicts ────────────────────────
+        # Disable Dynamo capture for the step to avoid conflicts with 
+        # Accelerate hooks in Unsloth environments.
+        try:
+            import torch._dynamo
+            dynamo_ctx = torch._dynamo.disable()
+        except:
+            from contextlib import nullcontext
+            dynamo_ctx = nullcontext()
+
+        with dynamo_ctx:
+            # Forward pass (Mixed precision handled by Accelerator)
+            with self.accelerator.accumulate(self.model):
+                action_preds, loss = self.model(
+                    pixel_values=batch["pixel_values"],
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch.get("attention_mask"),
+                    labels=batch.get("labels"),
+                )
 
             # Backward pass
             self.accelerator.backward(loss)
@@ -266,7 +277,15 @@ class FastVLATrainer:
         total_loss = 0.0
         num_samples = 0
 
-        with torch.no_grad():
+        # ── Prevent Dynamo/Accelerate Conflicts ────────────────────────
+        try:
+            import torch._dynamo
+            dynamo_ctx = torch._dynamo.disable()
+        except:
+            from contextlib import nullcontext
+            dynamo_ctx = nullcontext()
+
+        with torch.no_grad(), dynamo_ctx:
             for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
                 action_preds, loss = self.model(
                     pixel_values=batch["pixel_values"],
