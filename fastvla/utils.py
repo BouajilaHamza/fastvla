@@ -8,12 +8,34 @@ def get_device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def print_environment_summary() -> None:
-    """Print a clear summary of the FastVLA runtime environment.
+def get_gpu_memory_report() -> str:
+    """Return a human-readable string of current GPU memory usage."""
+    if not torch.cuda.is_available():
+        return "GPU: N/A (CPU Mode)"
+    
+    allocated = torch.cuda.memory_allocated() / 1024**3
+    reserved = torch.cuda.memory_reserved() / 1024**3
+    max_allocated = torch.cuda.max_memory_allocated() / 1024**3
+    
+    return (
+        f"GPU Memory: {allocated:.2f}GB allocated, "
+        f"{reserved:.2f}GB reserved, "
+        f"{max_allocated:.2f}GB peak"
+    )
 
-    This helps diagnose environment differences that cause silent bugs
-    (e.g., Kaggle vs Lightning Studio, missing Unsloth, wrong CUDA version).
+def check_environment(require_cuda: bool = False, require_unsloth: bool = False) -> None:
     """
+    Perform a rigorous health check of the runtime environment.
+    
+    Args:
+        require_cuda: If True, raises EnvironmentCompatibilityError if CUDA is missing.
+        require_unsloth: If True, raises EnvironmentCompatibilityError if Unsloth is missing.
+
+    Raises:
+        EnvironmentCompatibilityError: If a mandatory requirement is not met.
+    """
+    from .exceptions import EnvironmentCompatibilityError
+    
     unsloth_available = False
     bnb_available = False
     triton_available = False
@@ -25,7 +47,7 @@ def print_environment_summary() -> None:
         pass
 
     try:
-        import bitsandbytes  # noqa: F401
+        import bitsandbytes as bnb  # noqa: F401
         bnb_available = True
     except ImportError:
         pass
@@ -36,49 +58,31 @@ def print_environment_summary() -> None:
     except ImportError:
         pass
 
-    def _check(name: str, available: bool) -> str:
-        if available:
-            return f"✓ {name} installed"
-        return f"✗ {name} NOT installed"
+    # Mandatory checks
+    if require_cuda and not torch.cuda.is_available():
+        raise EnvironmentCompatibilityError(
+            "CUDA is required but not available. Ensure you have a GPU and proper drivers."
+        )
+    
+    if require_unsloth and not unsloth_available:
+        raise EnvironmentCompatibilityError(
+            "Unsloth is required for this operation. Install it with: pip install unsloth"
+        )
 
-    cuda_info = "N/A"
-    device_name = "N/A"
-    if torch.cuda.is_available():
-        cuda_info = torch.version.cuda or "N/A"
-        device_name = torch.cuda.get_device_name(0)
+    # Informative summary
+    cuda_info = torch.version.cuda if torch.cuda.is_available() else "N/A"
+    device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
 
     print("\n" + "=" * 60)
-    print("FastVLA Environment Check")
+    print("FastVLA Health Check")
     print("=" * 60)
     print(f"  PyTorch:    {torch.__version__}")
-    print(f"  Python:     {torch.version.python if hasattr(torch.version, 'python') else 'N/A'}")
     print(f"  CUDA:       {cuda_info}")
     print(f"  Device:     {device_name}")
-    print(f"  Unsloth:    {_check('Unsloth', unsloth_available)}")
-    print(f"  BnB:        {_check('bitsandbytes', bnb_available)}")
-    print(f"  Triton:     {_check('Triton', triton_available)}")
-
-    # Warnings
-    warnings = []
-    if torch.cuda.is_available() and not unsloth_available:
-        warnings.append(
-            "⚠ Unsloth not installed — 4-bit QLoRA loading will NOT work.\n"
-            "  Install: pip install unsloth\n"
-            "  Or set load_in_4bit=False to use FP16/FP32 (higher VRAM)."
-        )
-    if torch.cuda.is_available() and not bnb_available:
-        warnings.append(
-            "⚠ bitsandbytes not installed — 4-bit quantization unavailable."
-        )
-    if torch.cuda.is_available() and not triton_available:
-        warnings.append(
-            "⚠ Triton not installed — custom Triton kernels disabled.\n"
-            "  Install: pip install triton"
-        )
-
-    if warnings:
-        print("\n  Warnings:")
-        for w in warnings:
-            print(f"  {w}")
-        print()
+    print(f"  Unsloth:    {'✓ Available' if unsloth_available else '✗ Missing'}")
+    print(f"  BnB:        {'✓ Available' if bnb_available else '✗ Missing'}")
+    print(f"  Triton:     {'✓ Available' if triton_available else '✗ Missing'}")
+    
+    if torch.cuda.is_available():
+        print(f"  {get_gpu_memory_report()}")
     print("=" * 60 + "\n")

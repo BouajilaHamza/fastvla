@@ -1,6 +1,4 @@
-import pytest
 import torch
-import torch.nn as nn
 from fastvla import FastVLAModel, FastVLATrainer
 
 def test_trainer_initialization():
@@ -18,16 +16,16 @@ def test_trainer_initialization():
             
     dataset = DummyDataset()
     
-    # ── Test with 'dataset' and 'lr' (Notebook style) ───────────────
+    # ── Test with 'train_dataset' and 'learning_rate' (Standard style) ──────
     trainer = FastVLATrainer(
         model=model,
-        dataset=dataset,
-        lr=1e-4,
+        train_dataset=dataset,
+        learning_rate=1e-4,
         batch_size=1,
         max_steps=1
     )
     
-    assert trainer.learning_rate == 1e-4
+    assert trainer.optimizer.param_groups[0]["lr"] == 1e-4
     assert trainer.train_dataloader is not None
     assert trainer.max_steps == 1
 
@@ -48,7 +46,7 @@ def test_trainer_train_step():
     dataset = DummyDataset()
     trainer = FastVLATrainer(
         model=model,
-        dataset=dataset,
+        train_dataset=dataset,
         max_steps=1
     )
     
@@ -79,7 +77,7 @@ def test_trainer_convergence_dummy():
             }
             
     dataset = DummyDataset()
-    trainer = FastVLATrainer(model=model, dataset=dataset, max_steps=1, logging_steps=1)
+    trainer = FastVLATrainer(model=model, train_dataset=dataset, max_steps=1, logging_steps=1)
     
     history = trainer.train()
     assert len(history) > 0

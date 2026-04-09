@@ -331,8 +331,8 @@ def main():
     print("\n  [Info] Use 'fastvla-benchmark --help' for options.")
     print("  [Info] Running simulated T4 baseline...")
     time.sleep(1)
-    print(f"  Target Latency (T4): 1400ms")
-    print(f"  Actual Latency:      ~1420ms")
+    print("  Target Latency (T4): 1400ms")
+    print("  Actual Latency:      ~1420ms")
     print("-" * 40)
     print("Benchmark complete.\n")
 

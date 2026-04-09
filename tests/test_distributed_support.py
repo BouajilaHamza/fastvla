@@ -1,6 +1,4 @@
-import pytest
 import torch
-import torch.nn as nn
 from fastvla import FastVLAModel, FastVLATrainer
 from accelerate import Accelerator
 

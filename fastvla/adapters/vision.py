@@ -7,7 +7,6 @@ Each adapter wraps a different vision model and exposes:
 """
 import torch
 import torch.nn as nn
-from typing import Optional
 
 
 class BaseVisionAdapter(nn.Module):

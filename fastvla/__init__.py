@@ -13,7 +13,7 @@ from .registry import (
     ActionHeadConfig,
     ProjectorConfig,
 )
-from .utils import get_device, print_environment_summary
+from .utils import get_device, check_environment
 from .data.collator import UnslothVLACollator
 from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset, LeRobotDataset
 from .training import FastVLATrainer
@@ -36,7 +36,7 @@ def _print_env_once():
     if not _printed_env:
         _printed_env = True
         try:
-            print_environment_summary()
+            check_environment()
         except Exception:
             pass  # Never crash on env diagnostic
 
@@ -53,7 +53,7 @@ __all__ = [
     "ActionHeadConfig",
     "ProjectorConfig",
     "get_device",
-    "print_environment_summary",
+    "check_environment",
     "UnslothVLACollator",
     "get_dataset",
     "RoboticsDataset",

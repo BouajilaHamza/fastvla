@@ -5,7 +5,7 @@ Includes quantization-aware training, 8-bit optimizers, and memory optimizations
 
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 # Optional: bitsandbytes (GPU-only, not available on CPU)
 BNB_AVAILABLE = False
@@ -178,7 +178,7 @@ def get_peft_config(
     lora_dropout: float = 0.05,
     target_modules: Optional[list] = None,
     task_type = None,
-) -> "LoraConfig":
+) -> Union["LoraConfig", Any]:
     """
     Create PEFT (LoRA) configuration.
 

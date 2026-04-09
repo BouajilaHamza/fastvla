@@ -5,7 +5,6 @@ Tests shape validation, error handling, and edge cases.
 
 import pytest
 import torch
-import torch.nn as nn
 from fastvla import FastVLAModel, FastVLATrainer
 from fastvla.data.collator import UnslothVLACollator
 

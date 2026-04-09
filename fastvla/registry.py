@@ -12,7 +12,7 @@ Usage:
     register_model("my-vla", MyVLAModelConfig(...))
 """
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any
 
 
 @dataclass

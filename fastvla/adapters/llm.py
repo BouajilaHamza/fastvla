@@ -1,7 +1,5 @@
 """LLM Adapters for FastVLA — Unified interface for any language model."""
-import torch
 import torch.nn as nn
-from typing import Optional
 
 
 class BaseLLMAdapter(nn.Module):

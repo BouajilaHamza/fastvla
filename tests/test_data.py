@@ -1,8 +1,6 @@
-import pytest
-import torch
 import numpy as np
 from unittest.mock import patch
-from fastvla import get_dataset, LeRobotDataset, RoboticsDataset
+from fastvla import get_dataset, LeRobotDataset
 
 def test_get_dataset_factory():
     """Test the get_dataset factory returns correct classes."""

@@ -1,678 +1,283 @@
 """
 Core FastVLA model implementation.
-Supports any HuggingFace vision encoder + language model, with optional
-Unsloth optimizations, dummy mode for testing, and CPU/GPU auto-selection.
+Refactored for production-grade reliability, distributed sharding support,
+and robust 4-bit device placement.
 """
 
 import torch
 import torch.nn as nn
-from typing import Optional
-from transformers import AutoTokenizer, PreTrainedModel, AutoModel
-from transformers import AutoModelForCausalLM
+import logging
+from typing import Dict, Union
+from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM
 
 from .config import FastVLAConfig
 from .kernels import vision_language_fusion_forward, TritonActionHead
-from .optimization import (
-    enable_gradient_checkpointing,
-    get_peft_config,
-)
-from .utils import get_device
+from .optimization import enable_gradient_checkpointing, get_peft_config
+from .utils import check_environment, get_gpu_memory_report
 
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # ── Optional Unsloth import ──────────────────────────────────────────────
 UNSLOTH_AVAILABLE = False
 FastLanguageModel = None
 FastVisionModel = None
 
-def _dummy_patch_model(model):
-    """Dummy patch model when Unsloth patching is unavailable."""
-    return model
+def _dummy_patch_model(model): return model
+def _dummy_patch_forward(model): pass
+def _dummy_patch_saving_functions(): pass
 
-def _dummy_patch_forward(model):
-    """Dummy patch forward when Unsloth patching is unavailable."""
-    pass
-
-def _dummy_patch_saving_functions():
-    """Dummy patch saving when Unsloth patching is unavailable."""
-    pass
-
-# Create module-level references to dummy functions
 patch_model = _dummy_patch_model
 patch_forward = _dummy_patch_forward
 patch_saving_functions = _dummy_patch_saving_functions
 
 try:
-    # Try importing core Unsloth components for 4-bit loading
-    from unsloth import FastLanguageModel as _FastLanguageModel
-    from unsloth import FastVisionModel as _FastVisionModel
+    from unsloth import FastLanguageModel as _FLM, FastVisionModel as _FVM
+    FastLanguageModel, FastVisionModel = _FLM, _FVM
     
-    FastLanguageModel = _FastLanguageModel
-    FastVisionModel = _FastVisionModel
-    
-    # Try to get patching functions (may not exist in newer versions)
-    _patch_functions_found = False
     try:
         from unsloth import patch_forward as _pf, patch_model as _pm, patch_saving_functions as _ps
-        patch_forward = _pf
-        patch_model = _pm
-        patch_saving_functions = _ps
-        _patch_functions_found = True
+        patch_forward, patch_model, patch_saving_functions = _pf, _pm, _ps
     except ImportError:
-        pass
-    
-    if not _patch_functions_found:
-        # Try alternative import paths
         try:
             from unsloth.models.patcher import patch_forward as _pf, patch_model as _pm
             from unsloth.models.loader import patch_saving_functions as _ps
-            patch_forward = _pf
-            patch_model = _pm
-            patch_saving_functions = _ps
-            _patch_functions_found = True
+            patch_forward, patch_model, patch_saving_functions = _pf, _pm, _ps
         except ImportError:
             pass
-    
-    # Mark as available if we got the core components
     UNSLOTH_AVAILABLE = True
-    
-    if not _patch_functions_found:
-        print("  ℹ Unsloth: Using for 4-bit loading (forward patching unavailable in this version)")
-    
 except ImportError:
     pass
 
 
-# ── Dummy modules for testing / CPU-only validation ──────────────────────
-class DummyVisionEncoder(nn.Module):
-    """Tiny vision encoder that mimics ViT output shape."""
+# ── Internal Helpers ──────────────────────────────────────────────────────
 
-    def __init__(
-        self, hidden_size: int = 768, image_size: int = 224, patch_size: int = 16
-    ):
+def _get_target_device_map(config: FastVLAConfig) -> Union[str, Dict]:
+    """Calculate the safest device map for the current environment."""
+    if not torch.cuda.is_available():
+        return "cpu"
+    
+    # If explicit device map is provided, use it
+    if config.device_map not in ["auto", "balanced"]:
+        return config.device_map
+        
+    # On multi-GPU (Kaggle T4 x2), "auto" creates AlignDevicesHook which
+    # crashes Dynamo. We prefer a static mapping to GPU 0 for 4-bit single-process.
+    if config.load_in_4bit:
+        return {"": 0}
+        
+    return config.device_map
+
+
+# ── Dummy modules for testing / CPU-only validation ──────────────────────
+
+class DummyVisionEncoder(nn.Module):
+    def __init__(self, hidden_size: int = 768, **kwargs):
         super().__init__()
         self.config = type("Config", (), {"hidden_size": hidden_size})()
-        self.patch_size = patch_size
-        self.patch_embed = nn.Conv2d(
-            3, hidden_size, kernel_size=patch_size, stride=patch_size
-        )
+        self.patch_embed = nn.Conv2d(3, hidden_size, kernel_size=16, stride=16)
         self.norm = nn.LayerNorm(hidden_size)
-
-    def forward(self, pixel_values, return_dict=False):
-        x = self.patch_embed(pixel_values)  # [B, H, H_out, W_out]
-        b, h, h_out, w_out = x.shape
-        num_patches = h_out * w_out
-
-        # Create positional embedding as a buffer (not parameter) to avoid registration issues
-        if (
-            not hasattr(self, "pos_embed_buf")
-            or self.pos_embed_buf.shape[1] != num_patches
-            or self.pos_embed_buf.device != x.device
-        ):
-            pos_embed = (
-                torch.randn(1, num_patches, h, device=x.device, dtype=x.dtype) * 0.02
-            )
-            self.register_buffer("pos_embed_buf", pos_embed, persistent=False)
-
-        x = x.flatten(2).transpose(1, 2)  # [B, num_patches, H]
-        x = x + self.pos_embed_buf
-        x = self.norm(x)
-        if return_dict:
-            return type("Output", (), {"last_hidden_state": x})()
-        return x
-
+    def forward(self, pixel_values, **kwargs):
+        x = self.patch_embed(pixel_values).flatten(2).transpose(1, 2)
+        return type("Output", (), {"last_hidden_state": self.norm(x)})()
 
 class DummyLanguageModel(nn.Module):
-    """Tiny transformer-like model using MLPs (avoids SDPA bugs on CPU)."""
-
-    def __init__(
-        self,
-        hidden_size: int = 128,
-        num_layers: int = 2,
-        num_heads: int = 4,
-        vocab_size: int = 1000,
-    ):
+    def __init__(self, hidden_size: int = 128, vocab_size: int = 1000, **kwargs):
         super().__init__()
-        self.config = type(
-            "Config",
-            (),
-            {
-                "hidden_size": hidden_size,
-                "num_hidden_layers": num_layers,
-                "vocab_size": vocab_size,
-            },
-        )()
+        self.config = type("Config", (), {"hidden_size": hidden_size, "vocab_size": vocab_size})()
         self.embed_tokens = nn.Embedding(vocab_size, hidden_size)
-        # Simple MLP blocks instead of attention (avoids SDPA issues)
-        layers = []
-        for _ in range(num_layers):
-            layers.append(
-                nn.Sequential(
-                    nn.LayerNorm(hidden_size),
-                    nn.Linear(hidden_size, hidden_size * 4),
-                    nn.GELU(),
-                    nn.Linear(hidden_size * 4, hidden_size),
-                )
-            )
-        self.layers = nn.ModuleList(layers)
-        self.norm = nn.LayerNorm(hidden_size)
-
-    def get_input_embeddings(self):
-        return self.embed_tokens
-
-    def forward(
-        self,
-        input_ids=None,
-        inputs_embeds=None,
-        attention_mask=None,
-        output_hidden_states=True,
-        use_cache=False,
-        **kwargs,
-    ):
-        if inputs_embeds is not None:
-            x = inputs_embeds
-        else:
-            x = self.embed_tokens(input_ids)
-
-        hidden_states_list = [x]
-        for layer in self.layers:
-            x = x + layer(x)
-            hidden_states_list.append(x)
-
-        x = self.norm(x)
-        return type(
-            "Output",
-            (),
-            {
-                "last_hidden_state": x,
-                "hidden_states": tuple(hidden_states_list),
-            },
-        )()
+        self.layer = nn.Linear(hidden_size, hidden_size)
+    def get_input_embeddings(self): return self.embed_tokens
+    def forward(self, inputs_embeds=None, **kwargs):
+        x = self.layer(inputs_embeds)
+        return type("Output", (), {"last_hidden_state": x, "hidden_states": (x,)})()
 
 
 # ── Main model ────────────────────────────────────────────────────────────
-class FastVLAModel(PreTrainedModel):
-    """
-    FastVLA: Flexible Vision-Language-Action model for robotics.
-    Accepts any HuggingFace vision encoder + language model.
-    """
 
+class FastVLAModel(PreTrainedModel):
     config_class = FastVLAConfig
     supports_gradient_checkpointing = True
 
     def __init__(self, config: FastVLAConfig):
         super().__init__(config)
         self.config = config
-        self._device = get_device()
+        
+        # 1. Health Check
+        if not config.dummy:
+            check_environment(require_cuda=config.load_in_4bit)
+            logger.info(f"Initializing FastVLA with {get_gpu_memory_report()}")
 
-        # ── Vision encoder ────────────────────────────────────────────
+        # 2. Vision Encoder
         if config.dummy:
-            self.vision_encoder = DummyVisionEncoder(
-                hidden_size=config.vision_hidden_size,
-                image_size=config.image_size,
-                patch_size=config.patch_size,
-            )
+            self.vision_encoder = DummyVisionEncoder(hidden_size=config.vision_hidden_size)
         else:
-            self.vision_encoder = self._load_vision_encoder(config)
+            self.vision_encoder = self._load_component("vision", config)
 
-        # ── Language model ────────────────────────────────────────────
+        # 3. Language Model
         if config.dummy:
-            self.llm = DummyLanguageModel(
-                hidden_size=config.llm_hidden_size,
-                num_layers=config.llm_num_layers,
-                vocab_size=config.vocab_size,
-            )
-            # Add a placeholder tokenizer for dummy mode to avoid collator failures
+            self.llm = DummyLanguageModel(hidden_size=config.llm_hidden_size, vocab_size=config.vocab_size)
             self._tokenizer = AutoTokenizer.from_pretrained("gpt2")
             self._tokenizer.pad_token = self._tokenizer.eos_token
         else:
-            self.llm = self._load_language_model(config)
+            self.llm = self._load_component("llm", config)
 
-        # ── Synchronize hidden sizes (Auto-detect) ────────────────────
+        # 4. Sync Hidden Sizes
         if not config.dummy:
-            # Update config with actual loaded hidden sizes
-            if hasattr(self.vision_encoder.config, "hidden_size"):
-                config.vision_hidden_size = self.vision_encoder.config.hidden_size
-            elif hasattr(self.vision_encoder.config, "projection_dim"):
-                config.vision_hidden_size = self.vision_encoder.config.projection_dim
-                
-            if hasattr(self.llm.config, "hidden_size"):
-                config.llm_hidden_size = self.llm.config.hidden_size
-            elif hasattr(self.llm.config, "word_embed_proj_dim"):
-                config.llm_hidden_size = self.llm.config.word_embed_proj_dim
+            self._sync_config_with_loaded_models()
 
-        # ── Action head ───────────────────────────────────────────────
-        self.action_head = TritonActionHead(
-            config.llm_hidden_size,
-            config.action_hidden_dim,
-            config.action_dim,
-        )
-
-        # ── Vision → LLM projection ───────────────────────────────────
-        self.vision_proj = nn.Linear(
-            config.vision_hidden_size,
-            config.llm_hidden_size,
-        )
+        # 5. Multimodal Projection & Action Head
+        # Initialize on the same device as the LLM entry point
+        llm_device = next(self.llm.parameters()).device
+        self.vision_proj = nn.Linear(config.vision_hidden_size, config.llm_hidden_size).to(llm_device)
         nn.init.xavier_uniform_(self.vision_proj.weight)
 
-        # ── Optional Unsloth patches (GPU only) ───────────────────────
-        if not config.dummy and UNSLOTH_AVAILABLE and get_device() == "cuda":
-            try:
-                self.llm = patch_model(self.llm)
-                patch_saving_functions()
-                patch_forward(self.llm)
-                if hasattr(self.llm, "to_bettertransformer"):
-                    self.llm = self.llm.to_bettertransformer()
-                if hasattr(self.vision_encoder, "to_bettertransformer"):
-                    self.vision_encoder = self.vision_encoder.to_bettertransformer()
-            except Exception:
-                pass  # Skip Unsloth patches if they fail
+        self.action_head = TritonActionHead(
+            config.llm_hidden_size, config.action_hidden_dim, config.action_dim
+        ).to(llm_device)
 
-        # ── 4-bit quantization flag propagation ───────────────────────
-        # Set on wrapper AND submodules so FastVLATrainer can detect it reliably
+        # 6. Unsloth Optimizations
+        if not config.dummy and UNSLOTH_AVAILABLE and torch.cuda.is_available():
+            self._apply_unsloth_patches()
+
+        # 7. Final Stabilization
         self.is_loaded_in_4bit = config.load_in_4bit
-        if hasattr(self.llm, "is_loaded_in_4bit"):
-            self.llm.is_loaded_in_4bit = config.load_in_4bit
-        if hasattr(self.vision_encoder, "is_loaded_in_4bit"):
-            self.vision_encoder.is_loaded_in_4bit = config.load_in_4bit
-
-        # ── Gradient checkpointing ────────────────────────────────────
         if config.gradient_checkpointing:
             enable_gradient_checkpointing(self)
 
-        # ── Prevent Dynamo / Accelerate Conflicts / Unsloth Crashes ─────
-        # Accelerate's AlignDevicesHook is wrapped in torch.compiler.disable(),
-        # which crashes when called from Unsloth's compiled kernels.
-        # We solve this by removing the hooks from submodules and manually
-        # ensuring they are on the correct device.
-        if not config.dummy:
-            try:
-                from accelerate.hooks import remove_hook_from_module
-                target_device = get_device()
-                
-                # 1. Disable Dynamo for the main forward entry points
-                import torch._dynamo
-                torch._dynamo.disable(self.vision_encoder.forward)
-                torch._dynamo.disable(self.llm.forward)
-                
-                # 2. Remove problematic Accelerate hooks
-                # This is safe because we manually move them to the device below
-                remove_hook_from_module(self.vision_encoder, recurse=True)
-                remove_hook_from_module(self.llm, recurse=True)
-                
-                # 3. Explicitly move to device (essential after removing hooks)
-                # For 4-bit models, this is a no-op if they're already on GPU,
-                # but ensures consistency for non-quantized parts.
-                self.vision_encoder.to(target_device)
-                self.llm.to(target_device)
-                self.vision_proj.to(target_device)
-                self.action_head.to(target_device)
-                
-            except (ImportError, AttributeError):
-                pass
+    def _sync_config_with_loaded_models(self):
+        """Update config attributes to match actual loaded model dimensions."""
+        v_conf = self.vision_encoder.config
+        self.config.vision_hidden_size = getattr(v_conf, "hidden_size", getattr(v_conf, "projection_dim", 768))
+        
+        l_conf = self.llm.config
+        self.config.llm_hidden_size = getattr(l_conf, "hidden_size", getattr(l_conf, "word_embed_proj_dim", 4096))
 
-    # ── Loader helpers ─────────────────────────────────────────────────
-    def _load_vision_encoder(self, config):
-        """Load a HuggingFace vision encoder.
+    def _load_component(self, component_type: str, config: FastVLAConfig):
+        """Unified loader for Model components (Vision/LLM)."""
+        device_map = _get_target_device_map(config)
+        
+        if component_type == "vision":
+            return self._load_vision_encoder_internal(config, device_map)
+        else:
+            return self._load_language_model_internal(config, device_map)
 
-        # ── Path 1: HF + BitsAndBytes (4-bit primary) ─────────────────
-        # We prioritize the standard HuggingFace loader for the vision encoder
-        # because Unsloth's specialized vision kernels (FastVisionModel) 
-        # often conflict with Accelerate hooks, leading to JIT crashes on Kaggle.
+    def _load_vision_encoder_internal(self, config, device_map):
+        # Path 1: Standard HF + BNB (Reliable)
         if config.load_in_4bit:
             try:
                 from transformers import BitsAndBytesConfig
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_use_double_quant=True,
+                bnb_cfg = BitsAndBytesConfig(
+                    load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
+                    bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True
                 )
-                encoder = AutoModel.from_pretrained(
-                    config.vision_encoder_name,
-                    quantization_config=bnb_config,
-                    device_map="auto",
-                    token=config.hf_token,
-                    trust_remote_code=True,
+                return AutoModel.from_pretrained(
+                    config.vision_encoder_name, quantization_config=bnb_cfg,
+                    device_map=device_map, token=config.hf_token, trust_remote_code=True
                 )
-                print(f"  ✓ Loaded vision encoder via standard HF + BNB (4-bit)")
-                return encoder
             except Exception as e:
-                print(f"  ℹ Standard 4-bit load failed, trying Unsloth fallback: {e}")
+                logger.warning(f"Standard 4-bit vision load failed: {e}. Trying Unsloth...")
 
-        # ── Path 2: Unsloth (Fallback/High-performance vision) ─────────
-        # Only use this if standard loading fails or is unavailable.
-        if UNSLOTH_AVAILABLE and get_device() == "cuda":
+        # Path 2: Unsloth Fallback
+        if UNSLOTH_AVAILABLE and torch.cuda.is_available():
             try:
-                encoder = FastVisionModel.from_pretrained(
-                    config.vision_encoder_name,
-                    load_in_4bit=config.load_in_4bit,
-                    token=config.hf_token,
-                    device_map="auto",
-                    torch_dtype=torch.bfloat16,
+                return FastVisionModel.from_pretrained(
+                    config.vision_encoder_name, load_in_4bit=config.load_in_4bit,
+                    device_map=device_map, token=config.hf_token
                 )
-                print(f"  ✓ Loaded vision encoder via Unsloth (FastVisionModel)")
-                return encoder
             except Exception as e:
-                print(f"  ℹ Unsloth: Vision encoder '{config.vision_encoder_name}' load failed: {e}")
-        if config.load_in_4bit:
-            from .optimization import get_quantization_config, BNB_AVAILABLE
-            if not BNB_AVAILABLE:
-                raise ImportError(
-                    "Cannot load vision encoder in 4-bit: neither Unsloth nor bitsandbytes is installed.\n\n"
-                    "Fix — choose one:\n"
-                    "  1. pip install bitsandbytes   (simplest, works on Colab/Kaggle)\n"
-                    "  2. pip install unsloth         (best performance)\n"
-                    "  3. Set load_in_4bit=False       (uses more VRAM)"
-                )
-            bnb_config = get_quantization_config(load_in_4bit=True)
-            print("  ℹ Unsloth not available or failed — using HF BitsAndBytes for 4-bit loading")
-            print("    (Install Unsloth for faster 4-bit inference: pip install unsloth)")
-            return AutoModel.from_pretrained(
-                config.vision_encoder_name,
-                quantization_config=bnb_config,
-                device_map="auto",
-                token=config.hf_token,
-            )
+                logger.error(f"Unsloth vision load failed: {e}")
 
-        # ── Path 3: Standard HF fallback (FP32) ──────────────────────
-        device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
-        print(f"  ℹ Loading vision encoder via HuggingFace (no Unsloth)")
+        # Path 3: FP32 Fallback
         return AutoModel.from_pretrained(
-            config.vision_encoder_name,
-            torch_dtype=torch.float32,
-            device_map=device_map,
-            token=config.hf_token,
+            config.vision_encoder_name, device_map=device_map, token=config.hf_token
         )
 
-    def _load_language_model(self, config):
-        """Load a HuggingFace language model + tokenizer.
-
-        Loading priority:
-        1. Unsloth (best performance, 4-bit or standard)
-        2. HuggingFace + BitsAndBytes (4-bit without Unsloth)
-        3. HuggingFace vanilla (FP32, no quantization)
-        """
-        # ── Path 1: Unsloth (GPU + available) ─────────────────────────
-        if UNSLOTH_AVAILABLE and get_device() == "cuda":
+    def _load_language_model_internal(self, config, device_map):
+        # Path 1: Unsloth (Performance)
+        if UNSLOTH_AVAILABLE and torch.cuda.is_available():
             try:
                 llm, tokenizer = FastLanguageModel.from_pretrained(
-                    model_name=config.llm_name,
-                    max_seq_length=config.max_sequence_length,
-                    dtype=torch.bfloat16,
-                    load_in_4bit=config.load_in_4bit,
-                    token=config.hf_token,
-                    device_map="auto",
-                    rope_scaling={"type": "dynamic", "factor": 2.0},
+                    model_name=config.llm_name, max_seq_length=config.max_sequence_length,
+                    load_in_4bit=config.load_in_4bit, device_map=device_map, token=config.hf_token
                 )
                 self._tokenizer = tokenizer
                 if config.use_peft:
-                    peft_config = get_peft_config(
-                        r=config.lora_rank,
-                        lora_alpha=config.lora_alpha,
-                        lora_dropout=config.lora_dropout,
-                    )
-                    llm = FastLanguageModel.get_peft_model(llm, peft_config)
-                print(f"  ✓ Loaded language model via Unsloth"
-                      f"{' (4-bit QLoRA)' if config.load_in_4bit else ''}")
+                    llm = FastLanguageModel.get_peft_model(llm, get_peft_config(config.lora_rank))
                 return llm
             except Exception as e:
-                print(f"  ℹ Unsloth: Language model '{config.llm_name}' failed to load via FastLanguageModel: {e}")
-                print("    Falling back to standard HuggingFace loader...")
+                logger.warning(f"Unsloth LLM load failed: {e}. Falling back to HF...")
 
-        # ── Path 2: HF + BitsAndBytes (4-bit without Unsloth) ─────────
+        # Path 2: Standard HF
+        from .optimization import get_quantization_config
+        kwargs = {"device_map": device_map, "token": config.hf_token}
         if config.load_in_4bit:
-            from .optimization import get_quantization_config, BNB_AVAILABLE
-            if not BNB_AVAILABLE:
-                raise ImportError(
-                    "Cannot load language model in 4-bit: neither Unsloth nor bitsandbytes is installed.\n\n"
-                    "Fix — choose one:\n"
-                    "  1. pip install bitsandbytes   (simplest, works on Colab/Kaggle)\n"
-                    "  2. pip install unsloth         (best performance)\n"
-                    "  3. Set load_in_4bit=False       (uses more VRAM)"
-                )
-            bnb_config = get_quantization_config(load_in_4bit=True)
-            print("  ℹ Unsloth not available or failed — using HF BitsAndBytes for 4-bit loading")
-            print("    (Install Unsloth for faster 4-bit inference: pip install unsloth)")
-            llm = AutoModelForCausalLM.from_pretrained(
-                config.llm_name,
-                quantization_config=bnb_config,
-                device_map="auto",
-                token=config.hf_token,
-            )
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                config.llm_name,
-                padding_side="right",
-                token=config.hf_token,
-            )
-            if self._tokenizer.pad_token is None:
-                self._tokenizer.pad_token = self._tokenizer.eos_token
-
-            if config.use_peft:
-                from peft import get_peft_model
-                peft_cfg = get_peft_config(
-                    r=config.lora_rank,
-                    lora_alpha=config.lora_alpha,
-                    lora_dropout=config.lora_dropout,
-                )
-                llm = get_peft_model(llm, peft_cfg)
-
-            print(f"  ✓ Loaded language model via BitsAndBytes (4-bit)")
-            return llm
-
-        # ── Path 3: Standard HF fallback (FP32) ──────────────────────
-        device_map = getattr(config, "device_map", "auto") if get_device() == "cuda" else None
-        print(f"  ℹ Loading language model via HuggingFace (no Unsloth)")
-        llm = AutoModelForCausalLM.from_pretrained(
-            config.llm_name,
-            torch_dtype=torch.float32,
-            device_map=device_map,
-            token=config.hf_token,
-        )
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            config.llm_name,
-            padding_side="right",
-            token=config.hf_token,
-        )
+            kwargs["quantization_config"] = get_quantization_config(load_in_4bit=True)
+        
+        llm = AutoModelForCausalLM.from_pretrained(config.llm_name, **kwargs)
+        self._tokenizer = AutoTokenizer.from_pretrained(config.llm_name, token=config.hf_token)
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
-
+            
         if config.use_peft:
             from peft import get_peft_model
-
-            peft_config = get_peft_config(
-                r=config.lora_rank,
-                lora_alpha=config.lora_alpha,
-                lora_dropout=config.lora_dropout,
-            )
-            llm = get_peft_model(llm, peft_config)
-
+            llm = get_peft_model(llm, get_peft_config(config.lora_rank))
         return llm
 
-    # ── Forward pass ───────────────────────────────────────────────────
+    def _apply_unsloth_patches(self):
+        """Safe application of Unsloth patches after model loading."""
+        try:
+            self.llm = patch_model(self.llm)
+            patch_saving_functions()
+            patch_forward(self.llm)
+        except Exception as e:
+            logger.warning(f"Unsloth patching failed (skipping): {e}")
+
     @property
-    def tokenizer(self):
-        return getattr(self, "_tokenizer", None)
+    def tokenizer(self): return getattr(self, "_tokenizer", None)
 
     def forward(self, pixel_values, input_ids, attention_mask=None, labels=None):
-        """
-        Forward pass.
-
-        Args:
-            pixel_values: [B, num_cameras, C, H, W]
-            input_ids:    [B, seq_len]
-            attention_mask: [B, seq_len] or None
-            labels:       [B, action_dim] or None
-
-        Returns:
-            action_preds: [B, action_dim]
-            loss:         scalar or None
-        """
-        num_cameras = pixel_values.size(1)
-        batch_size = pixel_values.size(0)
-
-        # ── Encode each camera view ───────────────────────────────────
+        """Forward pass handles sharded inputs across devices automatically."""
+        # 1. Vision Encoding
         visual_features = []
-        vision_device = next(self.vision_encoder.parameters()).device
-        proj_device = next(self.vision_proj.parameters()).device
-
-        for cam_idx in range(num_cameras):
-            # Move inputs to vision device (usually first GPU)
-            cam_images = pixel_values[:, cam_idx].to(vision_device)
-            vision_out = self.vision_encoder(pixel_values=cam_images, return_dict=True)
-
-            # Project onto LLM space (move outputs to projector device)
+        for cam_idx in range(pixel_values.size(1)):
+            cam_images = pixel_values[:, cam_idx]
+            # Ensure images are on the same device as the first vision layer
+            vision_device = next(self.vision_encoder.parameters()).device
+            vision_out = self.vision_encoder(pixel_values=cam_images.to(vision_device), return_dict=True)
+            
+            # Project onto LLM space (proj is on LLM entry device)
+            proj_device = next(self.vision_proj.parameters()).device
             cam_feats = self.vision_proj(vision_out.last_hidden_state.to(proj_device))
             visual_features.append(cam_feats)
 
-        # Average across cameras (move stack to common device)
-        visual_features = torch.stack(visual_features, dim=0).to(proj_device).mean(dim=0)
+        # Average fusion
+        visual_features = torch.stack(visual_features).mean(dim=0)
 
-        # ── Text embeddings ───────────────────────────────────────────
+        # 2. Text Embed-Fusion
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
+        
+        fused_embeds = vision_language_fusion_forward(visual_features.to(llm_device), text_embeds)
 
-        # ── Fuse visual + text ────────────────────────────────────────
-        visual_features = visual_features.to(llm_device)
-        if visual_features.size(1) != text_embeds.size(1):
-            visual_features = visual_features.mean(dim=1, keepdim=True)
-            visual_features = visual_features.expand(-1, text_embeds.size(1), -1)
+        # 3. LLM Core
+        outputs = self.llm(inputs_embeds=fused_embeds, attention_mask=attention_mask, output_hidden_states=True)
 
-        fused_embeds = vision_language_fusion_forward(visual_features, text_embeds)
-
-        # ── LLM forward ───────────────────────────────────────────────
-        if get_device() == "cuda":
-            with torch.backends.cuda.sdp_kernel(
-                enable_flash=True, enable_math=False, enable_mem_efficient=True
-            ):
-                outputs = self.llm(
-                    inputs_embeds=fused_embeds,
-                    attention_mask=attention_mask,
-                    output_hidden_states=True,
-                    use_cache=False,
-                )
-        else:
-            outputs = self.llm(
-                inputs_embeds=fused_embeds,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                use_cache=False,
-            )
-
-        # ── Pool & predict action ─────────────────────────────────────
-        last_hidden = outputs.hidden_states[-1]
-        pooled = last_hidden.mean(dim=1)
-
-        # Ensure action head receives input on its correct device AND dtype
+        # 4. Action Prediction
         head_device = next(self.action_head.parameters()).device
-        head_dtype = next(self.action_head.parameters()).dtype
-        action_preds = self.action_head(pooled.to(device=head_device, dtype=head_dtype))
+        pooled = outputs.hidden_states[-1].mean(dim=1).to(head_device)
+        action_preds = self.action_head(pooled)
 
-        # ── Loss ──────────────────────────────────────────────────────
+        # 5. Loss
         loss = None
         if labels is not None:
-            labels = labels.to(head_device)
-            
-            # Validate shapes match
-            if action_preds.shape != labels.shape:
-                # Handle shape mismatch - this can happen in distributed training
-                # if different processes have different batch compositions
-                if action_preds.shape[0] != labels.shape[0]:
-                    # Batch size mismatch - take minimum
-                    min_batch = min(action_preds.shape[0], labels.shape[0])
-                    action_preds = action_preds[:min_batch]
-                    labels = labels[:min_batch]
-                
-                # If action dimension mismatch, try to fix or raise informative error
-                if action_preds.shape[1] != labels.shape[1]:
-                    raise ValueError(
-                        f"Action dimension mismatch: model predicts {action_preds.shape[1]} dims "
-                        f"but labels have {labels.shape[1]} dims. "
-                        f"Ensure your dataset's action dimensions match the model's action_dim config "
-                        f"(model action_dim={self.config.action_dim}). "
-                        f"Batch shape: {action_preds.shape}, Labels shape: {labels.shape}"
-                    )
-            
+            labels = labels.to(device=head_device, dtype=action_preds.dtype)
             loss = nn.MSELoss()(action_preds, labels)
 
         return action_preds, loss
 
-    def generate(self, images, input_ids, **kwargs):
-        """Generate actions from images and text."""
-        action_preds, _ = self(images, input_ids)
-        return action_preds
-
-    # ── High-level loader ──────────────────────────────────────────────
     @classmethod
-    def from_pretrained(
-        cls,
-        model_name: Optional[str] = None,
-        vision_encoder_name: Optional[str] = None,
-        llm_name: Optional[str] = None,
-        config: Optional[FastVLAConfig] = None,
-        dummy: bool = False,
-        load_in_4bit: bool = False,
-        max_seq_length: int = 2048,
-        gradient_checkpointing: bool = True,
-        use_peft: bool = False,
-        lora_rank: int = 16,
-        lora_alpha: int = 32,
-        lora_dropout: float = 0.05,
-        token: Optional[str] = None,
-        device_map: str = "auto",
-        **kwargs,
-    ):
-        """
-        Load a FastVLA model.
-
-        Set `dummy=True` for a tiny random-weight model (fast testing / CPU).
-        Otherwise downloads real models from HuggingFace.
-        """
-        if config is None:
-            config = FastVLAConfig(
-                vision_encoder_name=vision_encoder_name
-                or "google/vit-base-patch16-224",
-                llm_name=llm_name or "meta-llama/Llama-2-7b-hf",
-                max_sequence_length=max_seq_length,
-                load_in_4bit=load_in_4bit,
-                use_peft=use_peft,
-                lora_rank=lora_rank,
-                lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout,
-                gradient_checkpointing=gradient_checkpointing,
-                hf_token=token,
-                dummy=dummy,
-                device_map=device_map,
-                **kwargs,
-            )
-
-        model = cls(config)
-
-        if gradient_checkpointing and not dummy:
-            enable_gradient_checkpointing(model)
-
-        # Print a clear summary of what was loaded
-        _print_load_summary(model, config)
-
-        return model
-
-
-def _print_load_summary(model: "FastVLAModel", config: FastVLAConfig) -> None:
-    """Print a clear summary of the loaded model configuration."""
-    quant_info = "4-bit QLoRA" if config.load_in_4bit else "Full precision (FP32/FP16)"
-    lora_info = f"enabled (rank={config.lora_rank}, alpha={config.lora_alpha})" if config.use_peft else "disabled"
-    ckpt_info = "enabled" if config.gradient_checkpointing and not config.dummy else "disabled"
-
-    vram_used = "N/A"
-    if torch.cuda.is_available():
-        vram_used = f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB"
-
-    print("\n" + "=" * 60)
-    print("FastVLA Model Loaded Successfully")
-    print("=" * 60)
-    print(f"  Model:             {config.llm_name}")
-    print(f"  Vision encoder:    {config.vision_encoder_name}")
-    print(f"  Quantization:      {quant_info}")
-    print(f"  LoRA:              {lora_info}")
-    print(f"  Gradient ckpt:     {ckpt_info}")
-    print(f"  VRAM used:         {vram_used}")
-    print("=" * 60 + "\n")
+    def from_pretrained(cls, **kwargs):
+        """Compatible entry point for loading models."""
+        config = FastVLAConfig(**kwargs)
+        return cls(config)

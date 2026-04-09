@@ -403,7 +403,7 @@ class TestEndToEndTraining(unittest.TestCase):
                 if i == 0 or i == 2:  # sync_gradients should fire
                     print(f"  Step {i+1}: loss={metrics['loss']:.4f}")
             
-            print(f"✅ PASS: Gradient accumulation worked")
+            print("✅ PASS: Gradient accumulation worked")
             
         except Exception as e:
             print(f"❌ FAIL: {e}")
@@ -446,7 +446,7 @@ class TestEndToEndTraining(unittest.TestCase):
                 state = json.load(f)
             self.assertEqual(state["global_step"], 1)
             
-            print(f"✅ PASS: Checkpoint saved and verified")
+            print("✅ PASS: Checkpoint saved and verified")
             
         except Exception as e:
             print(f"❌ FAIL: {e}")
@@ -515,7 +515,7 @@ class TestDataCollatorRobustness(unittest.TestCase):
         
         try:
             batch = collator(features)
-            print(f"❌ FAIL: Should have raised ValueError for missing images")
+            print("❌ FAIL: Should have raised ValueError for missing images")
             self.fail("Should have raised ValueError")
         except ValueError as e:
             if "missing required keys" in str(e):
@@ -552,7 +552,7 @@ class TestDataCollatorRobustness(unittest.TestCase):
             self.assertIn("attention_mask", batch)
             self.assertIn("pixel_values", batch)
             self.assertIn("labels", batch)
-            print(f"✅ PASS: Fallback text handled correctly")
+            print("✅ PASS: Fallback text handled correctly")
         except Exception as e:
             print(f"❌ FAIL: {e}")
             raise
@@ -581,11 +581,11 @@ class TestDataCollatorRobustness(unittest.TestCase):
         
         try:
             batch = collator(features)
-            print(f"❌ FAIL: Should have raised ValueError for inconsistent actions")
+            print("❌ FAIL: Should have raised ValueError for inconsistent actions")
             self.fail("Should have raised ValueError")
         except ValueError as e:
             if "Inconsistent action dimensions" in str(e):
-                print(f"✅ PASS: Correctly caught inconsistent actions")
+                print("✅ PASS: Correctly caught inconsistent actions")
             else:
                 print(f"❌ FAIL: Wrong error: {e}")
                 raise
@@ -612,7 +612,7 @@ class TestKernelOperations(unittest.TestCase):
             with torch.no_grad():
                 output = head(x)
             self.assertEqual(output.shape, (2, 7))
-            print(f"✅ PASS: TritonActionHead FP16 forward")
+            print("✅ PASS: TritonActionHead FP16 forward")
         except RuntimeError as e:
             if "dtype" in str(e).lower():
                 print(f"❌ FAIL (KNOWN BUG): {e}")
@@ -637,7 +637,7 @@ class TestKernelOperations(unittest.TestCase):
         try:
             grads = action_decode_backward(grad_output, hidden, weight1, bias1, weight2, bias2)
             self.assertEqual(len(grads), 5)
-            print(f"✅ PASS: action_decode_backward FP16")
+            print("✅ PASS: action_decode_backward FP16")
         except Exception as e:
             print(f"❌ FAIL: {e}")
             raise
@@ -656,7 +656,7 @@ class TestKernelOperations(unittest.TestCase):
         try:
             output = vision_language_fusion_forward(visual, text)
             self.assertEqual(output.shape, (2, 100, 128))
-            print(f"✅ PASS: Fusion mixed dtypes")
+            print("✅ PASS: Fusion mixed dtypes")
         except Exception as e:
             print(f"❌ FAIL: {e}")
             raise
@@ -683,7 +683,7 @@ class TestOptimizerCompatibility(unittest.TestCase):
             loss = torch.tensor(1.0, requires_grad=True)
             loss.backward()
             optimizer.step()
-            print(f"✅ PASS: Standard AdamW with FP16 model")
+            print("✅ PASS: Standard AdamW with FP16 model")
         except Exception as e:
             print(f"❌ FAIL: {e}")
             raise
@@ -706,7 +706,7 @@ class TestOptimizerCompatibility(unittest.TestCase):
             loss.backward()
             optimizer.step()
             
-            print(f"✅ PASS: 8-bit optimizer with standard model")
+            print("✅ PASS: 8-bit optimizer with standard model")
         except Exception as e:
             print(f"❌ FAIL: {e}")
             raise
