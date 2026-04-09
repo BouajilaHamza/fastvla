@@ -269,17 +269,36 @@ class FastVLAModel(PreTrainedModel):
                 raise e
 
         def _extract_vision_only(model):
-            """Surgical extraction of the vision encoder from composite CLIP/SigLIP models."""
-            # 1. SigLIP / CLIP standard
-            if hasattr(model, "vision_model"):
-                logger.info("Extracted '.vision_model' from composite SigLIP/CLIP backbone.")
-                return model.vision_model
-            # 2. Some older or custom implementations
-            if hasattr(model, "model") and hasattr(model.model, "visual"):
-                logger.info("Extracted '.model.visual' from custom backbone.")
-                return model.model.visual
-            # 3. If already a vision-only model (like ViT), return as-is
-            return model
+            """Surgical extraction of the vision encoder from composite models across quantization/PEFT wrappers."""
+            # 0. Recursive Unwrap (PEFT/BitsAndBytes/Accelerate)
+            current = model
+            for _ in range(3): # Depth limit
+                if hasattr(current, "base_model") and current.base_model != current:
+                    current = current.base_model
+                elif hasattr(current, "model") and current.model != current:
+                    # Caution: some SigLIP models have .model.visual, handle carefully
+                    if not hasattr(current.model, "visual"):
+                        current = current.model
+                else:
+                    break
+
+            # 1. Exhaustive Path Search
+            # Order: Large VLMs (Llava) -> Standard Backbones (SigLIP/CLIP) -> Custom
+            for attr in ["vision_tower", "vision_model", "visual", "vision"]:
+                if hasattr(current, attr):
+                    sub = getattr(current, attr)
+                    # Double-check for nested vision_tower (some OpenVLA sharded variants)
+                    if attr == "vision_tower" and hasattr(sub, "vision_tower"):
+                        sub = sub.vision_tower
+                    logger.info(f"Extracted '.{attr}' from composite backbone ({current.__class__.__name__}).")
+                    return sub
+            
+            # 2. Class-name based validation
+            class_name = current.__class__.__name__.lower()
+            if "vision" in class_name or "vit" in class_name or "siglip" in class_name:
+                return current
+                
+            return current
 
         # 1. Main Path
         try:
@@ -302,7 +321,8 @@ class FastVLAModel(PreTrainedModel):
             # Path 3: Component Recovery Path (Hardcoded mappings for common problematic VLMs)
             if "openvla" in model_id.lower():
                 logger.info("OpenVLA identified. Extracting SigLIP vision backbone...")
-                model = _attempt_load("google/siglip-so400m-patch14-224", use_4bit=config.load_in_4bit)
+                # OpenVLA uses 384px SigLIP SO-400M by default
+                model = _attempt_load("google/siglip-so400m-patch14-384", use_4bit=config.load_in_4bit)
                 return _extract_vision_only(model)
             
             # Path 4: Final desperation - try loading as base if it was sharded
@@ -362,9 +382,18 @@ class FastVLAModel(PreTrainedModel):
         visual_features = []
         for cam_idx in range(pixel_values.size(1)):
             cam_images = pixel_values[:, cam_idx]
+            
+            # JIT Safety: If we somehow still have a composite model (e.g. SiglipModel), 
+            # don't call it directly as it will demand input_ids.
+            actual_encoder = self.vision_encoder
+            if hasattr(actual_encoder, "vision_model") and not hasattr(actual_encoder, "pixel_values"):
+                actual_encoder = actual_encoder.vision_model
+            elif hasattr(actual_encoder, "vision_tower"):
+                actual_encoder = actual_encoder.vision_tower
+
             # Ensure images are on the same device as the first vision layer
-            vision_device = next(self.vision_encoder.parameters()).device
-            vision_out = self.vision_encoder(pixel_values=cam_images.to(vision_device), return_dict=True)
+            vision_device = next(actual_encoder.parameters()).device
+            vision_out = actual_encoder(pixel_values=cam_images.to(vision_device), return_dict=True)
             
             # Project onto LLM space (proj is on LLM entry device)
             proj_device = next(self.vision_proj.parameters()).device
