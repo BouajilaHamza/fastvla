@@ -37,20 +37,33 @@ class UnslothVLACollator:
 
         # ── Handle images: stack into [B, num_cams, C, H, W] ─────────
         if "images" in features[0]:
-            # Collect all unique camera keys preserving order
-            camera_keys = []
-            for feature in features:
-                for cam in feature["images"]:
-                    if cam not in camera_keys:
-                        camera_keys.append(cam)
+            is_dict = isinstance(features[0]["images"], dict)
+            
+            if is_dict:
+                # Collect all unique camera keys preserving order
+                camera_keys = []
+                for feature in features:
+                    for cam_key in feature["images"]:
+                        if cam_key not in camera_keys:
+                            camera_keys.append(cam_key)
+                
+                # Stack: [B, num_cams, C, H, W]
+                cam_images = []
+                for feature in features:
+                    cam_list = [feature["images"].get(k, torch.zeros(3, 224, 224)) for k in camera_keys]
+                    cam_images.append(torch.stack(cam_list, dim=0))
+            else:
+                # Assume list of images
+                max_cams = max(len(f["images"]) for f in features)
+                cam_images = []
+                for feature in features:
+                    imgs = [torch.as_tensor(img) for img in feature["images"]]
+                    # Pad with zeros if necessary
+                    while len(imgs) < max_cams:
+                        imgs.append(torch.zeros(3, 224, 224))
+                    cam_images.append(torch.stack(imgs[:max_cams], dim=0))
 
-            # Stack: [B, num_cams, C, H, W]
-            cam_images = []
-            for feature in features:
-                cam_list = [feature["images"].get(cam, torch.zeros(3, 224, 224)) for cam in camera_keys]
-                cam_images.append(torch.stack(cam_list, dim=0))  # [num_cams, C, H, W]
-
-            batch["pixel_values"] = torch.stack(cam_images, dim=0)  # [B, num_cams, C, H, W]
+            batch["pixel_values"] = torch.stack(cam_images, dim=0)
 
         # ── Handle states ────────────────────────────────────────────
         if "states" in features[0]:

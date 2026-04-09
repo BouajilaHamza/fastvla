@@ -1,6 +1,6 @@
 """FastVLA: Efficient Vision-Language-Action Models for Robotics."""
 
-__version__ = "0.1.4"
+__version__ = "0.1.6"
 
 from .model import FastVLAModel
 from .config import FastVLAConfig
