@@ -113,6 +113,11 @@ class FastVLATrainer:
         self.global_step = 0
         self.training_history = []
 
+    @property
+    def device(self):
+        """Main device for the trainer."""
+        return self.accelerator.device
+
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
         
