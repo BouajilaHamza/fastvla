@@ -43,9 +43,11 @@ class FastVLAConfig(PretrainedConfig):
         lora_dropout: float = 0.05,
         # Memory
         gradient_checkpointing: bool = True,
+        device_map: str = "auto",
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.device_map = device_map
         self.vision_encoder_name = vision_encoder_name
         self.llm_name = llm_name
         self.hf_token = hf_token
