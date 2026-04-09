@@ -279,17 +279,34 @@ class FastVLAModel(PreTrainedModel):
         if config.gradient_checkpointing:
             enable_gradient_checkpointing(self)
 
-        # ── Prevent Dynamo / Accelerate Conflicts ─────────────────────
-        # Unsloth often triggers torch.compile which conflicts with 
-        # Accelerate's AlignDevicesHook (wrapped in torch.compiler.disable).
-        # We explicitly disable Dynamo for the submodules to avoid this.
+        # ── Prevent Dynamo / Accelerate Conflicts / Unsloth Crashes ─────
+        # Accelerate's AlignDevicesHook is wrapped in torch.compiler.disable(),
+        # which crashes when called from Unsloth's compiled kernels.
+        # We solve this by removing the hooks from submodules and manually
+        # ensuring they are on the correct device.
         if not config.dummy:
             try:
+                from accelerate.hooks import remove_hook_from_module
+                target_device = get_device()
+                
+                # 1. Disable Dynamo for the main forward entry points
                 import torch._dynamo
                 torch._dynamo.disable(self.vision_encoder.forward)
                 torch._dynamo.disable(self.llm.forward)
-                torch._dynamo.disable(self.vision_proj.forward)
-                torch._dynamo.disable(self.action_head.forward)
+                
+                # 2. Remove problematic Accelerate hooks
+                # This is safe because we manually move them to the device below
+                remove_hook_from_module(self.vision_encoder, recurse=True)
+                remove_hook_from_module(self.llm, recurse=True)
+                
+                # 3. Explicitly move to device (essential after removing hooks)
+                # For 4-bit models, this is a no-op if they're already on GPU,
+                # but ensures consistency for non-quantized parts.
+                self.vision_encoder.to(target_device)
+                self.llm.to(target_device)
+                self.vision_proj.to(target_device)
+                self.action_head.to(target_device)
+                
             except (ImportError, AttributeError):
                 pass
 
@@ -297,12 +314,33 @@ class FastVLAModel(PreTrainedModel):
     def _load_vision_encoder(self, config):
         """Load a HuggingFace vision encoder.
 
-        Loading priority:
-        1. Unsloth (best performance, 4-bit or standard)
-        2. HuggingFace + BitsAndBytes (4-bit without Unsloth)
-        3. HuggingFace vanilla (FP32, no quantization)
-        """
-        # ── Path 1: Unsloth (GPU + available) ─────────────────────────
+        # ── Path 1: HF + BitsAndBytes (4-bit primary) ─────────────────
+        # We prioritize the standard HuggingFace loader for the vision encoder
+        # because Unsloth's specialized vision kernels (FastVisionModel) 
+        # often conflict with Accelerate hooks, leading to JIT crashes on Kaggle.
+        if config.load_in_4bit:
+            try:
+                from transformers import BitsAndBytesConfig
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                )
+                encoder = AutoModel.from_pretrained(
+                    config.vision_encoder_name,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                    token=config.hf_token,
+                    trust_remote_code=True,
+                )
+                print(f"  ✓ Loaded vision encoder via standard HF + BNB (4-bit)")
+                return encoder
+            except Exception as e:
+                print(f"  ℹ Standard 4-bit load failed, trying Unsloth fallback: {e}")
+
+        # ── Path 2: Unsloth (Fallback/High-performance vision) ─────────
+        # Only use this if standard loading fails or is unavailable.
         if UNSLOTH_AVAILABLE and get_device() == "cuda":
             try:
                 encoder = FastVisionModel.from_pretrained(
@@ -312,14 +350,10 @@ class FastVLAModel(PreTrainedModel):
                     device_map="auto",
                     torch_dtype=torch.bfloat16,
                 )
-                print(f"  ✓ Loaded vision encoder via Unsloth"
-                      f"{' (4-bit QLoRA)' if config.load_in_4bit else ''}")
+                print(f"  ✓ Loaded vision encoder via Unsloth (FastVisionModel)")
                 return encoder
             except Exception as e:
-                print(f"  ℹ Unsloth: Vision encoder '{config.vision_encoder_name}' failed to load via FastVisionModel: {e}")
-                print("    Falling back to standard HuggingFace loader...")
-
-        # ── Path 2: HF + BitsAndBytes (4-bit without Unsloth) ─────────
+                print(f"  ℹ Unsloth: Vision encoder '{config.vision_encoder_name}' load failed: {e}")
         if config.load_in_4bit:
             from .optimization import get_quantization_config, BNB_AVAILABLE
             if not BNB_AVAILABLE:
