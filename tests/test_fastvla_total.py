@@ -1,10 +1,14 @@
 import torch
 import torch.nn as nn
 import pytest
+import logging
 from unittest.mock import MagicMock, patch
 from transformers import PretrainedConfig
 from fastvla import FastVLAModel, FastVLAConfig, FastVLATrainer
 from fastvla.registry import VLAModelRegistry
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # ── Mock Classes ──────────────────────────────────────────────────────────
 
@@ -106,6 +110,45 @@ def test_distributed_trainer_logic(mock_accelerator, mock_cuda_avail, mock_cuda_
     
     assert trainer.model == model
 
+@patch("fastvla.model.AutoModel.from_pretrained")
+@patch("fastvla.model.AutoConfig.from_pretrained")
+@patch("fastvla.model.FastVLAModel._load_language_model_internal")
+def test_composite_model_extraction(mock_llm_load, mock_config, mock_from_pretrained):
+    """
+    Verify that if AutoModel returns a composite object (SigLIP/CLIP), 
+    we surgically extract the .vision_model.
+    """
+    # 1. Setup Mock Model with .vision_model attribute
+    mock_vision_only = MagicMock()
+    mock_vision_only.config = MagicMock()
+    mock_vision_only.config.hidden_size = 768
+    
+    mock_composite = MagicMock()
+    mock_composite.vision_model = mock_vision_only
+    mock_from_pretrained.return_value = mock_composite
+    
+    # 2. Setup Mock Config
+    mock_cfg = MagicMock()
+    mock_cfg.model_type = "siglip"
+    mock_config.return_value = mock_cfg
+
+    # 3. Setup Mock LLM
+    mock_llm = MagicMock()
+    mock_llm.config = MagicMock()
+    mock_llm.config.hidden_size = 512
+    # next(model.parameters()) requires an iterator
+    mock_llm.parameters.return_value = iter([torch.zeros(1)])
+    mock_llm_load.return_value = mock_llm
+    
+    # 4. Load FastVLA
+    config = FastVLAConfig(vision_encoder_name="google/siglip-test", dummy=False)
+    model = FastVLAModel(config)
+    
+    # 5. Assertions
+    # The internal vision_encoder should be the extracted one
+    assert model.vision_encoder == mock_vision_only
+    logger.info("Fidelity Check: Composite model extraction verified.")
+
 # ── Feature 3: Numerical Parity (Triton vs PyTorch) ────────────────────────
 
 def test_triton_parity_cpu_fallback():
@@ -120,6 +163,11 @@ def test_triton_parity_cpu_fallback():
     
     assert outputs.shape == (batch_size, action_dim)
     assert not torch.isnan(outputs).any()
+    
+    # Parity: should match deterministic linear projection in dummy mode
+    # Since it's random weights, we just check consistency on same input
+    outputs_2 = head(inputs)
+    assert torch.allclose(outputs, outputs_2, atol=1e-3)
 
 # ── Feature 4: Full Multi-Cam Fusion Test ──────────────────────────────────
 

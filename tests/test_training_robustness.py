@@ -33,16 +33,16 @@ class TestShapeValidation:
             model=model,
             dataset=dataset,
             max_steps=1,
+            logging_steps=1,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
         )
 
-        # Get one batch from internal dataloader
+        # Verify that mismatched dimensions are handled (Warning is printed, but it shouldn't crash)
+        # In v0.1.7, the collator auto-updates with a warning for better flexibility
         batch = next(iter(trainer.train_dataloader))
-
-        # This should raise a ValueError with informative message
-        with pytest.raises(ValueError, match="Action dimension mismatch"):
-            trainer.train_step(batch)
+        assert batch["labels"].shape[-1] == 2
+        assert trainer.train_dataloader.collate_fn.action_dim == 2
 
     def test_batch_size_handling(self):
         """Test that batch size variations are handled properly."""
@@ -68,6 +68,7 @@ class TestShapeValidation:
                 dataset=dataset,
                 batch_size=batch_size,
                 max_steps=1,
+                logging_steps=1,
                 use_8bit_optimizer=False,
                 use_mixed_precision=False,
             )
@@ -99,12 +100,13 @@ class TestShapeValidation:
             dataset=dataset,
             batch_size=1,
             max_steps=2,
+            logging_steps=1,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
         )
 
         history = trainer.train()
-        assert len(history) > 0
+        assert len(history) >= 2
 
 
 class TestCollatorValidation:
@@ -131,7 +133,7 @@ class TestCollatorValidation:
             },
         ]
 
-        with pytest.raises(ValueError, match="Inconsistent action dimensions"):
+        with pytest.raises(ValueError, match="Inconsistent action dimensions in batch"):
             collator(features)
 
     def test_scalar_action_handling(self):
@@ -213,6 +215,7 @@ class TestGradientAccumulation:
             dataset=dataset,
             batch_size=2,
             max_steps=4,
+            logging_steps=1,
             gradient_accumulation_steps=2,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
@@ -220,7 +223,7 @@ class TestGradientAccumulation:
 
         # Run training
         history = trainer.train()
-        assert len(history) > 0
+        assert len(history) >= 4
         assert trainer.global_step == 4
 
 
@@ -251,7 +254,9 @@ class TestDistributedTrainingSimulation:
             trainer = FastVLATrainer(
                 model=model,
                 dataset=dataset,
+                batch_size=2,
                 max_steps=2,
+                logging_steps=1,
                 use_8bit_optimizer=False,
                 use_mixed_precision=False,
             )
@@ -283,6 +288,7 @@ class TestDistributedTrainingSimulation:
             model=model,
             dataset=dataset,
             max_steps=1,
+            logging_steps=1,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
         )
@@ -318,6 +324,7 @@ class TestEdgeCases:
             model=model,
             dataset=dataset,
             max_steps=1,
+            logging_steps=1,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
         )
@@ -359,6 +366,7 @@ class TestEdgeCases:
             model=model,
             dataset=dataset,
             max_steps=1,
+            logging_steps=1,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
         )
@@ -391,6 +399,7 @@ class TestEdgeCases:
             model=model,
             dataset=dataset,
             max_steps=1,
+            logging_steps=1,
             use_8bit_optimizer=False,
             use_mixed_precision=False,
         )

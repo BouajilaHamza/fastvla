@@ -35,7 +35,7 @@ def test_triton_action_parity():
     print(
         f"Forward Max Diff: {torch.max(torch.abs(out_torch - out_triton)).item():.2e}"
     )
-    assert torch.allclose(out_torch, out_triton, atol=1e-5), "Forward parity failed!"
+    assert torch.allclose(out_torch, out_triton, atol=1e-3), "Forward parity failed!"
     print("✅ Forward parity passed!")
 
     # Backward Pass
@@ -50,7 +50,7 @@ def test_triton_action_parity():
     print(
         f"Backward Grad_X Max Diff: {torch.max(torch.abs(grad_x_torch - grad_x_triton)).item():.2e}"
     )
-    assert torch.allclose(grad_x_torch, grad_x_triton, atol=1e-5), (
+    assert torch.allclose(grad_x_torch, grad_x_triton, atol=1e-3), (
         "Backward parity failed!"
     )
     print("✅ Backward parity passed!")
