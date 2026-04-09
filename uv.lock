@@ -590,7 +590,7 @@ wheels = [
 
 [[package]]
 name = "fastvla"
-version = "0.1.6"
+version = "0.1.7.2"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },

@@ -1,0 +1,163 @@
+warning: The `extra-build-dependencies` option is experimental and may change without warning. Pass `--preview-features extra-build-dependencies` to disable this warning.
+
+============================================================
+FastVLA Health Check
+============================================================
+  PyTorch:    2.11.0+cu130
+  CUDA:       N/A
+  Device:     N/A
+  Unsloth:    ✗ Missing
+  BnB:        ✓ Available
+  Triton:     ✓ Available
+============================================================
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.11, pytest-9.0.2, pluggy-1.6.0 -- /system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /teamspace/studios/this_studio/research/FastVLA
+configfile: pytest.ini
+plugins: anyio-4.11.0, cov-7.1.0
+collecting ... collected 1 item
+
+tests/test_siglip_loading.py::test_siglip_surgical_extraction 
+============================================================
+FastVLA Health Check
+============================================================
+  PyTorch:    2.11.0+cu130
+  CUDA:       N/A
+  Device:     N/A
+  Unsloth:    ✗ Missing
+  BnB:        ✓ Available
+  Triton:     ✓ Available
+============================================================
+
+FAILED
+
+=================================== FAILURES ===================================
+_______________________ test_siglip_surgical_extraction ________________________
+Traceback (most recent call last):
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 353, in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 245, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/logging.py", line 850, in pytest_runtest_call
+    yield
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 53, in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_result.py", line 103, in get_result
+    raise exc.with_traceback(tb)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 38, in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/capture.py", line 900, in pytest_runtest_call
+    return (yield)
+            ^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/skipping.py", line 268, in pytest_runtest_call
+    return (yield)
+            ^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 179, in pytest_runtest_call
+    item.runtest()
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/python.py", line 1720, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/_pytest/python.py", line 166, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/teamspace/studios/this_studio/research/FastVLA/tests/test_siglip_loading.py", line 65, in test_siglip_surgical_extraction
+    model(pixel_values=pixel_values, input_ids=input_ids)
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/teamspace/studios/this_studio/research/FastVLA/fastvla/model.py", line 418, in forward
+    action_preds = self.action_head(pooled)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/teamspace/studios/this_studio/research/FastVLA/fastvla/kernels/action_head.py", line 67, in forward
+    w1, b1 = self.weight1.to(dtype), self.bias1.to(dtype)
+             ^^^^^^^^^^^^^^^^^^^^^^
+TypeError: to() received an invalid combination of arguments - got (MagicMock), but expected one of:
+ * (torch.device device = None, torch.dtype dtype = None, bool non_blocking = False, bool copy = False, *, torch.memory_format memory_format = None)
+ * (torch.dtype dtype, bool non_blocking = False, bool copy = False, *, torch.memory_format memory_format = None)
+ * (Tensor tensor, bool non_blocking = False, bool copy = False, *, torch.memory_format memory_format = None)
+
+=============================== warnings summary ===============================
+../../../../../system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/torch/jit/_script.py:365: 14 warnings
+  /system/conda/miniconda3/uv/venvs/cd4f1dfb9dd5085b16b69634cf1a7445/.venv/lib/python3.12/site-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.11-final-0 _______________
+
+Name                               Stmts   Miss  Cover   Missing
+----------------------------------------------------------------
+fastvla/__init__.py                   20      2    90%   40-41
+fastvla/adapters/__init__.py           2      2     0%   3-10
+fastvla/adapters/action_head.py       79     79     0%   2-174
+fastvla/adapters/llm.py               31     31     0%   2-82
+fastvla/adapters/vision.py            58     58     0%   8-158
+fastvla/benchmarking.py              141    117    17%   25-26, 37-66, 75-79, 88-117, 138-165, 195-226, 242-248, 256, 275-284, 294-307, 312-337, 341
+fastvla/config.py                     32      0   100%
+fastvla/data/__init__.py               3      0   100%
+fastvla/data/collator.py              64     52    19%   36-138
+fastvla/data/datasets.py              80     60    25%   35-44, 48, 53-62, 65, 69-85, 93-114, 122-140, 148-168, 177-197
+fastvla/exceptions.py                 10      0   100%
+fastvla/kernels/__init__.py           52     28    46%   21-25, 36-47, 63, 73-79, 84, 89-91, 102-104, 116-120
+fastvla/kernels/action.py             68     61    10%   42-91, 109-158, 167-194
+fastvla/kernels/action_head.py        46     22    52%   14-26, 30-40, 68-75
+fastvla/kernels/cpu_fallbacks.py      21     12    43%   8, 25-35, 39-40
+fastvla/kernels/fusion.py             81     81     0%   6-195
+fastvla/kernels/multicam.py           48     48     0%   1-210
+fastvla/model.py                     270    131    51%   40-52, 65-75, 82-85, 87-88, 92-95, 98-99, 119, 125-127, 147, 151, 164-187, 202-205, 212-213, 234-242, 252-257, 265-269, 277, 280-281, 292, 297-301, 307-334, 339-349, 355, 360, 363-364, 369-374, 390, 392, 421-426, 438-452
+fastvla/optimization.py               87     57    34%   17-18, 31-42, 57-81, 93-94, 106-111, 121, 131-132, 136-139, 143-145, 149, 160-172, 198-221, 246-264
+fastvla/registry.py                   75     10    87%   30, 50, 63, 74, 92, 237, 242, 247, 252, 257
+fastvla/training.py                  149    129    13%   53-114, 119, 122-144, 147-155, 160-180, 184-229, 232-262
+fastvla/utils.py                      48     12    75%   16-20, 45, 52-53, 58-59, 63, 68, 87
+----------------------------------------------------------------
+TOTAL                               1465    992    32%
+=========================== short test summary info ============================
+FAILED tests/test_siglip_loading.py::test_siglip_surgical_extraction - TypeError: to() received an invalid combination of arguments - got (MagicMock), but expected one of:
+ * (torch.device device = None, torch.dtype dtype = None, bool non_blocking = False, bool copy = False, *, torch.memory_format memory_format = None)
+ * (torch.dtype dtype, bool non_blocking = False, bool copy = False, *, torch.memory_format memory_format = None)
+ * (Tensor tensor, bool non_blocking = False, bool copy = False, *, torch.memory_format memory_format = None)
+======================== 1 failed, 14 warnings in 0.36s ========================

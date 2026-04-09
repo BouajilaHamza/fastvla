@@ -272,31 +272,46 @@ class FastVLAModel(PreTrainedModel):
             """Surgical extraction of the vision encoder from composite models across quantization/PEFT wrappers."""
             # 0. Recursive Unwrap (PEFT/BitsAndBytes/Accelerate)
             current = model
-            for _ in range(3): # Depth limit
+            for _ in range(5): # Increased depth limit
                 if hasattr(current, "base_model") and current.base_model != current:
                     current = current.base_model
                 elif hasattr(current, "model") and current.model != current:
                     # Caution: some SigLIP models have .model.visual, handle carefully
-                    if not hasattr(current.model, "visual"):
+                    if not hasattr(current.model, "visual") and not hasattr(current.model, "vision_model"):
                         current = current.model
+                    else:
+                        break
                 else:
                     break
 
-            # 1. Exhaustive Path Search
-            # Order: Large VLMs (Llava) -> Standard Backbones (SigLIP/CLIP) -> Custom
-            for attr in ["vision_tower", "vision_model", "visual", "vision"]:
-                if hasattr(current, attr):
-                    sub = getattr(current, attr)
-                    # Double-check for nested vision_tower (some OpenVLA sharded variants)
-                    if attr == "vision_tower" and hasattr(sub, "vision_tower"):
-                        sub = sub.vision_tower
-                    logger.info(f"Extracted '.{attr}' from composite backbone ({current.__class__.__name__}).")
-                    return sub
+            # 1. Exhaustive Deep Path Search
+            # We look for common vision encoder attribute names recursively
+            def _find_vision_sub(obj, depth=0):
+                if depth > 2: return None
+                for attr in ["vision_tower", "vision_model", "visual", "vision"]:
+                    if hasattr(obj, attr):
+                        sub = getattr(obj, attr)
+                        # OpenVLA/SigLIP specific check
+                        if attr == "vision_tower" and hasattr(sub, "vision_tower"):
+                            return sub.vision_tower
+                        return sub
+                # If not found at top level, check one level deeper into .model if it exists
+                if hasattr(obj, "model") and obj.model != obj:
+                    return _find_vision_sub(obj.model, depth + 1)
+                return None
+
+            sub = _find_vision_sub(current)
+            if sub is not None:
+                logger.info(f"Surgically extracted vision component from {current.__class__.__name__}.")
+                return sub
             
-            # 2. Class-name based validation
+            # 2. Class-name based validation fallback
+            # If it's already a vision model, return it
             class_name = current.__class__.__name__.lower()
-            if "vision" in class_name or "vit" in class_name or "siglip" in class_name:
-                return current
+            if any(x in class_name for x in ["vision", "vit", "siglip", "clip"]):
+                # Ensure it's not a composite model that just happens to have 'siglip' in the name
+                if not hasattr(current, "text_model"):
+                    return current
                 
             return current
 
@@ -386,10 +401,14 @@ class FastVLAModel(PreTrainedModel):
             # JIT Safety: If we somehow still have a composite model (e.g. SiglipModel), 
             # don't call it directly as it will demand input_ids.
             actual_encoder = self.vision_encoder
-            if hasattr(actual_encoder, "vision_model") and not hasattr(actual_encoder, "pixel_values"):
-                actual_encoder = actual_encoder.vision_model
-            elif hasattr(actual_encoder, "vision_tower"):
-                actual_encoder = actual_encoder.vision_tower
+            # Professional JIT Re-routing
+            if not hasattr(actual_encoder, "pixel_values"):
+                if hasattr(actual_encoder, "vision_model"):
+                    actual_encoder = actual_encoder.vision_model
+                elif hasattr(actual_encoder, "vision_tower"):
+                    actual_encoder = actual_encoder.vision_tower
+                elif hasattr(actual_encoder, "model") and hasattr(actual_encoder.model, "vision_model"):
+                    actual_encoder = actual_encoder.model.vision_model
 
             # Ensure images are on the same device as the first vision layer
             vision_device = next(actual_encoder.parameters()).device
