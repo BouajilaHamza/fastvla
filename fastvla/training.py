@@ -45,7 +45,16 @@ class FastVLATrainer:
         save_steps: int = 500,
         eval_steps: int = 500,
         logging_steps: int = 100,
+        # Aliases for notebook compatibility
+        dataset: Optional[torch.utils.data.Dataset] = None,
+        lr: Optional[float] = None,
     ):
+        # 0. Handle Aliases
+        if train_dataset is None:
+            train_dataset = dataset
+        if lr is not None:
+            learning_rate = lr
+
         # 1. 4-bit & Distributed Detection
         self.is_4bit = getattr(model, "is_loaded_in_4bit", False)
         

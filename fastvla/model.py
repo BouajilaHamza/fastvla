@@ -1,19 +1,22 @@
 """
 Core FastVLA model implementation.
 Refactored for production-grade reliability, distributed sharding support,
-and robust 4-bit device placement.
+and robust 4-bit device placement with JIT conflict resolution.
 """
 
 import torch
 import torch.nn as nn
 import logging
-from typing import Dict, Union
+import torch._dynamo
+from typing import Optional, Dict, Any, Union
 from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM
 
 from .config import FastVLAConfig
 from .kernels import vision_language_fusion_forward, TritonActionHead
 from .optimization import enable_gradient_checkpointing, get_peft_config
-from .utils import check_environment, get_gpu_memory_report
+from .utils import check_environment, get_gpu_memory_report, get_device
+from .exceptions import ModelLoadingError, DistributedTrainingError, QuantizationError
+from .registry import VLAModelRegistry
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -62,9 +65,11 @@ def _get_target_device_map(config: FastVLAConfig) -> Union[str, Dict]:
         return config.device_map
         
     # On multi-GPU (Kaggle T4 x2), "auto" creates AlignDevicesHook which
-    # crashes Dynamo. We prefer a static mapping to GPU 0 for 4-bit single-process.
+    # crashes Dynamo. We prefer a static mapping for 4-bit models.
     if config.load_in_4bit:
-        return {"": 0}
+        # Default to current device (usually GPU 0)
+        curr = torch.cuda.current_device()
+        return {"": curr}
         
     return config.device_map
 
@@ -140,10 +145,39 @@ class FastVLAModel(PreTrainedModel):
         if not config.dummy and UNSLOTH_AVAILABLE and torch.cuda.is_available():
             self._apply_unsloth_patches()
 
-        # 7. Final Stabilization
+        # 7. Final Stabilization & JIT Conflict Resolution
         self.is_loaded_in_4bit = config.load_in_4bit
         if config.gradient_checkpointing:
             enable_gradient_checkpointing(self)
+            
+        if not config.dummy:
+            self._stabilize_distributed_hooks()
+
+    def _stabilize_distributed_hooks(self):
+        """Remove Accelerate hooks that cause Dynamo graph breaks."""
+        try:
+            from accelerate.hooks import remove_hook_from_module
+            target_device = get_device()
+            
+            # 1. Physically remove problematic hooks
+            remove_hook_from_module(self.vision_encoder, recurse=True)
+            remove_hook_from_module(self.llm, recurse=True)
+            
+            # 2. Manual device alignment (Only if not 4-bit)
+            # 4-bit models CANNOT be moved after loading.
+            if not self.is_loaded_in_4bit and target_device == "cuda":
+                self.vision_encoder.to(target_device)
+                self.llm.to(target_device)
+                self.vision_proj.to(target_device)
+                self.action_head.to(target_device)
+                
+            # 3. Explicitly disable Dynamo for the sub-components to prevent recursive capture crashes
+            # This is a secondary layer of protection.
+            torch._dynamo.disable(self.vision_encoder.forward)
+            torch._dynamo.disable(self.llm.forward)
+            
+        except (ImportError, AttributeError, RuntimeError) as e:
+            logger.debug(f"Distributed stabilization skipped: {e}")
 
     def _sync_config_with_loaded_models(self):
         """Update config attributes to match actual loaded model dimensions."""
@@ -277,7 +311,27 @@ class FastVLAModel(PreTrainedModel):
         return action_preds, loss
 
     @classmethod
-    def from_pretrained(cls, **kwargs):
-        """Compatible entry point for loading models."""
+    def from_pretrained(cls, model_name_or_path: Optional[str] = None, **kwargs):
+        """
+        Load a FastVLA model.
+        
+        Args:
+            model_name_or_path: Registered name (e.g. 'openvla-7b') or HF ID.
+            **kwargs: Overrides for FastVLAConfig.
+        """
+        # If positional arg is provided, map it to the correct field
+        if model_name_or_path:
+            # Check registry first
+            reg_config = VLAModelRegistry.get(model_name_or_path)
+            if reg_config:
+                kwargs["vision_encoder_name"] = reg_config.vision.model_name
+                kwargs["llm_name"] = reg_config.llm.model_name
+            else:
+                # Fallback: assume it's an HF ID for both vision/LLM if not specified
+                if "vision_encoder_name" not in kwargs:
+                    kwargs["vision_encoder_name"] = model_name_or_path
+                if "llm_name" not in kwargs:
+                    kwargs["llm_name"] = model_name_or_path
+
         config = FastVLAConfig(**kwargs)
         return cls(config)
