@@ -60,8 +60,16 @@ class DiscreteActionHead(BaseActionHead):
         logits = self.fc2(h)  # [B, action_dim * num_bins]
         logits = logits.view(-1, self.action_dim, self.num_bins)
 
-        # Argmax over bins
-        actions = logits.argmax(dim=-1).float() / (self.num_bins - 1)  # Normalize to [0, 1]
+        # For training, we need a differentiable output to avoid breaking the graph
+        if self.training or logits.requires_grad:
+            # Soft-argmax: expectation over bins
+            probs = F.softmax(logits, dim=-1)
+            bin_values = torch.linspace(0, 1, self.num_bins, device=logits.device, dtype=logits.dtype)
+            actions = (probs * bin_values).sum(dim=-1)
+        else:
+            # Inference: Hard argmax
+            actions = logits.argmax(dim=-1).float() / (self.num_bins - 1)
+            
         return actions
 
     def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:

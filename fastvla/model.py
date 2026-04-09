@@ -268,15 +268,30 @@ class FastVLAModel(PreTrainedModel):
                     raise ModelLoadingError(f"Composite VLM detected ({model_name}). Triggering recovery...") from e
                 raise e
 
+        def _extract_vision_only(model):
+            """Surgical extraction of the vision encoder from composite CLIP/SigLIP models."""
+            # 1. SigLIP / CLIP standard
+            if hasattr(model, "vision_model"):
+                logger.info("Extracted '.vision_model' from composite SigLIP/CLIP backbone.")
+                return model.vision_model
+            # 2. Some older or custom implementations
+            if hasattr(model, "model") and hasattr(model.model, "visual"):
+                logger.info("Extracted '.model.visual' from custom backbone.")
+                return model.model.visual
+            # 3. If already a vision-only model (like ViT), return as-is
+            return model
+
         # 1. Main Path
         try:
-            return _attempt_load(model_id, use_4bit=config.load_in_4bit)
+            model = _attempt_load(model_id, use_4bit=config.load_in_4bit)
+            return _extract_vision_only(model)
         except (ModelLoadingError, ValueError, TypeError, AttributeError) as e:
             logger.warning(f"Initial vision load failed for {model_id}: {e}. Attempting recovery...")
             
             # Path 2: Unsloth Fallback (The professional standard for VLMs)
             if UNSLOTH_AVAILABLE and torch.cuda.is_available():
                 try:
+                    # Unsloth handles vision extraction internally
                     return FastVisionModel.from_pretrained(
                         model_id, load_in_4bit=config.load_in_4bit,
                         device_map=device_map, token=config.hf_token
@@ -286,13 +301,15 @@ class FastVLAModel(PreTrainedModel):
 
             # Path 3: Component Recovery Path (Hardcoded mappings for common problematic VLMs)
             if "openvla" in model_id.lower():
-                logger.info("OpenVLA identified. Extracting SigLIP backbone...")
-                return _attempt_load("google/siglip-so400m-patch14-224", use_4bit=config.load_in_4bit)
+                logger.info("OpenVLA identified. Extracting SigLIP vision backbone...")
+                model = _attempt_load("google/siglip-so400m-patch14-224", use_4bit=config.load_in_4bit)
+                return _extract_vision_only(model)
             
             # Path 4: Final desperation - try loading as base if it was sharded
             try:
                 device_map_base = "auto" if not config.load_in_4bit else device_map
-                return AutoModel.from_pretrained(model_id, device_map=device_map_base, trust_remote_code=True)
+                model = AutoModel.from_pretrained(model_id, device_map=device_map_base, trust_remote_code=True)
+                return _extract_vision_only(model)
             except Exception as fe:
                 raise ModelLoadingError(f"Could not load vision component {model_id} after all recovery attempts.") from fe
 
