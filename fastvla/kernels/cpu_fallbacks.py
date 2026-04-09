@@ -35,6 +35,6 @@ def action_decode_cpu(
     return torch.tanh(out)
 
 def multi_cam_pack_cpu(cams: torch.Tensor) -> torch.Tensor:
-    """Reorder from [B, Cam, C, H, W] to [B, C*Cam, H, W]."""
+    """Reorder from [B, Cam, C, H, W] to [B, Cam*C, H, W]."""
     B, Cam, C, H, W = cams.shape
-    return cams.permute(0, 2, 1, 3, 4).reshape(B, C * Cam, H, W)
+    return cams.reshape(B, Cam * C, H, W)
