@@ -81,24 +81,23 @@ class UnslothVLACollator:
                     action_tensor = action_tensor.unsqueeze(0)
                 actions.append(action_tensor)
             
-            batch["labels"] = torch.stack(actions)
-            
-            # Validate action dimensions are consistent
+            # 1. Validate action dimensions are consistent within the batch
             action_shapes = [a.shape for a in actions]
             if len(set(action_shapes)) > 1:
                 raise ValueError(
                     f"Inconsistent action dimensions in batch: {action_shapes}. "
-                    f"All actions must have the same dimension. Expected {self.action_dim}."
+                    f"All actions in a batch must have the same dimension."
                 )
-            
-            # Check if action dimension matches expected
+
+            # 2. Check if batch dimension matches expected and update if needed
             if actions[0].shape[-1] != self.action_dim:
                 print(
-                    f"⚠️ Warning: Action dimension mismatch. "
-                    f"Expected {self.action_dim}, got {actions[0].shape[-1]}. "
-                    f"Updating action_dim to {actions[0].shape[-1]}."
+                    f"⚠️ Warning: Action dimension mismatch (Batch: {actions[0].shape[-1]}, Collator: {self.action_dim}). "
+                    f"Updating action_dim to match batch."
                 )
                 self.action_dim = actions[0].shape[-1]
+
+            batch["labels"] = torch.stack(actions)
 
         # ── Handle text instructions ────────────────────────────────
         if "instructions" in features[0]:
@@ -128,12 +127,12 @@ class UnslothVLACollator:
             batch["attention_mask"] = torch.ones((len(features), 1), dtype=torch.long)
 
         # Validate required keys exist
-        required_keys = ["pixel_values", "input_ids", "labels"]
+        required_keys = ["pixel_values", "input_ids"]
         missing_keys = [k for k in required_keys if k not in batch]
         if missing_keys:
             raise ValueError(
                 f"Batch is missing required keys: {missing_keys}. "
-                f"Ensure your dataset provides images, instructions (text), and actions."
+                f"Ensure your dataset provides images and instructions (text)."
             )
 
         return batch
