@@ -1,12 +1,37 @@
 """
 Core FastVLA model implementation.
-Refactored for production-grade reliability, distributed sharding support,
-and robust 4-bit device placement. Initialization and patching are now
-handled at the library root (fastvla/__init__.py).
+Refactored for production-grade reliability and environment stability.
 """
 
 import logging
 import torch
+
+# ── 1. Absolute Preemptive Imports (MUST be first) ───────────────────────
+# We initialize unsloth and accelerate before ANY transformers import.
+try:
+    import accelerate
+    import accelerate.big_modeling
+except ImportError:
+    pass
+
+UNSLOTH_AVAILABLE = False
+FastLanguageModel = None
+FastVisionModel = None
+try:
+    import unsloth
+    from unsloth import (
+        FastLanguageModel as _FLM, 
+        FastVisionModel as _FVM,
+        patch_model,
+        patch_forward,
+        patch_saving_functions
+    )
+    FastLanguageModel, FastVisionModel = _FLM, _FVM
+    UNSLOTH_AVAILABLE = True
+except ImportError:
+    pass
+
+# ── 2. Standard Imports ──────────────────────────────────────────────────
 import torch.nn as nn
 import torch._dynamo
 from pathlib import Path
@@ -22,24 +47,6 @@ from .registry import VLAModelRegistry
 
 # Setup logging
 logger = logging.getLogger(__name__)
-
-# ── Import Unsloth Components (Initialization handled in __init__.py) ────
-UNSLOTH_AVAILABLE = False
-FastLanguageModel = None
-FastVisionModel = None
-
-try:
-    from unsloth import (
-        FastLanguageModel as _FLM, 
-        FastVisionModel as _FVM,
-        patch_model,
-        patch_forward,
-        patch_saving_functions
-    )
-    FastLanguageModel, FastVisionModel = _FLM, _FVM
-    UNSLOTH_AVAILABLE = True
-except ImportError:
-    pass
 
 # ── Internal Helpers ──────────────────────────────────────────────────────
 
@@ -161,7 +168,6 @@ class FastVLAModel(PreTrainedModel):
         self.config.save_pretrained(save_directory)
         
         # 2. Save Model (Handles LoRA automatically if PEFT is wrapped)
-        # We unwrap to ensure we save the actual state dict
         self.llm.save_pretrained(save_directory, **kwargs)
         
         # 3. Save Heads
