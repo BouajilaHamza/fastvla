@@ -1,29 +1,7 @@
-"""
-Core FastVLA model implementation.
-Refactored for production-grade reliability, distributed sharding support,
-and robust 4-bit device placement with JIT conflict resolution.
-Includes a Smart Component Loader to handle composite VLM configurations.
-"""
-
-import torch
-import torch.nn as nn
 import logging
-import torch._dynamo
-from pathlib import Path
-from typing import Optional, Dict, Any, Union
-from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM, AutoConfig
+import torch
 
-from .config import FastVLAConfig
-from .kernels import vision_language_fusion_forward, TritonActionHead
-from .optimization import enable_gradient_checkpointing, get_peft_config
-from .utils import check_environment, get_gpu_memory_report, get_device
-from .exceptions import ModelLoadingError, DistributedTrainingError, QuantizationError
-from .registry import VLAModelRegistry
-
-# Setup logging
-logger = logging.getLogger(__name__)
-
-# ── Optional Unsloth import ──────────────────────────────────────────────
+# ── 1. Unsloth MUST be imported before transformers ──────────────────────
 UNSLOTH_AVAILABLE = False
 FastLanguageModel = None
 FastVisionModel = None
@@ -53,6 +31,13 @@ try:
     UNSLOTH_AVAILABLE = True
 except ImportError:
     pass
+
+# ── 2. Standard Imports ──────────────────────────────────────────────────
+import torch.nn as nn
+import torch._dynamo
+from pathlib import Path
+from typing import Optional, Dict, Any, Union
+from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM, AutoConfig
 
 
 # ── Internal Helpers ──────────────────────────────────────────────────────
