@@ -161,10 +161,6 @@ class LeRobotDataset(RoboticsDataset):
                 'instruction': item.get('instruction', 'push the block to the goal')
             })
             
-            # Limit for demo purposes if needed, but here we load all
-            if len(data) >= 1000: # Sufficient for a demo
-                break
-                
         return data
 
 
