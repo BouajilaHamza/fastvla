@@ -158,6 +158,52 @@ class FastVLAModel(PreTrainedModel):
         if not config.dummy:
             self._stabilize_distributed_hooks()
 
+    def save_pretrained(self, save_directory: Union[str, Path], **kwargs):
+        """
+        Save the VLA model components.
+        For LoRA models, this saves the adapters and the trainable heads.
+        """
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+
+        # 1. Save Config
+        self.config.save_pretrained(save_directory)
+
+        # 2. Save Head and Projection (The VLA-specific trainable parts)
+        # We only save these if they are trainable or if we want a full state dict
+        torch.save(self.state_dict(), save_directory / "pytorch_model.bin")
+
+        # 3. Save Adapters (LLM and Vision)
+        if hasattr(self.llm, "save_pretrained"):
+            self.llm.save_pretrained(save_directory / "llm_adapter")
+        
+        if hasattr(self.vision_encoder, "save_pretrained"):
+            # If vision encoder is PEFT/LoRA, save it
+            if hasattr(self.vision_encoder, "save_pretrained"):
+                self.vision_encoder.save_pretrained(save_directory / "vision_adapter")
+
+        logger.info(f"VLA Model saved to {save_directory}")
+
+    def push_to_hub(self, repo_id: str, token: Optional[str] = None, **kwargs):
+        """Push the model to Hugging Face Hub."""
+        from huggingface_hub import HfApi
+        api = HfApi()
+        
+        # Create repo if not exists
+        api.create_repo(repo_id, token=token, exist_ok=True)
+        
+        # Save locally first
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.save_pretrained(tmp_dir)
+            api.upload_folder(
+                folder_path=tmp_dir,
+                repo_id=repo_id,
+                token=token,
+                **kwargs
+            )
+        logger.info(f"Model pushed to https://huggingface.co/{repo_id}")
+
     def _apply_peft_freezing(self, config: FastVLAConfig):
         """Freeze base model parameters if PEFT is enabled."""
         # 1. Freeze EVERYTHING
