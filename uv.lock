@@ -609,6 +609,7 @@ dependencies = [
     { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and sys_platform == 'darwin') or (python_full_version < '3.12' and sys_platform == 'linux') or (platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "transformers" },
     { name = "typing-extensions" },
+    { name = "wandb" },
 ]
 
 [package.optional-dependencies]
@@ -652,6 +653,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.38.0" },
     { name = "triton", marker = "extra == 'gpu'", specifier = ">=2.2.0" },
     { name = "typing-extensions", specifier = ">=4.8.0" },
+    { name = "wandb", specifier = ">=0.25.1" },
     { name = "wandb", marker = "extra == 'logging'", specifier = ">=0.16.0" },
 ]
 provides-extras = ["gpu", "lora", "logging", "all"]

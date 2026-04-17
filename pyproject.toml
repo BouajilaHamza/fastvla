@@ -13,7 +13,6 @@ dependencies = [
     "pillow>=10.0.0",
     "torch>=2.2.0",
     "transformers>=4.38.0",
-
     "datasets>=2.16.0",
     "torchvision>=0.17.0",
     "timm>=0.9.12",
@@ -21,6 +20,7 @@ dependencies = [
     "h5py>=3.10.0",
     "pandas>=1.5.0",
     "huggingface_hub>=0.26.0",
+    "wandb>=0.25.1",
 ]
 readme = "README.md"
 requires-python = ">=3.10"

@@ -18,7 +18,9 @@ image = (
     )
     .pip_install("git+https://github.com/unslothai/unsloth.git")
     # Stranger approach: Install FastVLA directly from GitHub
-    .pip_install("git+https://github.com/BouajilaHamza/FastVLA.git")
+    # Using env var to force cache invalidation for the latest fixes
+    .env({"FORCE_REBUILD": "v7"})
+    .run_commands("pip install git+https://github.com/BouajilaHamza/fastvla.git")
 )
 
 app = modal.App("fastvla-pusht-finetuning", image=image)
@@ -37,13 +39,10 @@ def finetune():
     from fastvla import FastVLAModel, FastVLATrainer
     from fastvla.data.datasets import get_dataset
     
-    print("🚀 Initializing Finetuning on 2x T4 GPUs (Modal)...")
-    print(f"CUDA Devices: {torch.cuda.device_count()}")
-    for i in range(torch.cuda.device_count()):
-        print(f"  Device {i}: {torch.cuda.get_device_name(i)}")
+    print("🚀 Starting PRODUCTION Finetuning on 2x T4 GPUs (Modal)...")
     
     try:
-        # Load real OpenVLA-7B (Tests Surgical Extraction + 4-bit Logic)
+        # 1. Load Model
         print("📦 Loading OpenVLA-7B (4-bit + LoRA)...")
         model = FastVLAModel.from_pretrained(
             "openvla-7b",
@@ -54,11 +53,12 @@ def finetune():
         )
         print("✅ Model loaded successfully!")
         
-        # Load real PushT dataset
+        # 2. Load Dataset
         print("📥 Loading PushT dataset...")
         dataset = get_dataset("lerobot/pusht_image")
         
-        print("🏋️ Initializing Trainer (Accelerate-ready)...")
+        # 3. Initialize Trainer
+        print("🏋️ Initializing Trainer...")
         trainer = FastVLATrainer(
             model=model,
             dataset=dataset,
@@ -66,13 +66,26 @@ def finetune():
             gradient_accumulation_steps=2,
             use_mixed_precision=True,
             use_8bit_optimizer=True,
-            max_steps=10, # Verification run
+            max_steps=500, # Full finetuning run
             output_dir="/root/checkpoints"
         )
         
-        print("🔥 Starting distributed training loop...")
+        # 4. Train
+        print("🔥 Starting Training...")
         trainer.train()
-        print("✨ Finetuning verification complete!")
+        print("✅ Training complete!")
+
+        # 5. Push to Hub
+        repo_id = "BouajilaHamza/FastVLA-PushT-OpenVLA"
+        print(f"⬆️ Pushing model to Hugging Face Hub: {repo_id}...")
+        
+        # We unwrap and push
+        unwrapped_model = trainer.accelerator.unwrap_model(model)
+        unwrapped_model.push_to_hub(
+            repo_id=repo_id,
+            token=os.environ.get("HF_TOKEN")
+        )
+        print("✨ PRODUCTION RUN COMPLETE! Model is live on HF Hub.")
         
     except Exception as e:
         print(f"❌ Finetuning failed: {e}")
