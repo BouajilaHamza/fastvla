@@ -88,7 +88,7 @@ class DummyVisionEncoder(nn.Module):
         return type("Output", (), {"last_hidden_state": self.norm(x)})()
 
 class DummyLanguageModel(nn.Module):
-    def __init__(self, hidden_size: int = 128, vocab_size: int = 1000, **kwargs):
+    def __init__(self, hidden_size: int = 128, vocab_size: int = 50257, **kwargs):
         super().__init__()
         self.config = type("Config", (), {"hidden_size": hidden_size, "vocab_size": vocab_size})()
         self.embed_tokens = nn.Embedding(vocab_size, hidden_size)
