@@ -1,7 +1,33 @@
-"""FastVLA: Efficient Vision-Language-Action Models for Robotics."""
+"""
+FastVLA: Efficient Vision-Language-Action Models for Robotics.
+Initialized with root-level stabilization for accelerate and unsloth.
+"""
 
-__version__ = "0.1.7.2"
+import logging
+import torch
 
+# ── 1. Break Accelerate Circular Imports ──────────────────────────────────
+# We pre-import accelerate components to ensure the module is fully 
+# initialized before transformers attempts to access its sub-modules.
+try:
+    import accelerate
+    import accelerate.big_modeling
+except ImportError:
+    pass
+
+# ── 2. Initialize Unsloth Patches (MUST be before Transformers) ────────────
+# We apply unsloth patches at the library root so that any module importing
+# fastvla (e.g. from fastvla import FastVLAConfig) will have patched transformers.
+UNSLOTH_AVAILABLE = False
+try:
+    from unsloth import patch_model, patch_forward, patch_saving_functions
+    patch_saving_functions()
+    UNSLOTH_AVAILABLE = True
+except ImportError:
+    pass
+
+# ── 3. Core FastVLA Imports ───────────────────────────────────────────────
+# These modules may import transformers internally.
 from .model import FastVLAModel
 from .config import FastVLAConfig
 from .registry import (
@@ -27,8 +53,9 @@ from .optimization import (
 )
 from .benchmarking import PerformanceProfiler, compare_models, print_benchmark_results
 
-# Print environment summary on first import so users immediately see
-# what's available (Unsloth, BnB, Triton, GPU) and can diagnose mismatches.
+__version__ = "0.1.7.2"
+
+# Print environment summary on first import
 _printed_env = False
 
 def _print_env_once():
