@@ -1,100 +1,76 @@
 """
 FastVLA: Efficient Vision-Language-Action Models for Robotics.
-Initialized with root-level stabilization for accelerate and unsloth.
+Strictly Lazy-Loaded to prevent environment-specific dependency loops.
 """
 
+import sys
+import importlib
 import logging
-import torch
 
-# ── 1. Break Accelerate Circular Imports ──────────────────────────────────
-# We pre-import accelerate components to ensure the module is fully 
-# initialized before transformers attempts to access its sub-modules.
-try:
-    import accelerate
-    import accelerate.big_modeling
-except ImportError:
-    pass
+__version__ = "0.1.8.1"
 
-# ── 2. Initialize Unsloth Patches (MUST be before Transformers) ────────────
-# We apply unsloth patches at the library root so that any module importing
-# fastvla (e.g. from fastvla import FastVLAConfig) will have patched transformers.
-UNSLOTH_AVAILABLE = False
-try:
-    from unsloth import patch_model, patch_forward, patch_saving_functions
-    patch_saving_functions()
-    UNSLOTH_AVAILABLE = True
-except ImportError:
-    pass
+# ── 1. Lazy Module Proxy ───────────────────────────────────────────────────
+# This mimics the internal 'transformers' lazy loading logic.
+# It prevents any 'transformers' or 'torch' code from running until 
+# a class is actually accessed.
 
-# ── 3. Core FastVLA Imports ───────────────────────────────────────────────
-# These modules may import transformers internally.
-from .model import FastVLAModel
-from .config import FastVLAConfig
-from .registry import (
-    VLAModelRegistry,
-    register_model,
-    VLAModelConfig,
-    VisionEncoderConfig,
-    LLMConfig,
-    ActionHeadConfig,
-    ProjectorConfig,
-)
-from .utils import get_device, check_environment
-from .data.collator import UnslothVLACollator
-from .data.datasets import get_dataset, RoboticsDataset, LIBERODataset, FrankaKitchenDataset, LeRobotDataset
-from .training import FastVLATrainer
-from .optimization import (
-    get_quantization_config,
-    get_8bit_optimizer,
-    enable_gradient_checkpointing,
-    ActivationOffloader,
-    get_peft_config,
-    estimate_memory_usage,
-)
-from .benchmarking import PerformanceProfiler, compare_models, print_benchmark_results
+_import_structure = {
+    "model": ["FastVLAModel"],
+    "config": ["FastVLAConfig"],
+    "training": ["FastVLATrainer"],
+    "registry": ["VLAModelRegistry", "register_model"],
+    "utils": ["get_device", "check_environment"],
+    "data.datasets": ["get_dataset"],
+    "data.collator": ["UnslothVLACollator"],
+    "optimization": ["get_quantization_config", "get_8bit_optimizer"],
+}
 
-__version__ = "0.1.7.2"
+class _LazyModule:
+    def __init__(self, name, import_structure):
+        self.name = name
+        self.import_structure = import_structure
+        self._modules = {}
 
-# Print environment summary on first import
-_printed_env = False
+    def __getattr__(self, name):
+        # 1. Find which submodule contains the requested attribute
+        target_submodule = None
+        for sub, items in self.import_structure.items():
+            if name in items:
+                target_submodule = sub
+                break
+        
+        if target_submodule is None:
+            raise AttributeError(f"module {self.name} has no attribute {name}")
 
-def _print_env_once():
-    global _printed_env
-    if not _printed_env:
-        _printed_env = True
+        # 2. Load the submodule (This is where the 'real' imports happen)
+        full_module_path = f".{target_submodule}"
+        if target_submodule not in self._modules:
+            # TRIGGER STABILIZATION BEFORE REAL IMPORT
+            self._ensure_env_stabilized()
+            self._modules[target_submodule] = importlib.import_module(full_module_path, __package__)
+        
+        return getattr(self._modules[target_submodule], name)
+
+    def _ensure_env_stabilized(self):
+        """Final safeguard: Ensures unsloth/accelerate are primed before submodules load."""
+        if "fastvla._stabilized" in sys.modules:
+            return
+
+        # Phase A: Accelerate Circular Loop Break
         try:
-            check_environment()
-        except Exception:
-            pass  # Never crash on env diagnostic
+            import accelerate
+            import accelerate.big_modeling
+        except ImportError: pass
 
-_print_env_once()
+        # Phase B: Unsloth Patching (MUST be before transformers)
+        try:
+            import unsloth
+            from unsloth import patch_saving_functions
+            patch_saving_functions()
+        except ImportError: pass
 
-__all__ = [
-    "FastVLAModel",
-    "FastVLAConfig",
-    "VLAModelRegistry",
-    "register_model",
-    "VLAModelConfig",
-    "VisionEncoderConfig",
-    "LLMConfig",
-    "ActionHeadConfig",
-    "ProjectorConfig",
-    "get_device",
-    "check_environment",
-    "UnslothVLACollator",
-    "get_dataset",
-    "RoboticsDataset",
-    "LIBERODataset",
-    "FrankaKitchenDataset",
-    "LeRobotDataset",
-    "FastVLATrainer",
-    "get_quantization_config",
-    "get_8bit_optimizer",
-    "enable_gradient_checkpointing",
-    "ActivationOffloader",
-    "get_peft_config",
-    "estimate_memory_usage",
-    "PerformanceProfiler",
-    "compare_models",
-    "print_benchmark_results",
-]
+        sys.modules["fastvla._stabilized"] = type("Stabilized", (), {})()
+
+# ── 2. Create the Proxy ────────────────────────────────────────────────────
+# When you 'import fastvla', you are actually interacting with this object.
+sys.modules[__name__] = _LazyModule(__name__, _import_structure)
