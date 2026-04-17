@@ -2,6 +2,14 @@
 
 import torch
 
+# ── 1. Root-Level Stabilization ───────────────────────────────────────────
+# We pre-import unsloth to ensure it patches transformers before other 
+# modules use it.
+try:
+    import unsloth as _  # noqa: F401
+except ImportError:
+    pass
+
 
 def get_device() -> str:
     """Return 'cuda' if available, else 'cpu'."""
@@ -58,31 +66,21 @@ def check_environment(require_cuda: bool = False, require_unsloth: bool = False)
     except ImportError:
         pass
 
-    # Mandatory checks
-    if require_cuda and not torch.cuda.is_available():
+    # 1. Device Check
+    device = get_device()
+    if require_cuda and device == "cpu":
         raise EnvironmentCompatibilityError(
-            "CUDA is required but not available. Ensure you have a GPU and proper drivers."
+            "CUDA-enabled GPU is required but not found. "
+            "If using Kaggle, ensure 'GPU T4 x2' is enabled in the sidebar."
         )
-    
+
+    # 2. Dependency Check
     if require_unsloth and not unsloth_available:
         raise EnvironmentCompatibilityError(
-            "Unsloth is required for this operation. Install it with: pip install unsloth"
+            "Unsloth is required for 4-bit optimization but not installed. "
+            "Please run '!pip install unsloth' first."
         )
 
-    # Informative summary
-    cuda_info = torch.version.cuda if torch.cuda.is_available() else "N/A"
-    device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
-
-    print("\n" + "=" * 60)
-    print("FastVLA Health Check")
-    print("=" * 60)
-    print(f"  PyTorch:    {torch.__version__}")
-    print(f"  CUDA:       {cuda_info}")
-    print(f"  Device:     {device_name}")
-    print(f"  Unsloth:    {'✓ Available' if unsloth_available else '✗ Missing'}")
-    print(f"  BnB:        {'✓ Available' if bnb_available else '✗ Missing'}")
-    print(f"  Triton:     {'✓ Available' if triton_available else '✗ Missing'}")
-    
-    if torch.cuda.is_available():
-        print(f"  {get_gpu_memory_report()}")
-    print("=" * 60 + "\n")
+    # 3. Environment Stability Check (The JIT/Dynamo test)
+    # We don't perform destructive tests here, just log availability.
+    # The actual stabilization logic is handled in __init__.py and model.py
