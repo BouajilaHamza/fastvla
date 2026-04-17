@@ -270,46 +270,50 @@ class FastVLAModel(PreTrainedModel):
 
         def _extract_vision_only(model):
             """Surgical extraction of the vision encoder from composite models across quantization/PEFT wrappers."""
-            # 0. Recursive Unwrap (PEFT/BitsAndBytes/Accelerate)
+            # 0. Recursive Unwrap (PEFT/BitsAndBytes/Accelerate/Distributed)
             current = model
-            for _ in range(5): # Increased depth limit
+            for _ in range(10): # Increased depth limit for deep wrapping
                 if hasattr(current, "base_model") and current.base_model != current:
                     current = current.base_model
                 elif hasattr(current, "model") and current.model != current:
-                    # Caution: some SigLIP models have .model.visual, handle carefully
-                    if not hasattr(current.model, "visual") and not hasattr(current.model, "vision_model"):
-                        current = current.model
-                    else:
+                    # Caution: if the inner model has vision attributes, don't unwrap further
+                    if any(hasattr(current.model, a) for a in ["vision_model", "vision_tower", "visual"]):
                         break
+                    current = current.model
                 else:
                     break
 
             # 1. Exhaustive Deep Path Search
             # We look for common vision encoder attribute names recursively
             def _find_vision_sub(obj, depth=0):
-                if depth > 2: return None
+                if depth > 3: return None
+                # Check direct attributes
                 for attr in ["vision_tower", "vision_model", "visual", "vision"]:
                     if hasattr(obj, attr):
                         sub = getattr(obj, attr)
-                        # OpenVLA/SigLIP specific check
+                        # OpenVLA/SigLIP specific check (double nested)
                         if attr == "vision_tower" and hasattr(sub, "vision_tower"):
                             return sub.vision_tower
                         return sub
-                # If not found at top level, check one level deeper into .model if it exists
-                if hasattr(obj, "model") and obj.model != obj:
-                    return _find_vision_sub(obj.model, depth + 1)
+                
+                # If not found, check one level deeper into .model or .vision_model if they exist
+                for sub_attr in ["model", "vision_model"]:
+                    if hasattr(obj, sub_attr):
+                        val = getattr(obj, sub_attr)
+                        if val != obj:
+                            res = _find_vision_sub(val, depth + 1)
+                            if res: return res
                 return None
 
             sub = _find_vision_sub(current)
             if sub is not None:
-                logger.info(f"Surgically extracted vision component from {current.__class__.__name__}.")
+                logger.info(f"Surgically extracted vision component ({sub.__class__.__name__}) from {current.__class__.__name__}.")
                 return sub
             
             # 2. Class-name based validation fallback
-            # If it's already a vision model, return it
             class_name = current.__class__.__name__.lower()
             if any(x in class_name for x in ["vision", "vit", "siglip", "clip"]):
-                # Ensure it's not a composite model that just happens to have 'siglip' in the name
+                # Ensure it's not a composite model (which has a text_model)
                 if not hasattr(current, "text_model"):
                     return current
                 
@@ -322,12 +326,16 @@ class FastVLAModel(PreTrainedModel):
         except (ModelLoadingError, ValueError, TypeError, AttributeError) as e:
             logger.warning(f"Initial vision load failed for {model_id}: {e}. Attempting recovery...")
             
-            # Path 2: Unsloth Fallback (The professional standard for VLMs)
+            # Path 2: Unsloth Fallback
             if UNSLOTH_AVAILABLE and torch.cuda.is_available():
                 try:
-                    # Unsloth handles vision extraction internally
+                    # If we identified OpenVLA, use its known SigLIP backbone for Unsloth
+                    recovery_id = model_id
+                    if "openvla" in model_id.lower():
+                        recovery_id = "google/siglip-so400m-patch14-384"
+                    
                     return FastVisionModel.from_pretrained(
-                        model_id, load_in_4bit=config.load_in_4bit,
+                        recovery_id, load_in_4bit=config.load_in_4bit,
                         device_map=device_map, token=config.hf_token
                     )
                 except Exception as ue:
@@ -358,7 +366,14 @@ class FastVLAModel(PreTrainedModel):
                 )
                 self._tokenizer = tokenizer
                 if config.use_peft:
-                    llm = FastLanguageModel.get_peft_model(llm, get_peft_config(config.lora_rank))
+                    # Unsloth get_peft_model expects r as int, not LoraConfig
+                    llm = FastLanguageModel.get_peft_model(
+                        llm,
+                        r=config.lora_rank,
+                        lora_alpha=config.lora_alpha,
+                        lora_dropout=config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                    )
                 return llm
             except Exception as e:
                 logger.warning(f"Unsloth LLM load failed: {e}. Falling back to HF...")
@@ -398,11 +413,11 @@ class FastVLAModel(PreTrainedModel):
         for cam_idx in range(pixel_values.size(1)):
             cam_images = pixel_values[:, cam_idx]
             
-            # JIT Safety: If we somehow still have a composite model (e.g. SiglipModel), 
-            # don't call it directly as it will demand input_ids.
+            # JIT Safety: Check if we have a composite model (e.g. SiglipModel)
             actual_encoder = self.vision_encoder
-            # Professional JIT Re-routing
-            if not hasattr(actual_encoder, "pixel_values"):
+            # Professional JIT Re-routing Heuristic
+            # If the object doesn't have its own pixel_values logic but its sub-model does
+            if not hasattr(actual_encoder, "pixel_values") or hasattr(actual_encoder, "text_model"):
                 if hasattr(actual_encoder, "vision_model"):
                     actual_encoder = actual_encoder.vision_model
                 elif hasattr(actual_encoder, "vision_tower"):
