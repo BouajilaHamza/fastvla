@@ -53,10 +53,13 @@ def test_siglip_surgical_extraction():
         mock_llm.get_input_embeddings = lambda: (lambda x: torch.randn(x.size(0), x.size(1), 128))
         
         # Mock LLM forward call to return hidden states
+        class DummyOutput:
+            def __init__(self, hidden_states):
+                self.hidden_states = hidden_states
+        
         def mock_llm_forward(*args, **kwargs):
-            out = MagicMock()
-            out.hidden_states = [torch.randn(1, 10, 128)]
-            return out
+            return DummyOutput([torch.randn(1, 10, 128)])
+        
         mock_llm.side_effect = mock_llm_forward
         mock_llm_load.return_value = mock_llm
         

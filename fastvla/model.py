@@ -455,6 +455,16 @@ class FastVLAModel(PreTrainedModel):
         loss = None
         if labels is not None:
             labels = labels.to(device=head_device, dtype=action_preds.dtype)
+            
+            # Shape Validation: Ensure prediction and label dimensions match
+            if action_preds.shape != labels.shape:
+                raise ValueError(
+                    f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}. "
+                    f"Ensure your dataset's action dimensions match the model's action_dim config "
+                    f"(model action_dim={self.config.action_dim}). "
+                    f"Batch shape: {action_preds.shape}, Labels shape: {labels.shape}"
+                )
+                
             loss = nn.MSELoss()(action_preds, labels)
 
         return action_preds, loss

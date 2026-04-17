@@ -137,9 +137,9 @@ class FastVLATrainer:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 else:
                     self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+            
+            self.optimizer.step()
+            self.optimizer.zero_grad()
 
         return {"loss": loss.item(), "lr": self.optimizer.param_groups[0]["lr"]}
 
