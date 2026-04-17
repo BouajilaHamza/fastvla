@@ -97,8 +97,11 @@ class _FusionAutograd(torch.autograd.Function):
         B_t, T_t, D_t = text.shape
         assert B == B_t and D == D_t
 
+        original_visual_shape = visual.shape
+        was_expanded = False
         if T_v != T_t:
             visual = visual.mean(dim=1, keepdim=True).expand(-1, T_t, -1).contiguous()
+            was_expanded = True
             T_v = T_t
 
         out = torch.empty_like(text)
@@ -129,6 +132,8 @@ class _FusionAutograd(torch.autograd.Function):
         )
 
         ctx.save_for_backward(visual, text)
+        ctx.was_expanded = was_expanded
+        ctx.original_visual_shape = original_visual_shape
         return out
 
     @staticmethod
@@ -164,6 +169,15 @@ class _FusionAutograd(torch.autograd.Function):
             grad_text.stride(2),
             BLOCK_D=BLOCK_D,
         )
+
+        # If we expanded during forward, we must reduce during backward
+        if ctx.was_expanded:
+            # The grad_visual we computed is for the expanded tensor (B, T_t, D)
+            # We need to reduce it to (B, T_v, D) where T_v is the original patch count
+            # Since we did mean(dim=1) and expand, the grad for original is sum(grad) / T_v
+            original_T_v = ctx.original_visual_shape[1]
+            reduced_grad = grad_visual.sum(dim=1, keepdim=True) / original_T_v
+            grad_visual = reduced_grad.expand(-1, original_T_v, -1).contiguous()
 
         return grad_visual, grad_text
 
