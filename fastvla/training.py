@@ -81,7 +81,10 @@ class FastVLATrainer:
         if data_collator is None:
             tokenizer = getattr(model, "tokenizer", None)
             action_dim = getattr(model.config, "action_dim", 7)
-            data_collator = UnslothVLACollator(tokenizer=tokenizer, action_dim=action_dim)
+            image_size = getattr(model.config, "image_size", 224)
+            data_collator = UnslothVLACollator(
+                tokenizer=tokenizer, action_dim=action_dim, image_size=image_size
+            )
 
         if train_dataloader is None and train_dataset is not None:
             train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=data_collator)

@@ -485,6 +485,8 @@ class FastVLAModel(PreTrainedModel):
             if reg_config:
                 kwargs["vision_encoder_name"] = reg_config.vision.model_name
                 kwargs["llm_name"] = reg_config.llm.model_name
+                # Sync architecture specifics
+                kwargs["image_size"] = reg_config.vision.image_size
             else:
                 # Fallback: assume it's an HF ID for both vision/LLM if not specified
                 if "vision_encoder_name" not in kwargs:

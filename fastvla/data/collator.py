@@ -18,6 +18,7 @@ class UnslothVLACollator:
     padding: Union[bool, str] = True
     return_tensors: str = "pt"
     action_dim: int = 7  # Expected action dimension for validation
+    image_size: int = 224  # Target image size (H=W)
 
     def __call__(self, features: List[Dict[str, any]]) -> Dict[str, torch.Tensor]:
         """
@@ -38,6 +39,7 @@ class UnslothVLACollator:
         # ── Handle images: stack into [B, num_cams, C, H, W] ─────────
         if "images" in features[0]:
             is_dict = isinstance(features[0]["images"], dict)
+            target_size = (self.image_size, self.image_size)
             
             if is_dict:
                 # Collect all unique camera keys preserving order
@@ -50,17 +52,35 @@ class UnslothVLACollator:
                 # Stack: [B, num_cams, C, H, W]
                 cam_images = []
                 for feature in features:
-                    cam_list = [feature["images"].get(k, torch.zeros(3, 224, 224)) for k in camera_keys]
+                    cam_list = []
+                    for k in camera_keys:
+                        img = feature["images"].get(k, torch.zeros(3, *target_size))
+                        # Resize if necessary
+                        if img.shape[-2:] != target_size:
+                            img = torch.nn.functional.interpolate(
+                                img.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False
+                            ).squeeze(0)
+                        cam_list.append(img)
                     cam_images.append(torch.stack(cam_list, dim=0))
             else:
                 # Assume list of images
                 max_cams = max(len(f["images"]) for f in features)
                 cam_images = []
                 for feature in features:
-                    imgs = [torch.as_tensor(img) for img in feature["images"]]
+                    imgs = []
+                    for img in feature["images"]:
+                        img_tensor = torch.as_tensor(img)
+                        # Resize if necessary
+                        if img_tensor.shape[-2:] != target_size:
+                            if img_tensor.dim() == 3:
+                                img_tensor = torch.nn.functional.interpolate(
+                                    img_tensor.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False
+                                ).squeeze(0)
+                        imgs.append(img_tensor)
+                        
                     # Pad with zeros if necessary
                     while len(imgs) < max_cams:
-                        imgs.append(torch.zeros(3, 224, 224))
+                        imgs.append(torch.zeros(3, *target_size))
                     cam_images.append(torch.stack(imgs[:max_cams], dim=0))
 
             batch["pixel_values"] = torch.stack(cam_images, dim=0)

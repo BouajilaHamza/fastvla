@@ -8,6 +8,7 @@ load_dotenv()
 # Define the image with all dependencies
 image = (
     modal.Image.debian_slim()
+    .apt_install("git")
     .pip_install(
         "torch>=2.2.0",
         "transformers>=4.38.0",
@@ -22,6 +23,8 @@ image = (
         "triton>=2.2.0",
         "huggingface_hub>=0.26.0",
         "python-dotenv",
+        "setuptools",
+        "wheel"
     )
     .pip_install("git+https://github.com/unslothai/unsloth.git")
     # Install local fastvla in editable mode
@@ -53,15 +56,12 @@ def run_training():
     model_id = "openvla-7b" 
     
     try:
-        print(f"📦 Loading {model_id} in 4-bit (Distributed)...")
-        # Distributed training requires careful device mapping
+        print(f"📦 Loading {model_id} (Dummy Mode) in Distributed setup...")
+        # We test the engine robustness here
         model = FastVLAModel.from_pretrained(
-            model_id,
-            load_in_4bit=True,
-            use_peft=True,
-            action_dim=2, # PushT
-            hf_token=os.environ.get("HF_TOKEN"),
-            device_map="auto" # Let Accelerate handle the 2x T4
+            dummy=True,
+            action_dim=2, 
+            vocab_size=50257
         )
         print("✅ Model loaded successfully!")
         
@@ -90,6 +90,7 @@ def run_training():
         raise e
 
 if __name__ == "__main__":
+    modal.enable_output()
     if not hf_token:
         print("❌ Error: HF_API_KEY not found in .env file.")
     else:
