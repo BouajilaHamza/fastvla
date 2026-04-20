@@ -124,9 +124,10 @@ class FastVLAModel(PreTrainedModel):
 
         # 3. Language Model
         if config.dummy:
-            self.llm = DummyLanguageModel(hidden_size=config.llm_hidden_size, vocab_size=config.vocab_size)
             self._tokenizer = AutoTokenizer.from_pretrained("gpt2")
             self._tokenizer.pad_token = self._tokenizer.eos_token
+            actual_vocab = len(self._tokenizer)
+            self.llm = DummyLanguageModel(hidden_size=config.llm_hidden_size, vocab_size=actual_vocab)
         else:
             self.llm = self._load_component("llm", config)
 
