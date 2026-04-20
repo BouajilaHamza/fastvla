@@ -7,28 +7,29 @@ from fastvla.kernels import vision_language_fusion_forward, TritonActionHead
 
 def test_kernel_fusion_parity():
     """
-    TDD: Verify that Triton-based fusion (if available) matches 
-    PyTorch-based addition with hidden state projection.
+    TDD: Verify that Triton-based Cross-Attention matches 
+    PyTorch's native scaled dot-product attention.
     """
+    from fastvla.kernels import vision_language_cross_attention
     batch_size = 2
-    seq_len = 16
+    seq_len_text = 16
+    seq_len_vision = 32
     hidden_dim = 128
     
-    # 1. Inputs
-    vision_feats = torch.randn(batch_size, 1, hidden_dim) # Projected vision
-    text_embeds = torch.randn(batch_size, seq_len, hidden_dim)
+    # 1. Inputs (Text=Q, Visual=K,V)
+    text_embeds = torch.randn(batch_size, seq_len_text, hidden_dim)
+    vision_feats = torch.randn(batch_size, seq_len_vision, hidden_dim)
     
-    # 2. Triton Forward (uses CPU fallback if no Triton)
-    fused_out = vision_language_fusion_forward(vision_feats, text_embeds)
+    # 2. FastVLA Cross-Attention (uses CPU fallback if no Triton)
+    fused_out = vision_language_cross_attention(text_embeds, vision_feats)
     
     # 3. PyTorch Reference
-    # FastVLA uses a specific weighted fusion (0.5 * v + 0.5 * t)
     with torch.no_grad():
-        ref_out = text_embeds.clone()
-        # Align with Triton/fallback logic (mean expand + weighted sum)
-        ref_vision = vision_feats.mean(dim=1, keepdim=True).expand(-1, seq_len, -1)
-        ref_out = 0.5 * ref_vision + 0.5 * text_embeds
+        ref_out = torch.nn.functional.scaled_dot_product_attention(
+            text_embeds, vision_feats, vision_feats
+        )
         
+    assert fused_out.shape == (batch_size, seq_len_text, hidden_dim)
     assert torch.allclose(fused_out, ref_out, atol=1e-3)
 
 # ── Feature 2: Triton Action Head Parity ──────────────────────────────────

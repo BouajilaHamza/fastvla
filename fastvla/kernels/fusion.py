@@ -1,209 +1,151 @@
 """
-Vision-Language Fusion Triton Kernel — Fixed for GPU execution.
-Fuses visual and text features via weighted sum: out = alpha * visual + (1-alpha) * text
+Vision-Language Fusion — Optimized Cross-Attention.
+Implements a memory-efficient Cross-Attention mechanism where text tokens (Q)
+attend to visual features (K, V) from multiple cameras.
 """
 
 import torch
 import triton
 import triton.language as tl
+import math
 
 
 @triton.jit
-def _fusion_fwd_kernel(
-    visual_ptr,
-    text_ptr,
-    out_ptr,
-    B,
-    T,
-    D,
-    stride_vb,
-    stride_vt,
-    stride_vd,
-    stride_tb,
-    stride_tt,
-    stride_td,
-    stride_ob,
-    stride_ot,
-    stride_od,
+def _cross_attention_fwd_kernel(
+    Q_ptr, K_ptr, V_ptr, Out_ptr,
+    stride_qb, stride_qt, stride_qd,
+    stride_kb, stride_kt, stride_kd,
+    stride_vb, stride_vt, stride_vd,
+    stride_ob, stride_ot, stride_od,
+    B, T_q, T_kv, D,
+    sm_scale,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
-    """Each program handles one (batch, seq) element across the full feature dim D."""
+    """
+    Triton kernel for memory-efficient Cross-Attention.
+    Each program handles a block of Query tokens attending to all KV tokens.
+    """
     pid_b = tl.program_id(0)
-    pid_t = tl.program_id(1)
+    pid_m = tl.program_id(1)  # Index of Query blocks
 
-    num_blocks = tl.cdiv(D, BLOCK_D)
-    for block_id in range(num_blocks):
-        d_offset = block_id * BLOCK_D
-        cols = d_offset + tl.arange(0, BLOCK_D)
-        mask = cols < D
+    # Offsets for Query block
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    # Mask for Query tokens
+    mask_q = rm < T_q
 
-        v_offset = pid_b * stride_vb + pid_t * stride_vt + cols * stride_vd
-        t_offset = pid_b * stride_tb + pid_t * stride_tt + cols * stride_td
+    # Initialize pointers for Q
+    q_ptrs = Q_ptr + pid_b * stride_qb + rm[:, None] * stride_qt + tl.arange(0, BLOCK_D)[None, :] * stride_qd
+    q = tl.load(q_ptrs, mask=mask_q[:, None], other=0.0)
 
-        v = tl.load(visual_ptr + v_offset, mask=mask, other=0.0)
-        t = tl.load(text_ptr + t_offset, mask=mask, other=0.0)
+    # Online Softmax state
+    m_i = tl.full([BLOCK_M], float("-inf"), dtype=tl.float32)
+    l_i = tl.zeros([BLOCK_M], dtype=tl.float32)
+    acc = tl.zeros([BLOCK_M, BLOCK_D], dtype=tl.float32)
 
-        fused = 0.5 * v + 0.5 * t
+    # Loop over KV tokens
+    for start_n in range(0, T_kv, BLOCK_N):
+        rn = start_n + tl.arange(0, BLOCK_N)
+        mask_kv = rn < T_kv
 
-        o_offset = pid_b * stride_ob + pid_t * stride_ot + cols * stride_od
-        tl.store(out_ptr + o_offset, fused, mask=mask)
+        # Load K and V
+        k_ptrs = K_ptr + pid_b * stride_kb + rn[None, :] * stride_kt + tl.arange(0, BLOCK_D)[:, None] * stride_kd
+        v_ptrs = V_ptr + pid_b * stride_vb + rn[:, None] * stride_vt + tl.arange(0, BLOCK_D)[None, :] * stride_vd
+        
+        k = tl.load(k_ptrs, mask=mask_kv[None, :], other=0.0)
+        v = tl.load(v_ptrs, mask=mask_kv[:, None], other=0.0)
 
+        # QK^T scaled
+        qk = tl.dot(q, k) * sm_scale
+        qk = tl.where(mask_q[:, None] & mask_kv[None, :], qk, float("-inf"))
 
-@triton.jit
-def _fusion_bwd_kernel(
-    grad_out_ptr,
-    grad_visual_ptr,
-    grad_text_ptr,
-    B,
-    T,
-    D,
-    stride_gb,
-    stride_gt,
-    stride_gd,
-    stride_gvb,
-    stride_gvt,
-    stride_gvd,
-    stride_gtb,
-    stride_gtt,
-    stride_gtd,
-    BLOCK_D: tl.constexpr,
-):
-    pid_b = tl.program_id(0)
-    pid_t = tl.program_id(1)
+        # Online Softmax update
+        m_ij = tl.max(qk, 1)
+        p = tl.exp(qk - m_ij[:, None])
+        l_ij = tl.sum(p, 1)
 
-    num_blocks = tl.cdiv(D, BLOCK_D)
-    for block_id in range(num_blocks):
-        d_offset = block_id * BLOCK_D
-        cols = d_offset + tl.arange(0, BLOCK_D)
-        mask = cols < D
+        m_next = tl.maximum(m_i, m_ij)
+        alpha = tl.exp(m_i - m_next)
+        beta = tl.exp(m_ij - m_next)
 
-        g_offset = pid_b * stride_gb + pid_t * stride_gt + cols * stride_gd
-        grad_out = tl.load(grad_out_ptr + g_offset, mask=mask, other=0.0)
+        acc = acc * alpha[:, None] + tl.dot(p.to(tl.float16), v.to(tl.float16)) * beta[:, None]
+        l_i = l_i * alpha + l_ij * beta
+        m_i = m_next
 
-        gv = 0.5 * grad_out
-        gt = 0.5 * grad_out
+    # Finalize normalization
+    acc = acc / l_i[:, None]
 
-        gv_off = pid_b * stride_gvb + pid_t * stride_gvt + cols * stride_gvd
-        gt_off = pid_b * stride_gtb + pid_t * stride_gtt + cols * stride_gtd
-
-        tl.store(grad_visual_ptr + gv_off, gv, mask=mask)
-        tl.store(grad_text_ptr + gt_off, gt, mask=mask)
+    # Store result
+    out_ptrs = Out_ptr + pid_b * stride_ob + rm[:, None] * stride_ot + tl.arange(0, BLOCK_D)[None, :] * stride_od
+    tl.store(out_ptrs, acc.to(Out_ptr.dtype.element_ty), mask=mask_q[:, None])
 
 
-class _FusionAutograd(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, visual, text):
-        B, T_v, D = visual.shape
-        B_t, T_t, D_t = text.shape
-        assert B == B_t and D == D_t
+def vision_language_cross_attention(
+    text: torch.Tensor, visual: torch.Tensor
+) -> torch.Tensor:
+    """
+    Standardized Multi-Modal Cross-Attention.
+    
+    Args:
+        text: Queries [B, T_q, D]
+        visual: Keys/Values [B, T_kv, D]
+    Returns:
+        fused: [B, T_q, D]
+    """
+    # 1. Shape and Device Validation
+    B, T_q, D = text.shape
+    _, T_kv, D_v = visual.shape
+    assert D == D_v, f"Feature dimension mismatch: text={D}, visual={D_v}"
+    
+    if text.dtype != visual.dtype:
+        visual = visual.to(text.dtype)
 
-        original_visual_shape = visual.shape
-        was_expanded = False
-        if T_v != T_t:
-            visual = visual.mean(dim=1, keepdim=True).expand(-1, T_t, -1).contiguous()
-            was_expanded = True
-            T_v = T_t
-
-        out = torch.empty_like(text)
-        BLOCK_D = triton.next_power_of_2(D)
-        if BLOCK_D > 4096:
-            BLOCK_D = 4096
-
-        def grid(meta):
-            return (B, T_t)
-
-        _fusion_fwd_kernel[grid](
-            visual,
-            text,
-            out,
-            B,
-            T_t,
-            D,
-            visual.stride(0),
-            visual.stride(1),
-            visual.stride(2),
-            text.stride(0),
-            text.stride(1),
-            text.stride(2),
-            out.stride(0),
-            out.stride(1),
-            out.stride(2),
-            BLOCK_D=BLOCK_D,
+    # 2. CPU / Low-Compute Fallback
+    if not text.is_cuda:
+        # High-performance PyTorch native scaled dot-product attention
+        return torch.nn.functional.scaled_dot_product_attention(
+            text, visual, visual
         )
 
-        ctx.save_for_backward(visual, text)
-        ctx.was_expanded = was_expanded
-        ctx.original_visual_shape = original_visual_shape
-        return out
+    # 3. Triton CUDA Path
+    out = torch.empty_like(text)
+    sm_scale = 1.0 / math.sqrt(D)
 
-    @staticmethod
-    def backward(ctx, grad_out):
-        visual, text = ctx.saved_tensors
-        B, T_t, D = grad_out.shape
-
-        grad_visual = torch.zeros_like(visual)
-        grad_text = torch.zeros_like(text)
-
-        BLOCK_D = triton.next_power_of_2(D)
-        if BLOCK_D > 4096:
-            BLOCK_D = 4096
-
-        def grid(meta):
-            return (B, T_t)
-
-        _fusion_bwd_kernel[grid](
-            grad_out,
-            grad_visual,
-            grad_text,
-            B,
-            T_t,
-            D,
-            grad_out.stride(0),
-            grad_out.stride(1),
-            grad_out.stride(2),
-            grad_visual.stride(0),
-            grad_visual.stride(1),
-            grad_visual.stride(2),
-            grad_text.stride(0),
-            grad_text.stride(1),
-            grad_text.stride(2),
-            BLOCK_D=BLOCK_D,
+    # Auto-tuning block sizes based on D
+    BLOCK_D = triton.next_power_of_2(D)
+    if BLOCK_D > 1024:
+        # Fallback to PyTorch for very large dimensions if Triton block size limit reached
+        return torch.nn.functional.scaled_dot_product_attention(
+            text, visual, visual
         )
 
-        # If we expanded during forward, we must reduce during backward
-        if ctx.was_expanded:
-            # The grad_visual we computed is for the expanded tensor (B, T_t, D)
-            # We need to reduce it to (B, T_v, D) where T_v is the original patch count
-            # Since we did mean(dim=1) and expand, the grad for original is sum(grad) / T_v
-            original_T_v = ctx.original_visual_shape[1]
-            reduced_grad = grad_visual.sum(dim=1, keepdim=True) / original_T_v
-            grad_visual = reduced_grad.expand(-1, original_T_v, -1).contiguous()
+    BLOCK_M = 32
+    BLOCK_N = 32
 
-        return grad_visual, grad_text
+    grid = (B, triton.cdiv(T_q, BLOCK_M))
+
+    _cross_attention_fwd_kernel[grid](
+        text, visual, visual, out,
+        text.stride(0), text.stride(1), text.stride(2),
+        visual.stride(0), visual.stride(1), visual.stride(2),
+        visual.stride(0), visual.stride(1), visual.stride(2),
+        out.stride(0), out.stride(1), out.stride(2),
+        B, T_q, T_kv, D,
+        sm_scale,
+        BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N,
+        BLOCK_D=BLOCK_D,
+        num_warps=4,
+        num_stages=2
+    )
+
+    return out
 
 
 def vision_language_fusion_forward(
     visual: torch.Tensor, text: torch.Tensor
 ) -> torch.Tensor:
-    """Fusion forward with autograd support and robust fallback."""
-    # 1. Normalize dtypes (Zero-copy if already matched)
-    if visual.dtype != text.dtype:
-        visual = visual.to(text.dtype)
-
-    try:
-        if visual.is_cuda and text.is_cuda:
-            return _FusionAutograd.apply(visual, text)
-        else:
-            # Fallback to PyTorch/CPU implementation
-            from .cpu_fallbacks import vision_language_fusion_cpu
-            return vision_language_fusion_cpu(visual, text)
-    except Exception as e:
-        # ⚠️ Fail-soft: Fallback to native PyTorch implementation
-        print(f"⚠️ Warning: Triton Fusion Kernel failed ({e}). Falling back to torch.add.")
-        from .cpu_fallbacks import vision_language_fusion_cpu
-        return vision_language_fusion_cpu(visual, text)
-
-
-def vision_language_fusion_backward(grad_out, visual, text):
-    """Not used directly — autograd handles it."""
-    raise NotImplementedError("Use autograd via vision_language_fusion_forward")
+    """
+    Legacy wrapper for backward compatibility. 
+    Swaps arguments to (text, visual) to match Q, KV order.
+    """
+    return vision_language_cross_attention(text, visual)

@@ -39,7 +39,7 @@ if TRITON_AVAILABLE:
             action_decode_forward as _triton_action_forward,
         )
         from .fusion import (
-            vision_language_fusion_backward as _triton_fusion_backward,
+            vision_language_cross_attention as _triton_cross_attention,
             vision_language_fusion_forward as _triton_fusion_forward,
         )
     except Exception:
@@ -55,13 +55,21 @@ def _use_triton(tensor: torch.Tensor) -> bool:
     return TRITON_AVAILABLE and tensor.is_cuda
 
 
+def vision_language_cross_attention(
+    text: torch.Tensor, visual: torch.Tensor
+) -> torch.Tensor:
+    """Standardized Multi-Modal Cross-Attention. Uses Triton on GPU, PyTorch on CPU."""
+    if _use_triton(text) and _triton_cross_attention is not None:
+        return _triton_cross_attention(text, visual)
+    from .fusion import vision_language_cross_attention as _cpu_impl
+    return _cpu_impl(text, visual)
+
+
 def vision_language_fusion_forward(
     visual_feat: torch.Tensor, text_feat: torch.Tensor
 ) -> torch.Tensor:
-    """Fuse visual and language features. Uses Triton on GPU, PyTorch on CPU."""
-    if _use_triton(visual_feat) and _triton_fusion_forward is not None:
-        return _triton_fusion_forward(visual_feat, text_feat)
-    return vision_language_fusion_cpu(visual_feat, text_feat)
+    """Legacy wrapper. Swaps to Q, KV order for Cross-Attention."""
+    return vision_language_cross_attention(text_feat, visual_feat)
 
 
 def vision_language_fusion_backward(
@@ -69,12 +77,10 @@ def vision_language_fusion_backward(
     visual_feat: torch.Tensor,
     text_feat: torch.Tensor,
 ) -> tuple:
-    """Compute gradients for fusion."""
-    if _use_triton(grad_output) and _triton_fusion_backward is not None:
-        return _triton_fusion_backward(grad_output, visual_feat, text_feat)
-    visual_feat = visual_feat.clone().requires_grad_(True)
-    text_feat = text_feat.clone().requires_grad_(True)
-    fused = vision_language_fusion_cpu(visual_feat, text_feat)
+    """Compute gradients for fusion via autograd."""
+    visual_feat = visual_feat.clone().detach().requires_grad_(True)
+    text_feat = text_feat.clone().detach().requires_grad_(True)
+    fused = vision_language_cross_attention(text_feat, visual_feat)
     fused.backward(grad_output, retain_graph=True)
     return visual_feat.grad, text_feat.grad
 
@@ -127,6 +133,7 @@ __all__ = [
     "multi_cam_pack_forward",
     "TritonActionHead",
     "TRITON_AVAILABLE",
+    "vision_language_cross_attention",
     "vision_language_fusion_backward",
     "vision_language_fusion_forward",
 ]

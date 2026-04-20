@@ -292,10 +292,15 @@ class FastVLAModel(PreTrainedModel):
             cam_feats = self.vision_proj(cam_feats.to(proj_device))
             visual_features.append(cam_feats)
 
-        visual_features = torch.stack(visual_features).mean(dim=0)
+        # Concatenate multi-camera features along sequence dimension [B, num_cams * T_v, D]
+        visual_features = torch.cat(visual_features, dim=1)
+        
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
-        fused_embeds = vision_language_fusion_forward(visual_features.to(llm_device), text_embeds)
+        
+        # Use optimized Cross-Attention Fusion (Text attends to Visual)
+        from .kernels import vision_language_cross_attention
+        fused_embeds = vision_language_cross_attention(text_embeds, visual_features.to(llm_device))
         outputs = self.llm(inputs_embeds=fused_embeds, attention_mask=attention_mask, output_hidden_states=True)
 
         head_device = next(self.action_head.parameters()).device
