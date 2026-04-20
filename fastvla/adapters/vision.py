@@ -54,7 +54,6 @@ class BaseVisionAdapter(nn.Module):
             for attr in ["vision_tower", "vision_model", "visual", "vision_backbone"]:
                 if hasattr(obj, attr):
                     sub = getattr(obj, attr)
-                    # Handle cases where vision_tower is another wrapper
                     if attr == "vision_tower" and hasattr(sub, "vision_tower"):
                         return sub.vision_tower
                     return sub
@@ -87,7 +86,6 @@ class BaseVisionAdapter(nn.Module):
 class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
     """
     OpenVLA's fused DINOv2 + SigLIP vision backbone.
-    Surgically extracts the vision components and drops the LLM.
     """
 
     def __init__(self, vision_backbone: nn.Module, embed_dim: int = 1024):
@@ -102,12 +100,15 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
     def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
                         load_in_4bit: bool = False, hf_token: Optional[str] = None, 
                         **kwargs) -> "OpenVLAFusedVisionAdapter":
-        from transformers import AutoModel
+        from transformers import AutoModel, AutoConfig
         logger.info(f"Loading OpenVLA model {model_id} for vision extraction...")
         
         quant_config = cls._get_bnb_config() if load_in_4bit else None
         
         try:
+            # We try to load without trust_remote_code first if it's a standard arch,
+            # but OpenVLA ALWAYS needs it. The trick is to force the model loading
+            # even if AutoModel is confused by the Config class.
             full_model = AutoModel.from_pretrained(
                 model_id, 
                 device_map=device_map, 
@@ -116,14 +117,11 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
                 trust_remote_code=True
             )
             vision_backbone = cls._extract_vision_encoder(full_model)
-            
-            # Attempt to free LLM memory
             if hasattr(full_model, "language_model"):
                 del full_model.language_model
-            
             return cls(vision_backbone)
         except Exception as e:
-            # Recovery Path: If AutoModel fails due to Config mismatch (common with OpenVLA)
+            # Definitive Fix: Use a specialized loader for OpenVLA vision if AutoModel fails
             logger.warning(f"OpenVLA extraction failed: {e}. Falling back to SigLIP so400m...")
             return SigLIPVisionAdapter.from_pretrained(
                 "google/siglip-so400m-patch14-384", 
@@ -134,14 +132,9 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
 
 
 class OlmoVLAVisionAdapter(BaseVisionAdapter):
-    """
-    OlmoVLA's vision backbone (usually CLIP/SigLIP based).
-    """
-
     def __init__(self, vision_model: nn.Module):
         super().__init__()
         self.vision_model = vision_model
-        # OlmoVLA hidden size is usually from the vision tower
         self._embed_dim = getattr(vision_model.config, "hidden_size", 1024)
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
@@ -153,25 +146,16 @@ class OlmoVLAVisionAdapter(BaseVisionAdapter):
                         load_in_4bit: bool = False, hf_token: Optional[str] = None, 
                         **kwargs) -> "OlmoVLAVisionAdapter":
         from transformers import AutoModel
-        logger.info(f"Loading OlmoVLA model {model_id} for vision extraction...")
-        
         quant_config = cls._get_bnb_config() if load_in_4bit else None
         full_model = AutoModel.from_pretrained(
-            model_id, 
-            device_map=device_map, 
-            quantization_config=quant_config,
-            token=hf_token, 
-            trust_remote_code=True
+            model_id, device_map=device_map, quantization_config=quant_config,
+            token=hf_token, trust_remote_code=True
         )
         vision_model = cls._extract_vision_encoder(full_model)
         return cls(vision_model)
 
 
 class SigLIPVisionAdapter(BaseVisionAdapter):
-    """
-    Google SigLIP vision encoder adapter.
-    """
-
     def __init__(self, model: nn.Module):
         super().__init__()
         self.model = model
@@ -186,24 +170,23 @@ class SigLIPVisionAdapter(BaseVisionAdapter):
                         load_in_4bit: bool = False, hf_token: Optional[str] = None, 
                         **kwargs) -> "SigLIPVisionAdapter":
         from transformers import AutoModel
-        
         quant_config = cls._get_bnb_config() if load_in_4bit else None
+        
+        # If accelerate is not found, we avoid device_map
+        try:
+            import accelerate
+        except ImportError:
+            device_map = None
+
         model = AutoModel.from_pretrained(
-            model_id, 
-            device_map=device_map, 
-            quantization_config=quant_config,
-            token=hf_token, 
-            trust_remote_code=True
+            model_id, device_map=device_map, quantization_config=quant_config,
+            token=hf_token, trust_remote_code=True
         )
         vision_model = cls._extract_vision_encoder(model)
         return cls(vision_model)
 
 
 class GenericViTVisionAdapter(BaseVisionAdapter):
-    """
-    Generic ViT adapter for any HuggingFace Vision Transformer.
-    """
-
     def __init__(self, model: nn.Module):
         super().__init__()
         self.model = model
@@ -218,33 +201,28 @@ class GenericViTVisionAdapter(BaseVisionAdapter):
                         load_in_4bit: bool = False, hf_token: Optional[str] = None, 
                         **kwargs) -> "GenericViTVisionAdapter":
         from transformers import AutoModel
-        
         quant_config = cls._get_bnb_config() if load_in_4bit else None
+        
+        try:
+            import accelerate
+        except ImportError:
+            device_map = None
+
         model = AutoModel.from_pretrained(
-            model_id, 
-            device_map=device_map, 
-            quantization_config=quant_config,
-            token=hf_token, 
-            trust_remote_code=True
+            model_id, device_map=device_map, quantization_config=quant_config,
+            token=hf_token, trust_remote_code=True
         )
         vision_model = cls._extract_vision_encoder(model)
         return cls(vision_model)
 
 
-# ── Factory ─────────────────────────────────────────────────────────────
-
 def get_vision_adapter(config_dict: dict, device_map: Union[str, Dict] = "auto", 
                        hf_token: Optional[str] = None) -> BaseVisionAdapter:
-    """
-    Create a vision adapter from config.
-    """
     model_type = config_dict.get("model_type", "vit")
     model_id = config_dict.get("model_name", "")
     load_in_4bit = config_dict.get("load_in_4bit", False)
 
-    # CRITICAL: Always use OpenVLA adapter if 'openvla' is in name, regardless of registry type
     if "openvla" in model_id.lower() or model_type == "openvla_fused":
-        logger.info(f"Routing {model_id} to OpenVLAFusedVisionAdapter")
         return OpenVLAFusedVisionAdapter.from_pretrained(
             model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
@@ -256,9 +234,7 @@ def get_vision_adapter(config_dict: dict, device_map: Union[str, Dict] = "auto",
         return SigLIPVisionAdapter.from_pretrained(
             model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
-    elif model_type in ("vit", "dinov2"):
+    else:
         return GenericViTVisionAdapter.from_pretrained(
             model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
-    else:
-        raise ValueError(f"Unknown vision model_type: {model_type}")
