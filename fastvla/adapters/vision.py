@@ -7,6 +7,10 @@ Each adapter wraps a different vision model and exposes:
 """
 import torch
 import torch.nn as nn
+import logging
+from typing import Optional, Union, Dict
+
+logger = logging.getLogger(__name__)
 
 
 class BaseVisionAdapter(nn.Module):
@@ -23,136 +27,200 @@ class BaseVisionAdapter(nn.Module):
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
+    @classmethod
+    def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
+                        load_in_4bit: bool = False, hf_token: Optional[str] = None, 
+                        **kwargs) -> "BaseVisionAdapter":
+        """Load and extract the vision component from a model ID."""
+        raise NotImplementedError
+
+    @staticmethod
+    def _extract_vision_encoder(model: nn.Module) -> nn.Module:
+        """Surgical extraction of the vision encoder from composite models."""
+        current = model
+        # 1. Drill down through wrappers (PEFT, BitsAndBytes)
+        for _ in range(5):
+            if hasattr(current, "base_model") and current.base_model != current:
+                current = current.base_model
+            elif hasattr(current, "model") and current.model != current and not hasattr(current, "vision_tower"):
+                current = current.model
+            else:
+                break
+
+        # 2. Search for common vision attribute names
+        def _find_vision_sub(obj, depth=0):
+            if depth > 3: return None
+            # Prioritize standard VLA attribute names
+            for attr in ["vision_tower", "vision_model", "visual", "vision_backbone"]:
+                if hasattr(obj, attr):
+                    sub = getattr(obj, attr)
+                    # Handle cases where vision_tower is another wrapper
+                    if attr == "vision_tower" and hasattr(sub, "vision_tower"):
+                        return sub.vision_tower
+                    return sub
+            # Recursive search in 'model' or 'vision' attributes
+            for sub_attr in ["model", "vision"]:
+                if hasattr(obj, sub_attr):
+                    val = getattr(obj, sub_attr)
+                    if val != obj and isinstance(val, nn.Module):
+                        res = _find_vision_sub(val, depth + 1)
+                        if res: return res
+            return None
+
+        sub = _find_vision_sub(current)
+        if sub is not None:
+            logger.info(f"Surgically extracted {sub.__class__.__name__} from {current.__class__.__name__}.")
+            return sub
+        return current
+
 
 class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
     """
     OpenVLA's fused DINOv2 + SigLIP vision backbone.
-    Input: [B, 6, 224, 224] (DINOv2 3ch + SigLIP 3ch concatenated)
-    Output: [B, num_patches, 1024] (concatenated features)
-
-    This wraps the actual OpenVLA model's vision backbone.
+    Surgically extracts the vision components and drops the LLM.
     """
 
-    def __init__(self, model, freeze: bool = False):
-        """
-        Args:
-            model: Full OpenVLA model (has .vision_backbone attribute)
-            freeze: Whether to freeze the vision encoder
-        """
+    def __init__(self, vision_backbone: nn.Module, embed_dim: int = 1024):
         super().__init__()
-        self.vision_backbone = model.vision_backbone
-        self._embed_dim = 1024  # DINOv2-L (1024) + SigLIP-SO400M (varies)
-
-        if freeze:
-            for param in self.vision_backbone.parameters():
-                param.requires_grad = False
+        self.vision_backbone = vision_backbone
+        self._embed_dim = embed_dim
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            pixel_values: [B, 6, 224, 224]
-        Returns:
-            features: [B, num_patches, embed_dim]
-        """
         return self.vision_backbone(pixel_values)
+
+    @classmethod
+    def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
+                        load_in_4bit: bool = False, hf_token: Optional[str] = None, 
+                        **kwargs) -> "OpenVLAFusedVisionAdapter":
+        from transformers import AutoModel
+        logger.info(f"Loading OpenVLA model {model_id} for vision extraction...")
+        
+        try:
+            full_model = AutoModel.from_pretrained(
+                model_id, device_map=device_map, token=hf_token, trust_remote_code=True
+            )
+            vision_backbone = cls._extract_vision_encoder(full_model)
+            
+            # Attempt to free LLM memory
+            if hasattr(full_model, "language_model"):
+                del full_model.language_model
+            
+            return cls(vision_backbone)
+        except Exception as e:
+            logger.warning(f"OpenVLA extraction failed: {e}. Falling back to SigLIP so400m...")
+            return SigLIPVisionAdapter.from_pretrained(
+                "google/siglip-so400m-patch14-384", device_map=device_map, 
+                load_in_4bit=load_in_4bit, hf_token=hf_token
+            )
+
+
+class OlmoVLAVisionAdapter(BaseVisionAdapter):
+    """
+    OlmoVLA's vision backbone (usually CLIP/SigLIP based).
+    """
+
+    def __init__(self, vision_model: nn.Module):
+        super().__init__()
+        self.vision_model = vision_model
+        # OlmoVLA hidden size is usually from the vision tower
+        self._embed_dim = getattr(vision_model.config, "hidden_size", 1024)
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        outputs = self.vision_model(pixel_values)
+        return outputs.last_hidden_state
+
+    @classmethod
+    def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
+                        load_in_4bit: bool = False, hf_token: Optional[str] = None, 
+                        **kwargs) -> "OlmoVLAVisionAdapter":
+        from transformers import AutoModel
+        logger.info(f"Loading OlmoVLA model {model_id} for vision extraction...")
+        full_model = AutoModel.from_pretrained(
+            model_id, device_map=device_map, token=hf_token, trust_remote_code=True
+        )
+        vision_model = cls._extract_vision_encoder(full_model)
+        return cls(vision_model)
 
 
 class SigLIPVisionAdapter(BaseVisionAdapter):
     """
     Google SigLIP vision encoder adapter.
-    Input: [B, 3, H, W]
-    Output: [B, num_patches, 1152]
     """
 
-    def __init__(self, model_name: str = "google/siglip-so400m-patch14-224",
-                 freeze: bool = True, dtype: torch.dtype = torch.float16):
+    def __init__(self, model: nn.Module):
         super().__init__()
-        from transformers import AutoModel
-
-        self.model = AutoModel.from_pretrained(
-            model_name,
-            torch_dtype=dtype,
-        )
+        self.model = model
         self._embed_dim = self.model.config.hidden_size
-        self.dtype = dtype
-
-        if freeze:
-            for param in self.model.parameters():
-                param.requires_grad = False
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            pixel_values: [B, 3, H, W]
-        Returns:
-            features: [B, num_patches, embed_dim]
-        """
-        outputs = self.model(pixel_values=pixel_values.to(self.dtype))
+        outputs = self.model(pixel_values=pixel_values)
         return outputs.last_hidden_state
+
+    @classmethod
+    def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
+                        load_in_4bit: bool = False, hf_token: Optional[str] = None, 
+                        **kwargs) -> "SigLIPVisionAdapter":
+        from transformers import AutoModel
+        model = AutoModel.from_pretrained(
+            model_id, device_map=device_map, token=hf_token, trust_remote_code=True
+        )
+        vision_model = cls._extract_vision_encoder(model)
+        return cls(vision_model)
 
 
 class GenericViTVisionAdapter(BaseVisionAdapter):
     """
     Generic ViT adapter for any HuggingFace Vision Transformer.
-    Works with: ViT, DINOv2, DeiT, etc.
-    Input: [B, 3, H, W]
     """
 
-    def __init__(self, model_name: str = "google/vit-base-patch16-224",
-                 freeze: bool = True, dtype: torch.dtype = torch.float16):
+    def __init__(self, model: nn.Module):
         super().__init__()
-        from transformers import AutoModel
-
-        self.model = AutoModel.from_pretrained(
-            model_name,
-            torch_dtype=dtype,
-        )
+        self.model = model
         self._embed_dim = self.model.config.hidden_size
-        self.dtype = dtype
-
-        if freeze:
-            for param in self.model.parameters():
-                param.requires_grad = False
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            pixel_values: [B, 3, H, W]
-        Returns:
-            features: [B, num_patches, embed_dim]
-        """
-        outputs = self.model(pixel_values=pixel_values.to(self.dtype))
+        outputs = self.model(pixel_values=pixel_values)
         return outputs.last_hidden_state
+
+    @classmethod
+    def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
+                        load_in_4bit: bool = False, hf_token: Optional[str] = None, 
+                        **kwargs) -> "GenericViTVisionAdapter":
+        from transformers import AutoModel
+        model = AutoModel.from_pretrained(
+            model_id, device_map=device_map, token=hf_token, trust_remote_code=True
+        )
+        vision_model = cls._extract_vision_encoder(model)
+        return cls(vision_model)
 
 
 # ── Factory ─────────────────────────────────────────────────────────────
 
-def get_vision_adapter(config: dict, model=None) -> BaseVisionAdapter:
+def get_vision_adapter(config_dict: dict, device_map: Union[str, Dict] = "auto", 
+                       hf_token: Optional[str] = None) -> BaseVisionAdapter:
     """
     Create a vision adapter from config.
-
-    Args:
-        config: VisionEncoderConfig.to_dict() or dict with 'model_type' key
-        model: Full model (only needed for 'openvla_fused' type)
     """
-    model_type = config.get("model_type", "vit")
+    model_type = config_dict.get("model_type", "vit")
+    model_id = config_dict.get("model_name")
+    load_in_4bit = config_dict.get("load_in_4bit", False)
 
     if model_type == "openvla_fused":
-        if model is None:
-            raise ValueError("model must be provided for openvla_fused adapter")
-        return OpenVLAFusedVisionAdapter(
-            model,
-            freeze=config.get("freeze", False),
+        return OpenVLAFusedVisionAdapter.from_pretrained(
+            model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
+        )
+    elif model_type == "olmovla":
+        return OlmoVLAVisionAdapter.from_pretrained(
+            model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
     elif model_type == "siglip":
-        return SigLIPVisionAdapter(
-            model_name=config.get("model_name", "google/siglip-so400m-patch14-224"),
-            freeze=config.get("freeze", True),
+        return SigLIPVisionAdapter.from_pretrained(
+            model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
     elif model_type in ("vit", "dinov2"):
-        return GenericViTVisionAdapter(
-            model_name=config.get("model_name", "google/vit-base-patch16-224"),
-            freeze=config.get("freeze", True),
+        return GenericViTVisionAdapter.from_pretrained(
+            model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
     else:
         raise ValueError(f"Unknown vision model_type: {model_type}")
+

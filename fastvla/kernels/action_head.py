@@ -48,6 +48,7 @@ class TritonActionHead(nn.Module):
 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         super().__init__()
+        self.action_dim = output_dim
         self.weight1 = nn.Parameter(torch.empty(input_dim, hidden_dim))
         self.bias1 = nn.Parameter(torch.empty(hidden_dim))
         self.weight2 = nn.Parameter(torch.empty(hidden_dim, output_dim))

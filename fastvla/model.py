@@ -74,12 +74,13 @@ def _get_target_device_map(config: FastVLAConfig) -> Union[str, Dict]:
 class DummyVisionEncoder(nn.Module):
     def __init__(self, hidden_size: int = 768, **kwargs):
         super().__init__()
+        self.embed_dim = hidden_size
         self.config = type("Config", (), {"hidden_size": hidden_size})()
         self.patch_embed = nn.Conv2d(3, hidden_size, kernel_size=16, stride=16)
         self.norm = nn.LayerNorm(hidden_size)
     def forward(self, pixel_values, **kwargs):
         x = self.patch_embed(pixel_values).flatten(2).transpose(1, 2)
-        return type("Output", (), {"last_hidden_state": self.norm(x)})()
+        return self.norm(x)
 
 class DummyLanguageModel(nn.Module):
     def __init__(self, hidden_size: int = 128, vocab_size: int = 50257, **kwargs):
@@ -112,7 +113,14 @@ class FastVLAModel(PreTrainedModel):
         if config.dummy:
             self.vision_encoder = DummyVisionEncoder(hidden_size=config.vision_hidden_size)
         else:
-            self.vision_encoder = self._load_component("vision", config)
+            device_map = _get_target_device_map(config)
+            # Use model registry to get vision config if available
+            reg_config = VLAModelRegistry.get(config.vision_encoder_name)
+            v_config = reg_config.vision.to_dict() if reg_config else {"model_name": config.vision_encoder_name, "model_type": "vit"}
+            v_config["load_in_4bit"] = config.load_in_4bit
+            
+            from .adapters.vision import get_vision_adapter
+            self.vision_encoder = get_vision_adapter(v_config, device_map=device_map, hf_token=config.hf_token)
 
         # 3. Language Model
         if config.dummy:
@@ -224,99 +232,16 @@ class FastVLAModel(PreTrainedModel):
 
     def _sync_config_with_loaded_models(self):
         """Update config attributes to match actual loaded model dimensions."""
-        v_conf = self.vision_encoder.config
-        self.config.vision_hidden_size = getattr(v_conf, "hidden_size", getattr(v_conf, "projection_dim", 768))
+        self.config.vision_hidden_size = self.vision_encoder.embed_dim
         l_conf = self.llm.config
         self.config.llm_hidden_size = getattr(l_conf, "hidden_size", getattr(l_conf, "word_embed_proj_dim", 4096))
 
     def _load_component(self, component_type: str, config: FastVLAConfig):
         """Unified loader for Model components (Vision/LLM) with smart conflict resolution."""
         device_map = _get_target_device_map(config)
-        if component_type == "vision":
-            return self._load_vision_encoder_internal(config, device_map)
-        else:
+        if component_type == "llm":
             return self._load_language_model_internal(config, device_map)
-
-    def _load_vision_encoder_internal(self, config, device_map):
-        """Smart loader for the vision component, handling composite VLM conflicts."""
-        model_id = config.vision_encoder_name
-        
-        def _attempt_load(model_name, use_4bit=False):
-            try:
-                if use_4bit:
-                    from transformers import BitsAndBytesConfig
-                    bnb_cfg = BitsAndBytesConfig(
-                        load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
-                        bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True
-                    )
-                    return AutoModel.from_pretrained(
-                        model_name, quantization_config=bnb_cfg,
-                        device_map=device_map, token=config.hf_token, trust_remote_code=True
-                    )
-                else:
-                    return AutoModel.from_pretrained(
-                        model_name, device_map=device_map, token=config.hf_token, trust_remote_code=True
-                    )
-            except Exception as e:
-                if "Unrecognized configuration class" in str(e) or "OpenVLAConfig" in str(e):
-                    raise ModelLoadingError(f"Composite VLM detected ({model_name}). Triggering recovery...") from e
-                raise e
-
-        def _extract_vision_only(model):
-            """Surgical extraction of the vision encoder from composite models."""
-            current = model
-            for _ in range(10):
-                if hasattr(current, "base_model") and current.base_model != current:
-                    current = current.base_model
-                elif hasattr(current, "model") and current.model != current:
-                    if any(hasattr(current.model, a) for a in ["vision_model", "vision_tower", "visual"]):
-                        break
-                    current = current.model
-                else:
-                    break
-
-            def _find_vision_sub(obj, depth=0):
-                if depth > 3: return None
-                for attr in ["vision_tower", "vision_model", "visual", "vision"]:
-                    if hasattr(obj, attr):
-                        sub = getattr(obj, attr)
-                        if attr == "vision_tower" and hasattr(sub, "vision_tower"):
-                            return sub.vision_tower
-                        return sub
-                for sub_attr in ["model", "vision_model"]:
-                    if hasattr(obj, sub_attr):
-                        val = getattr(obj, sub_attr)
-                        if val != obj:
-                            res = _find_vision_sub(val, depth + 1)
-                            if res: return res
-                return None
-
-            sub = _find_vision_sub(current)
-            if sub is not None:
-                logger.info(f"Surgically extracted vision component ({sub.__class__.__name__}) from {current.__class__.__name__}.")
-                return sub
-            return current
-
-        # Path 1: Main Path
-        try:
-            model = _attempt_load(model_id, use_4bit=config.load_in_4bit)
-            return _extract_vision_only(model)
-        except (ModelLoadingError, ValueError, TypeError, AttributeError) as e:
-            logger.warning(f"Initial vision load failed for {model_id}: {e}. Attempting recovery...")
-            
-            # Path 2: Component Recovery Path
-            if "openvla" in model_id.lower():
-                logger.info("OpenVLA identified. Extracting SigLIP vision backbone...")
-                model = _attempt_load("google/siglip-so400m-patch14-384", use_4bit=config.load_in_4bit)
-                return _extract_vision_only(model)
-            
-            # Path 3: Final desperation
-            try:
-                device_map_base = "auto" if not config.load_in_4bit else device_map
-                model = AutoModel.from_pretrained(model_id, device_map=device_map_base, trust_remote_code=True)
-                return _extract_vision_only(model)
-            except Exception as fe:
-                raise ModelLoadingError(f"Could not load vision component {model_id} after all recovery attempts.") from fe
+        raise ValueError("Use get_vision_adapter for vision components.")
 
     def _load_language_model_internal(self, config, device_map):
         # Path 1: Unsloth (Performance)
@@ -359,19 +284,12 @@ class FastVLAModel(PreTrainedModel):
         visual_features = []
         for cam_idx in range(pixel_values.size(1)):
             cam_images = pixel_values[:, cam_idx]
-            actual_encoder = self.vision_encoder
-            if not hasattr(actual_encoder, "pixel_values") or hasattr(actual_encoder, "text_model"):
-                if hasattr(actual_encoder, "vision_model"):
-                    actual_encoder = actual_encoder.vision_model
-                elif hasattr(actual_encoder, "vision_tower"):
-                    actual_encoder = actual_encoder.vision_tower
-                elif hasattr(actual_encoder, "model") and hasattr(actual_encoder.model, "vision_model"):
-                    actual_encoder = actual_encoder.model.vision_model
-
-            vision_device = next(actual_encoder.parameters()).device
-            vision_out = actual_encoder(pixel_values=cam_images.to(vision_device), return_dict=True)
+            # Use the adapter interface directly
+            cam_feats = self.vision_encoder(cam_images)
+            
+            # Project to LLM dimension if needed
             proj_device = next(self.vision_proj.parameters()).device
-            cam_feats = self.vision_proj(vision_out.last_hidden_state.to(proj_device))
+            cam_feats = self.vision_proj(cam_feats.to(proj_device))
             visual_features.append(cam_feats)
 
         visual_features = torch.stack(visual_features).mean(dim=0)

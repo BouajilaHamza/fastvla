@@ -219,6 +219,44 @@ PI0_BASE = VLAModelConfig(
     min_vram_gb=4.0,
 )
 
+OLMOVLA = VLAModelConfig(
+    name="olmovla",
+    description="OlmoVLA: CLIP-L/14 vision + OLMo-7B language backbone",
+    vision=VisionEncoderConfig(
+        model_type="olmovla",
+        model_name="allenai/olmovla-7b-hf",
+        num_channels=3,
+        image_size=224,
+        output_dim=1024,
+        freeze=True,
+        dtype="float16",
+    ),
+    llm=LLMConfig(
+        model_type="llama", # OLMo uses Llama-like arch in many HF implementations
+        model_name="allenai/olmovla-7b-hf",
+        max_seq_length=2048,
+        use_lora=True,
+        lora_rank=16,
+        lora_alpha=32,
+    ),
+    action_head=ActionHeadConfig(
+        head_type="mlp_discrete",
+        action_dim=7,
+        hidden_dim=256,
+        num_bins=256,
+        use_triton=True,
+    ),
+    projector=ProjectorConfig(
+        vision_dim=1024,
+        llm_dim=4096,
+        projector_type="linear",
+    ),
+    quantization_4bit=True,
+    gradient_checkpointing=True,
+    default_batch_size=1,
+    min_vram_gb=8.0,
+)
+
 
 # ── Registry ──────────────────────────────────────────────────────────
 
@@ -229,6 +267,7 @@ class VLAModelRegistry:
         "openvla-7b": OPENVLA_7B,
         "smolvla": SMOLVLA,
         "pi0-base": PI0_BASE,
+        "olmovla": OLMOVLA,
     }
 
     @classmethod

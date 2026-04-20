@@ -66,8 +66,10 @@ def test_siglip_surgical_extraction():
         config = FastVLAConfig(vision_encoder_name="google/siglip-test", dummy=False)
         model = FastVLAModel(config)
         
-        # 3. Verify Extraction
-        assert model.vision_encoder == mock_composite.vision_model
+        # 3. Verify Extraction (now wrapped in an adapter)
+        from fastvla.adapters.vision import BaseVisionAdapter
+        assert isinstance(model.vision_encoder, BaseVisionAdapter)
+        assert model.vision_encoder.model == mock_composite.vision_model
         
         # 4. Verify Forward Pass Safety
         pixel_values = torch.randn(1, 1, 3, 224, 224)
@@ -106,4 +108,6 @@ def test_peft_wrapped_vision_extraction():
         config = FastVLAConfig(vision_encoder_name="custom-peft-vlm", dummy=False)
         model = FastVLAModel(config)
         
-        assert model.vision_encoder == mock_vision
+        from fastvla.adapters.vision import BaseVisionAdapter
+        assert isinstance(model.vision_encoder, BaseVisionAdapter)
+        assert model.vision_encoder.model == mock_vision
