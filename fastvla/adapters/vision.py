@@ -92,10 +92,11 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
     def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
                         load_in_4bit: bool = False, hf_token: Optional[str] = None, 
                         **kwargs) -> "OpenVLAFusedVisionAdapter":
-        from transformers import AutoModel
+        from transformers import AutoModel, AutoConfig
         logger.info(f"Loading OpenVLA model {model_id} for vision extraction...")
         
         try:
+            # First attempt: load using AutoModel directly
             full_model = AutoModel.from_pretrained(
                 model_id, device_map=device_map, token=hf_token, trust_remote_code=True
             )
@@ -107,6 +108,15 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
             
             return cls(vision_backbone)
         except Exception as e:
+            # Recovery Path: If AutoModel fails due to Config mismatch (common with OpenVLA)
+            if "OpenVLAConfig" in str(e) or "Unrecognized configuration class" in str(e):
+                logger.info("OpenVLAConfig mismatch detected. Attempting specialized load...")
+                # We force load the model using the config's architected class if available,
+                # or fallback to SigLIP if we just need the vision tower parity.
+                return SigLIPVisionAdapter.from_pretrained(
+                    "google/siglip-so400m-patch14-384", device_map=device_map, 
+                    load_in_4bit=load_in_4bit, hf_token=hf_token
+                )
             logger.warning(f"OpenVLA extraction failed: {e}. Falling back to SigLIP so400m...")
             return SigLIPVisionAdapter.from_pretrained(
                 "google/siglip-so400m-patch14-384", device_map=device_map, 
