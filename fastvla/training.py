@@ -45,6 +45,7 @@ class FastVLATrainer:
         save_steps: int = 500,
         eval_steps: int = 500,
         logging_steps: int = 100,
+        translation_mapping: Optional[Union[str, Dict[str, str]]] = None,
         # Aliases for notebook compatibility
         dataset: Optional[torch.utils.data.Dataset] = None,
         lr: Optional[float] = None,
@@ -116,6 +117,13 @@ class FastVLATrainer:
         self.global_step = 0
         self.training_history = []
 
+        # 7. Translation Mapping (for Arabic/Localized VLA)
+        self.translation_mapping = translation_mapping
+        if isinstance(translation_mapping, str):
+            import json
+            with open(translation_mapping, "r", encoding="utf-8") as f:
+                self.translation_mapping = json.load(f)
+
     @property
     def device(self):
         """Main device for the trainer."""
@@ -124,6 +132,22 @@ class FastVLATrainer:
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         self.model.train()
         
+        # Apply translation if mapping is provided
+        if self.translation_mapping and "instructions" in batch:
+            translated = []
+            for inst in batch["instructions"]:
+                translated.append(self.translation_mapping.get(inst, inst))
+            
+            # Re-tokenize translated instructions
+            tokenizer = getattr(self.model, "tokenizer", None)
+            if tokenizer:
+                device = self.accelerator.device
+                new_tokens = tokenizer(
+                    translated, return_tensors="pt", padding=True, truncation=True, max_length=512
+                ).to(device)
+                batch["input_ids"] = new_tokens["input_ids"]
+                batch["attention_mask"] = new_tokens.get("attention_mask")
+
         # Consistent with Accelerate's recommended pattern for DDP
         with self.accelerator.accumulate(self.model):
             action_preds, loss = self.model(

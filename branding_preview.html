@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastVLA Branding System</title>
+    <style>
+        :root {
+            /* Branding Palette: Obsidian, Cyber Lime, and Industrial Gray */
+            --color-obsidian: #0A0A0B;
+            --color-lead: #1A1A1C;
+            --color-lime: #CCFF00; /* High-visibility accent */
+            --color-concrete: #8E8E93;
+            --color-ghost: #F2F2F7;
+            
+            --font-display: 'Syncopate', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=JetBrains+Mono:wght@300;500&display=swap');
+
+        body {
+            background-color: var(--color-obsidian);
+            color: var(--color-ghost);
+            font-family: var(--font-mono);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            padding: 60px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 80px;
+        }
+
+        .logo-container {
+            margin-bottom: 40px;
+        }
+
+        /* LOGO DESIGN: The "VLA Impulse" */
+        /* Three converging shards representing Vision, Language, Action meeting at high speed */
+        .vla-logo {
+            width: 120px;
+            height: 120px;
+        }
+
+        .vla-logo path {
+            fill: var(--color-lime);
+        }
+
+        .brand-title {
+            font-family: var(--font-display);
+            font-size: 3rem;
+            font-weight: 700;
+            letter-spacing: -2px;
+            text-transform: uppercase;
+            margin: 0;
+            color: var(--color-lime);
+        }
+
+        .brand-subtitle {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            color: var(--color-concrete);
+            margin-top: 10px;
+        }
+
+        .section {
+            margin-bottom: 100px;
+        }
+
+        .section-title {
+            font-family: var(--font-display);
+            font-size: 1.2rem;
+            border-bottom: 1px solid var(--color-lead);
+            padding-bottom: 10px;
+            margin-bottom: 40px;
+            text-transform: uppercase;
+            color: var(--color-concrete);
+        }
+
+        /* Banner Design */
+        .banner {
+            width: 100%;
+            height: 300px;
+            background-color: var(--color-lead);
+            border: 1px solid #2A2A2E;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+
+        .banner::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                radial-gradient(circle at 2px 2px, #2A2A2E 1px, transparent 0);
+            background-size: 24px 24px;
+            opacity: 0.5;
+        }
+
+        .banner-content {
+            z-index: 1;
+            text-align: center;
+        }
+
+        .banner-vla {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .vla-pillar {
+            padding: 8px 16px;
+            border: 1px solid var(--color-lime);
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: var(--color-lime);
+            text-transform: uppercase;
+        }
+
+        /* Swatches */
+        .swatches {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+        }
+
+        .swatch {
+            height: 100px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 15px;
+            font-size: 0.7rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .badge-grid {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .fast-badge {
+            background: var(--color-lime);
+            color: var(--color-obsidian);
+            padding: 4px 12px;
+            font-weight: 700;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            border-radius: 2px;
+        }
+
+        .tech-badge {
+            border: 1px solid var(--color-concrete);
+            color: var(--color-concrete);
+            padding: 4px 12px;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            border-radius: 2px;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div class="logo-container">
+            <svg class="vla-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- V Shape Shard -->
+                <path d="M20 20L50 80L80 20H65L50 55L35 20H20Z" fill="#CCFF00"/>
+                <!-- Pulse/Action Line -->
+                <rect x="20" y="85" width="60" height="4" fill="#CCFF00"/>
+                <!-- Kinetic Arrows -->
+                <path d="M85 45L95 50L85 55V45Z" fill="#CCFF00"/>
+            </svg>
+        </div>
+        <h1 class="brand-title">FastVLA</h1>
+        <div class="brand-subtitle">High-Performance Embodied AI</div>
+    </header>
+
+    <div class="section">
+        <div class="section-title">01. Identity Banner</div>
+        <div class="banner">
+            <div class="banner-content">
+                <div class="banner-vla">
+                    <div class="vla-pillar">Vision</div>
+                    <div class="vla-pillar">Language</div>
+                    <div class="vla-pillar">Action</div>
+                </div>
+                <div style="font-family: var(--font-display); font-size: 2.5rem; color: #fff;">FASTVLA</div>
+                <div style="color: var(--color-concrete); font-size: 0.8rem; margin-top: 10px;">OPTIMIZED TRITON KERNELS | 4-BIT PRECISION | <$1/HR</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">02. Color System</div>
+        <div class="swatches">
+            <div class="swatch" style="background-color: var(--color-obsidian);">
+                <span>OBSIDIAN</span>
+                <span>#0A0A0B</span>
+            </div>
+            <div class="swatch" style="background-color: var(--color-lead);">
+                <span>LEAD</span>
+                <span>#1A1A1C</span>
+            </div>
+            <div class="swatch" style="background-color: var(--color-lime); color: #000;">
+                <span>CYBER LIME</span>
+                <span>#CCFF00</span>
+            </div>
+            <div class="swatch" style="background-color: var(--color-concrete);">
+                <span>CONCRETE</span>
+                <span>#8E8E93</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">03. Repository Assets</div>
+        <div class="badge-grid">
+            <div class="fast-badge">FastVLA Core</div>
+            <div class="tech-badge">Triton-Powered</div>
+            <div class="tech-badge">L4 Optimized</div>
+            <div class="tech-badge">Arabic VLA Ready</div>
+        </div>
+        <p style="color: var(--color-concrete); font-size: 0.8rem; margin-top: 40px; line-height: 1.6;">
+            The visual language of FastVLA is built on industrial precision. We use high-contrast accents (Cyber Lime) against a deep obsidian base to represent high-speed data flow and extreme hardware efficiency. No rounded corners, no soft gradients—only hard edges and geometric clarity.
+        </p>
+    </div>
+</div>
+
+</body>
+</html>

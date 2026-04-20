@@ -122,6 +122,7 @@ class UnslothVLACollator:
         # ── Handle text instructions ────────────────────────────────
         if "instructions" in features[0]:
             texts = [f["instructions"] for f in features]
+            batch["instructions"] = texts  # Keep raw text for trainer-side translation
             text_inputs = self.tokenizer(
                 texts,
                 padding=self.padding,
