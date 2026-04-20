@@ -119,8 +119,16 @@ class FastVLAModel(PreTrainedModel):
             v_config = reg_config.vision.to_dict() if reg_config else {"model_name": config.vision_encoder_name, "model_type": "vit"}
             v_config["load_in_4bit"] = config.load_in_4bit
             
-            from .adapters.vision import get_vision_adapter
-            self.vision_encoder = get_vision_adapter(v_config, device_map=device_map, hf_token=config.hf_token)
+            from .adapters.vision import get_vision_adapter, OpenVLAFusedVisionAdapter
+            
+            # CRITICAL: If it's OpenVLA, use the specialized adapter immediately to avoid Config mismatch
+            if "openvla" in config.vision_encoder_name.lower():
+                self.vision_encoder = OpenVLAFusedVisionAdapter.from_pretrained(
+                    config.vision_encoder_name, device_map=device_map, 
+                    load_in_4bit=config.load_in_4bit, hf_token=config.hf_token
+                )
+            else:
+                self.vision_encoder = get_vision_adapter(v_config, device_map=device_map, hf_token=config.hf_token)
 
         # 3. Language Model
         if config.dummy:
