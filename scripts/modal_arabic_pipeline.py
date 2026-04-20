@@ -76,7 +76,7 @@ def translate_dataset(dataset_name="lerobot/pusht_image"):
 # ── 3. Fine-Tuning ────────────────────────────────────────────────────────
 @app.function(
     image=image,
-    gpu="L4", # Single L4 for FastVLA efficiency
+    gpu="L4", # Single L4 maximized for FastVLA efficiency
     timeout=7200,
     volumes={"/data": volume},
     secrets=[modal.Secret.from_name("huggingface-secret")]
@@ -84,16 +84,21 @@ def translate_dataset(dataset_name="lerobot/pusht_image"):
 def finetune_arabic(mapping_path):
     from fastvla import FastVLAModel, FastVLATrainer
     import torch
+    import os
 
-    print("🚀 Starting Arabic-Localized Fine-Tuning...")
+    print("🚀 Starting Arabic-Localized Fine-Tuning (L4 Optimized)...")
     
-    # Load Model
+    output_dir = "/data/checkpoints/arabic-vla"
+    checkpoint_exists = os.path.exists(output_dir) and any(f.startswith("checkpoint-") for f in os.listdir(output_dir))
+
+    # Load Model (Optimized for 24GB L4)
     model = FastVLAModel.from_pretrained(
         "openvla-7b",
         load_in_4bit=True,
         use_peft=True,
         action_dim=2, # PushT
-        hf_token=os.environ.get("HF_TOKEN")
+        hf_token=os.environ.get("HF_TOKEN"),
+        gradient_checkpointing=True # Crucial for maximizing batch size on L4
     )
 
     # Train with Arabic Mapping
@@ -101,15 +106,24 @@ def finetune_arabic(mapping_path):
         model=model,
         dataset="pusht",
         translation_mapping=mapping_path,
-        batch_size=8, # L4 can handle 8 easily
-        max_steps=500,
-        output_dir="/data/checkpoints/arabic-vla"
+        batch_size=12, # L4 (24GB) can handle 12-16 with 4-bit + grad checkpointing
+        gradient_accumulation_steps=2, # Effective batch size = 24
+        max_steps=1000, # Increased steps for better quality
+        output_dir=output_dir,
+        save_steps=200,
+        logging_steps=10
     )
+    
+    # Robust Resuming Logic
+    if checkpoint_exists:
+        latest_cp = sorted([d for d in os.listdir(output_dir) if d.startswith("checkpoint-")])[-1]
+        print(f"🔄 Resuming from latest checkpoint: {latest_cp}")
+        trainer.load_checkpoint(os.path.join(output_dir, latest_cp))
     
     trainer.train()
     volume.commit()
-    print("✅ Fine-tuning complete. Checkpoint saved.")
-    return "/data/checkpoints/arabic-vla"
+    print(f"✅ Fine-tuning complete. Checkpoint saved in {output_dir}")
+    return output_dir
 
 # ── 4. Benchmarking ───────────────────────────────────────────────────────
 @app.function(
