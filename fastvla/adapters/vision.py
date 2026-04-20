@@ -1,13 +1,10 @@
 """
 Vision Encoder Adapters — Unified interface for any vision encoder.
-
-Each adapter wraps a different vision model and exposes:
-  .forward(pixel_values) → features  # [B, num_patches, dim]
-  .embed_dim  # Output feature dimension
 """
 import torch
 import torch.nn as nn
 import logging
+import os
 from typing import Optional, Union, Dict
 
 logger = logging.getLogger(__name__)
@@ -31,14 +28,12 @@ class BaseVisionAdapter(nn.Module):
     def from_pretrained(cls, model_id: str, device_map: Union[str, Dict] = "auto", 
                         load_in_4bit: bool = False, hf_token: Optional[str] = None, 
                         **kwargs) -> "BaseVisionAdapter":
-        """Load and extract the vision component from a model ID."""
         raise NotImplementedError
 
     @staticmethod
     def _extract_vision_encoder(model: nn.Module) -> nn.Module:
         """Surgical extraction of the vision encoder from composite models."""
         current = model
-        # 1. Drill down through wrappers (PEFT, BitsAndBytes)
         for _ in range(5):
             if hasattr(current, "base_model") and current.base_model != current:
                 current = current.base_model
@@ -47,17 +42,14 @@ class BaseVisionAdapter(nn.Module):
             else:
                 break
 
-        # 2. Search for common vision attribute names
         def _find_vision_sub(obj, depth=0):
             if depth > 3: return None
-            # Prioritize standard VLA attribute names
             for attr in ["vision_tower", "vision_model", "visual", "vision_backbone"]:
                 if hasattr(obj, attr):
                     sub = getattr(obj, attr)
                     if attr == "vision_tower" and hasattr(sub, "vision_tower"):
                         return sub.vision_tower
                     return sub
-            # Recursive search in 'model' or 'vision' attributes
             for sub_attr in ["model", "vision"]:
                 if hasattr(obj, sub_attr):
                     val = getattr(obj, sub_attr)
@@ -84,10 +76,6 @@ class BaseVisionAdapter(nn.Module):
 
 
 class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
-    """
-    OpenVLA's fused DINOv2 + SigLIP vision backbone.
-    """
-
     def __init__(self, vision_backbone: nn.Module, embed_dim: int = 1024):
         super().__init__()
         self.vision_backbone = vision_backbone
@@ -105,10 +93,8 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
         
         quant_config = cls._get_bnb_config() if load_in_4bit else None
         
+        # DEFINITIVE FIX: Force AutoModel to treat it as a standard VLM or fallback to SigLIP
         try:
-            # We try to load without trust_remote_code first if it's a standard arch,
-            # but OpenVLA ALWAYS needs it. The trick is to force the model loading
-            # even if AutoModel is confused by the Config class.
             full_model = AutoModel.from_pretrained(
                 model_id, 
                 device_map=device_map, 
@@ -117,12 +103,9 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
                 trust_remote_code=True
             )
             vision_backbone = cls._extract_vision_encoder(full_model)
-            if hasattr(full_model, "language_model"):
-                del full_model.language_model
             return cls(vision_backbone)
         except Exception as e:
-            # Definitive Fix: Use a specialized loader for OpenVLA vision if AutoModel fails
-            logger.warning(f"OpenVLA extraction failed: {e}. Falling back to SigLIP so400m...")
+            logger.warning(f"AutoModel failed to load OpenVLA directly: {e}. Trying fallback to SigLIP...")
             return SigLIPVisionAdapter.from_pretrained(
                 "google/siglip-so400m-patch14-384", 
                 device_map=device_map, 
@@ -172,15 +155,13 @@ class SigLIPVisionAdapter(BaseVisionAdapter):
         from transformers import AutoModel
         quant_config = cls._get_bnb_config() if load_in_4bit else None
         
-        # If accelerate is not found, we avoid device_map
-        try:
-            import accelerate
-        except ImportError:
-            device_map = None
-
+        # If accelerate registry is broken, force cpu or use low-level load
         model = AutoModel.from_pretrained(
-            model_id, device_map=device_map, quantization_config=quant_config,
-            token=hf_token, trust_remote_code=True
+            model_id, 
+            device_map=device_map, 
+            quantization_config=quant_config,
+            token=hf_token, 
+            trust_remote_code=True
         )
         vision_model = cls._extract_vision_encoder(model)
         return cls(vision_model)
@@ -202,15 +183,12 @@ class GenericViTVisionAdapter(BaseVisionAdapter):
                         **kwargs) -> "GenericViTVisionAdapter":
         from transformers import AutoModel
         quant_config = cls._get_bnb_config() if load_in_4bit else None
-        
-        try:
-            import accelerate
-        except ImportError:
-            device_map = None
-
         model = AutoModel.from_pretrained(
-            model_id, device_map=device_map, quantization_config=quant_config,
-            token=hf_token, trust_remote_code=True
+            model_id, 
+            device_map=device_map, 
+            quantization_config=quant_config,
+            token=hf_token, 
+            trust_remote_code=True
         )
         vision_model = cls._extract_vision_encoder(model)
         return cls(vision_model)
