@@ -239,11 +239,12 @@ def get_vision_adapter(config_dict: dict, device_map: Union[str, Dict] = "auto",
     Create a vision adapter from config.
     """
     model_type = config_dict.get("model_type", "vit")
-    model_id = config_dict.get("model_name")
+    model_id = config_dict.get("model_name", "")
     load_in_4bit = config_dict.get("load_in_4bit", False)
 
-    # Force OpenVLA specific logic if 'openvla' is in the name
+    # CRITICAL: Always use OpenVLA adapter if 'openvla' is in name, regardless of registry type
     if "openvla" in model_id.lower() or model_type == "openvla_fused":
+        logger.info(f"Routing {model_id} to OpenVLAFusedVisionAdapter")
         return OpenVLAFusedVisionAdapter.from_pretrained(
             model_id, device_map=device_map, load_in_4bit=load_in_4bit, hf_token=hf_token
         )
