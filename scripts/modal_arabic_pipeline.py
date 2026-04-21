@@ -121,7 +121,7 @@ def finetune_arabic(mapping_path):
         translation_mapping=mapping_path,
         batch_size=12,
         gradient_accumulation_steps=2,
-        max_steps=1000,
+        max_steps=2000,
         output_dir=output_dir,
         save_steps=200,
         logging_steps=10
