@@ -12,7 +12,6 @@ wandb_key = os.environ.get("WANDB_API_KEY")
 vla_secrets = [modal.Secret.from_dict({"HF_TOKEN": hf_key, "WANDB_API_KEY": wandb_key})]
 
 # ── 1. Define Environment ──────────────────────────────────────────────────
-# Use a pre-configured CUDA image to ensure accelerate/bitsandbytes stability
 image = (
     modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.10")
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0")
@@ -24,7 +23,6 @@ image = (
         "sacremoses", "sentencepiece"
     )
     .pip_install("git+https://github.com/unslothai/unsloth.git")
-    # We add local project dir and install it properly
     .add_local_dir(Path(__file__).parent.parent, remote_path="/root/project", copy=True)
     .run_commands("pip install -e /root/project")
 )
@@ -50,6 +48,7 @@ def translate_dataset(dataset_name="lerobot/pusht_image"):
     
     instructions = set()
     for item in ds:
+        # Check common keys for PushT
         inst = item.get("instruction", item.get("language_instruction"))
         if not inst and "language" in item: inst = item["language"]
         if inst: instructions.add(inst)
@@ -107,8 +106,6 @@ def finetune_arabic(mapping_path):
     os.makedirs(output_dir, exist_ok=True)
     checkpoint_exists = any(f.startswith("checkpoint-") for f in os.listdir(output_dir))
 
-    # CRITICAL: Always use OpenVLA adapter if it's OpenVLA
-    # The fix is already in the mounted fastvla/model.py and adapters/vision.py
     model = FastVLAModel.from_pretrained(
         "openvla-7b",
         load_in_4bit=True,
@@ -175,14 +172,43 @@ def benchmark_arabic(checkpoint_path):
     print("📈 Benchmark: Success Rate (Simulated): 84%")
     return 0.84
 
+# ── 5. Publishing ──────────────────────────────────────────────────────────
+@app.function(
+    image=image,
+    volumes={"/data": volume},
+    secrets=vla_secrets
+)
+def upload_to_hf(checkpoint_path, repo_id="BouajilaHamza/arabic-vla-adapter"):
+    from fastvla import FastVLAModel
+    import os
+    
+    print(f"📦 Uploading fine-tuned adapter to Hugging Face: {repo_id}")
+    
+    model = FastVLAModel.from_pretrained(
+        "openvla-7b",
+        load_in_4bit=True,
+        hf_token=os.environ.get("HF_TOKEN")
+    )
+    
+    latest_cp = sorted([d for d in os.listdir(checkpoint_path) if d.startswith("checkpoint-")])[-1]
+    cp_full_path = os.path.join(checkpoint_path, latest_cp)
+    model.load_checkpoint(cp_full_path)
+    
+    # Push adapter only
+    model.push_to_hub(repo_id, token=os.environ.get("HF_TOKEN"))
+    print(f"✨ Successfully published to: https://huggingface.co/{repo_id}")
+    return f"https://huggingface.co/{repo_id}"
+
 # ── Orchestrator ──────────────────────────────────────────────────────────
 @app.local_entrypoint()
 def main():
     mapping_path = translate_dataset.remote()
     checkpoint_path = finetune_arabic.remote(mapping_path)
     success_rate = benchmark_arabic.remote(checkpoint_path)
+    repo_url = upload_to_hf.remote(checkpoint_path)
     
     print(f"\n✨ PIPELINE COMPLETE ✨")
     print(f"Arabic Translation: {mapping_path}")
     print(f"Model Checkpoint: {checkpoint_path}")
+    print(f"Hugging Face Repo: {repo_url}")
     print(f"Final Success Rate: {success_rate * 100}%")
