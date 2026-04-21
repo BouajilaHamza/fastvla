@@ -636,7 +636,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = ">=0.28.0,<1.0.0" },
+    { name = "accelerate", specifier = ">=0.28.0" },
     { name = "bitsandbytes", specifier = ">=0.42.0" },
     { name = "datasets", specifier = ">=2.16.0" },
     { name = "fastvla", extras = ["gpu", "lora", "logging"], marker = "extra == 'all'" },
