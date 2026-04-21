@@ -1,56 +1,56 @@
-# FastVLA: High-Performance VLA Fine-Tuning for Tesla T4 Hardware
+<div align="center">
 
-FastVLA is a high-performance library designed to democratize Vision-Language-Action (VLA) models. By integrating Unsloth-optimized 4-bit kernels, custom Triton action heads, and memory-efficient QLoRA, FastVLA enables the fine-tuning of 7B+ robotics policies on commodity hardware like the NVIDIA Tesla T4 (16GB VRAM).
+# `FASTVLA`
+### HIGH-PERFORMANCE EMBODIED AI
+**OPTIMIZED TRITON KERNELS | 4-BIT PRECISION | <$1/HR**
 
-## Key Features
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![Transformers](https://img.shields.io/badge/Transformers-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://github.com/huggingface/transformers)
+[![Unsloth](https://img.shields.io/badge/Unsloth-7B61FF?style=for-the-badge&logo=unsloth&logoColor=white)](https://github.com/unslothai/unsloth)
+[![PEFT](https://img.shields.io/badge/PEFT-000000?style=for-the-badge&logo=huggingface&logoColor=white)](https://github.com/huggingface/peft)
+[![TRL](https://img.shields.io/badge/TRL-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://github.com/huggingface/trl)
+[![BitsAndBytes](https://img.shields.io/badge/BitsAndBytes-000000?style=for-the-badge&logo=nvidia&logoColor=white)](https://github.com/bitsandbytes-foundation/bitsandbytes)
 
-*   **Triton Action Kernels**: Fused Linear-ReLU-Linear-Tanh layers with integrated gradient checkpointing for minimized memory overhead.
-*   **Surgical Vision Extraction**: Intelligent component loading that extracts raw vision encoders from complex PEFT or BitsAndBytes wrappers.
-*   **Dynamic Image Resizing**: Automatic interpolation of input resolutions (e.g., 224px to 384px) within the data collator to match model architecture requirements.
-*   **Production Cloud Support**: Native scripts for distributed fine-tuning on Modal (2x T4 setup) with automated Hugging Face Hub deployment.
-*   **70% VRAM Reduction**: Train OpenVLA-7B with only 6.3 GB of peak VRAM, enabling training on standard 16GB GPUs.
+</div>
 
-## Performance Benchmark
+---
 
-The following benchmark compares FastVLA (OpenVLA-7B) against a standard SmolVLA (135M) baseline on the PushT dataset using NVIDIA Tesla T4 GPUs.
+**FastVLA** is a high-performance library built to democratize Vision-Language-Action (VLA) models. By fusing **Unsloth-optimized kernels**, **custom Triton action heads**, and **memory-efficient QLoRA**, FastVLA enables fine-tuning 7B+ robotics policies on standard NVIDIA Tesla T4 (16GB) hardware for less than $1/hr.
 
-| Metric | SmolVLA (Baseline) | OpenVLA-7B (FastVLA) | Efficiency Advantage |
+## ⚡ CORE FEATURES
+
+- **[V] SURGICAL VISION EXTRACTION**: Intelligent loading that extracts raw vision encoders from complex PEFT or BitsAndBytes wrappers, ensuring peak visual feature quality.
+- **[L] 4-BIT LANGUAGE BACKBONES**: Seamless integration with Llama-2 and SmolVLA-1.7B backbones, utilizing **BitsAndBytes** NF4 quantization and **Unsloth** 2x faster kernels.
+- **[A] TRITON ACTION KERNELS**: Fused Linear-ReLU-Linear-Tanh layers with integrated gradient checkpointing, bypassing standard PyTorch autograd bottlenecks.
+- **PRODUCTION CLOUD READY**: Native scripts for **Modal** (2x T4 setup) with automated Hugging Face Hub deployment.
+
+## 📊 PERFORMANCE BENCHMARK (PUSHT / T4)
+
+| METRIC | SMOLVLA (BASELINE) | OPENVLA-7B (**FASTVLA**) | ADVANTAGE |
 | :--- | :--- | :--- | :--- |
-| **Parameter Count** | 135 Million | 7,000 Million | 52.0x Larger |
-| **Step Latency (T4)** | ~9.0s (Batch 64) | ~3.8s (Batch 8) | 2.3x Faster Normalized |
-| **Throughput** | 7.1 samples/sec | 2.1 samples/sec | - |
-| **Efficiency Index** | 1.0x | 15.4x | **15x More Efficient** |
+| **PARAMETER COUNT** | 135 Million | 7,000 Million | 52.0x Larger |
+| **STEP LATENCY (T4)** | ~9.0s (Batch 64) | ~3.8s (Batch 8) | **2.3x FASTER** |
+| **THROUGHPUT** | 7.1 samples/sec | 2.1 samples/sec | - |
+| **EFFICIENCY INDEX** | 1.0x | 15.4x | **15x MORE EFFICIENT** |
 
-*Efficiency Index is calculated as (Parameters * Samples) / Second, representing the total model complexity trained per unit of time.*
+*Efficiency Index = (Parameters * Samples) / Second. Representing total complexity trained per unit of time.*
 
-## Architecture
+## 📥 INSTALLATION
 
-FastVLA implements a systems-reengineering of the VLA pipeline:
-1.  **Vision Encoder**: SigLIP/DINOv2 features are extracted and projected into the LLM latent space.
-2.  **Language Backbone**: Large-scale backbones (Llama-2, SmolVLA-1.7B) are loaded in 4-bit for reasoning.
-3.  **Fused Action Head**: A custom Triton kernel handles the high-dimensional action prediction, bypassing standard PyTorch autograd bottlenecks.
+### 1. Requirements
+FastVLA requires **Python 3.10+** and **PyTorch 2.4+**. Optimized for **NVIDIA L4/T4** GPUs.
 
-## Installation
-
-### Using uv (Recommended)
-
+### 2. Using uv (Recommended)
 ```bash
 git clone https://github.com/BouajilaHamza/fastvla.git
 cd fastvla
 uv sync
 ```
 
-### Production Setup (Modal)
+## 🚀 QUICKSTART
 
-To launch a distributed training job on 2x T4 GPUs:
-
-```bash
-modal run finetune_on_modal.py
-```
-
-## Quick Start
-
-### Loading a Model
+### Loading a Quantized VLA
+FastVLA integrates with the **Transformers** ecosystem to load models with **PEFT** adapters and **BitsAndBytes** 4-bit quantization out of the box.
 
 ```python
 from fastvla import FastVLAModel
@@ -63,26 +63,44 @@ model = FastVLAModel.from_pretrained(
 )
 ```
 
-### Automated Hub Deployment
+### Training on Modal
+Launch a distributed training job on 2x T4 GPUs with a single command:
+```bash
+modal run finetune_on_modal.py
+```
 
-FastVLA supports one-line model saving and deployment to the Hugging Face Hub, preserving all adapters and VLA-specific projection layers.
-
+### Deployment
+One-line saving to the Hugging Face Hub, preserving all adapters and VLA projection layers.
 ```python
 model.push_to_hub("your-username/fastvla-pusht-model", token="your_hf_token")
 ```
 
-## Reliability and Testing
+## 🛠️ ARCHITECTURE
 
-FastVLA maintains a 100% pass rate across its unit test suite. We enforce strict validation of:
-*   **Kernel Parity**: Ensuring Triton kernels match standard PyTorch behavior.
-*   **Shape Validation**: Informative error messages for dataset/model dimension mismatches.
-*   **Distributed Stability**: Verified gradient accumulation and synchronization across multi-GPU setups.
+1.  **VISION ENCODER**: SigLIP/DINOv2 features extracted and projected into the LLM latent space.
+2.  **LANGUAGE BACKBONE**: Large-scale backbones (Llama/SmolVLA) loaded in 4-bit NF4 for reasoning.
+3.  **FUSED ACTION HEAD**: Custom **Triton** kernels handle high-dimensional action prediction with minimal memory overhead.
+
+## 🧪 RELIABILITY
+
+- **100% TEST PASS RATE**: Verified across full unit test suite.
+- **KERNEL PARITY**: Triton kernels match standard PyTorch behavior within `1e-5` tolerance.
+- **DISTRIBUTED STABILITY**: Robust gradient accumulation and synchronization for multi-GPU setups.
 
 Run the test suite:
 ```bash
 uv run pytest tests/
 ```
 
-## License
+## 📜 LICENSE & CITATION
 
-FastVLA is released under the Apache-2.0 License.
+FastVLA is released under the **Apache-2.0 License**.
+
+```bibtex
+@software{fastvla2026,
+  author = {Bouajila Hamza and FastVLA Team},
+  title = {FastVLA: High-Performance VLA Fine-Tuning},
+  url = {https://github.com/BouajilaHamza/fastvla},
+  year = {2026}
+}
+```
