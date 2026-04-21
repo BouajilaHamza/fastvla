@@ -1,10 +1,13 @@
 import os
+import logging
 from typing import Dict, List, Tuple, Optional
 import h5py
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 class RoboticsDataset(Dataset):
     """Base class for robotics datasets."""
@@ -151,16 +154,68 @@ class LeRobotDataset(RoboticsDataset):
         # Load the dataset (usually 'train' split)
         hf_ds = load_dataset(self.data_path, split='train')
         
+        def get_nested(d, path, default=None):
+            keys = path.split('.')
+            curr = d
+            for k in keys:
+                try:
+                    if isinstance(curr, dict) and k in curr:
+                        curr = curr[k]
+                    elif hasattr(curr, k):
+                        curr = getattr(curr, k)
+                    else:
+                        return default
+                except (TypeError, KeyError, AttributeError):
+                    return default
+            return curr
+
         data = []
-        # LeRobot PushT format mapping
+        # LeRobot format mapping with deep key search
         for item in hf_ds:
-            data.append({
-                'rgb': item.get('observation.image', item.get('image')),
-                'state': item.get('observation.state', item.get('state', [])),
-                'action': item.get('action', []),
-                'instruction': item.get('instruction', 'push the block to the goal')
-            })
+            # Ensure we have a dict-like object
+            if not hasattr(item, "get") and hasattr(item, "keys"):
+                item = dict(item)
             
+            # 1. Extract Images (handle nested or flat)
+            img = None
+            for k in ['observation.image', 'observation.images.laptop', 'observation.images.agentview', 'image']:
+                val = get_nested(item, k) if '.' in k else item.get(k)
+                if val is not None:
+                    img = val
+                    break
+            
+            # 2. Extract State
+            state = get_nested(item, 'observation.state') or item.get('state', [])
+            
+            # 3. Extract Action
+            action = item.get('action', [])
+            
+            # 4. Extract Instruction
+            instruction = item.get('instruction') or item.get('language_instruction') or 'push the block to the goal'
+
+            if img is not None:
+                data.append({
+                    'rgb': img,
+                    'state': state,
+                    'action': action,
+                    'instruction': instruction
+                })
+            
+        if not data:
+            logger.warning(f"⚠️ No valid data found in {self.data_path}. Fallback to raw keys.")
+            sample = hf_ds[0]
+            print(f"DEBUG: Dataset Sample Keys: {list(sample.keys())}")
+            # Just take the first image and state we find
+            img_key = next((k for k in sample.keys() if 'image' in k or 'rgb' in k), None)
+            if img_key: print(f"DEBUG: Selected fallback img_key: {img_key}")
+            for item in hf_ds:
+                data.append({
+                    'rgb': item[img_key] if img_key else None,
+                    'state': item.get('state', []),
+                    'action': item.get('action', []),
+                    'instruction': item.get('instruction', 'push the block to the goal')
+                })
+
         return data
 
 

@@ -151,8 +151,10 @@ class UnslothVLACollator:
         required_keys = ["pixel_values", "input_ids"]
         missing_keys = [k for k in required_keys if k not in batch]
         if missing_keys:
+            sample_keys = list(features[0].keys()) if features else "N/A"
             raise ValueError(
                 f"Batch is missing required keys: {missing_keys}. "
+                f"Dataset sample keys: {sample_keys}. "
                 f"Ensure your dataset provides images and instructions (text)."
             )
 
