@@ -96,7 +96,7 @@ modal run scripts/modal_arabic_pipeline.py
 ### Deployment
 One-line saving to the Hugging Face Hub, preserving all adapters and VLA projection layers.
 ```python
-model.push_to_hub("hamzabouajila/fastvla-arabic-hero", token="your_hf_token")
+model.push_to_hub("hamzabouajila/openvla-pusht-arabic", token="your_hf_token")
 ```
 
 ## 🧪 RELIABILITY
