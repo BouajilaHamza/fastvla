@@ -1,0 +1,52 @@
+import os
+import modal
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+hf_key = os.environ.get("HF_API_KEY")
+vla_secrets = [modal.Secret.from_dict({"HF_TOKEN": hf_key})]
+
+image = (
+    modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.10")
+    .apt_install("git")
+    .pip_install(
+        "torch>=2.2.0", "transformers>=4.40.0", "accelerate>=0.28.0",
+        "bitsandbytes>=0.42.0", "peft>=0.9.0", "datasets>=2.16.0",
+        "torchvision>=0.17.0", "timm>=0.9.12", "numpy<2.0.0",
+        "python-dotenv"
+    )
+    .add_local_dir(Path(__file__).parent.parent, remote_path="/root/project", copy=True)
+    .run_commands("pip install -e /root/project")
+)
+
+app = modal.App("fastvla-arabic-upload")
+volume = modal.Volume.from_name("fastvla-data", create_if_missing=True)
+
+@app.function(image=image, volumes={"/data": volume}, secrets=vla_secrets)
+def upload(repo_id="BouajilaHamza/arabic-vla-hero-adapter"):
+    from fastvla import FastVLAModel
+    import os
+
+    output_dir = "/data/checkpoints/arabic-vla-hero"
+    volume.reload()
+    
+    checkpoints = [d for d in os.listdir(output_dir) if d.startswith("checkpoint-")]
+    if not checkpoints:
+        print("❌ No checkpoints found to upload.")
+        return
+
+    latest_cp = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))[-1]
+    cp_path = os.path.join(output_dir, latest_cp)
+    print(f"📦 Uploading latest checkpoint: {latest_cp} to {repo_id}")
+
+    model = FastVLAModel.from_pretrained(
+        "openvla-7b", load_in_4bit=True, hf_token=os.environ.get("HF_TOKEN")
+    )
+    model.load_checkpoint(cp_path)
+    model.push_to_hub(repo_id, token=os.environ.get("HF_TOKEN"))
+    print(f"✨ Model published: https://huggingface.co/{repo_id}")
+
+@app.local_entrypoint()
+def main():
+    upload.remote()
