@@ -42,10 +42,11 @@ def evaluate():
     print(f"📊 Loading latest checkpoint for evaluation: {latest_cp}")
 
     model = FastVLAModel.from_pretrained(
-        "openvla-7b", load_in_4bit=True, action_dim=2,
+        model_name_or_path=cp_path,
+        load_in_4bit=True,
+        action_dim=2,
         hf_token=os.environ.get("HF_TOKEN")
     )
-    model.load_checkpoint(cp_path)
     
     # Simple Inference Check (Arabic)
     arabic_command = "دفع الحجر إلى الهدف"
