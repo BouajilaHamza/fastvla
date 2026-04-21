@@ -106,7 +106,8 @@ def benchmark_arabic(checkpoint_path):
     arabic_command = "دفع الحجر إلى الهدف"
     print(f"🧪 Testing inference with: {arabic_command}")
     
-    pixel_values = torch.randn(1, 1, 3, 224, 224).cuda()
+    # SigLIP so400m-patch14-384 expects 384x384
+    pixel_values = torch.randn(1, 1, 3, 384, 384).cuda()
     tokenizer = model.tokenizer
     input_ids = tokenizer(arabic_command, return_tensors="pt")["input_ids"].cuda()
     

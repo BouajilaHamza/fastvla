@@ -174,31 +174,44 @@ def inspect_keys(dataset_name: str):
     inst = sample.get("instruction") or sample.get("language_instruction")
     print(f"📝 Sample Instruction: {inst}")
 
+@app.function(image=image, secrets=vla_secrets)
+def compare_datasets(original_name: str, translated_name: str):
+    from datasets import load_dataset
+    print(f"\n🔍 Comparing {original_name} vs {translated_name}")
+    
+    orig = load_dataset(original_name, split='train', streaming=True)
+    trans = load_dataset(translated_name, split='train', streaming=True)
+    
+    # Check first 5 tasks/samples
+    orig_iter = iter(orig)
+    trans_iter = iter(trans)
+    
+    samples_to_check = 100 # Check a larger window to see task shifts
+    tasks_found = {}
+    
+    for i in range(samples_to_check):
+        try:
+            o_item = next(orig_iter)
+            t_item = next(trans_iter)
+            
+            t_idx = o_item.get("task_index", 0)
+            t_inst = t_item.get("instruction")
+            
+            if t_idx not in tasks_found:
+                tasks_found[t_idx] = t_inst
+                print(f"📍 Task Index {t_idx}: {t_inst}")
+        except StopIteration:
+            break
+            
+    print(f"✅ Comparison complete for {translated_name}")
+
 # ── Orchestrator ──────────────────────────────────────────────────────────
 @app.local_entrypoint()
 def main():
     # Target User Namespace
     hf_username = "hamzabouajila"
 
-    # 0. Inspection
-    print("🔍 Inspecting dataset structures...")
-    inspect_keys.remote("lerobot/pusht_image")
-    inspect_keys.remote("lerobot/libero_10_image")
-    
-    # 1. Permission Check
-    print("🛡️ Verifying Hugging Face permissions before starting...")
-    verify_hf_permissions.remote(hf_username)
-
-    # 1. PushT Image Dataset
-    translate_and_push.remote(
-        dataset_name="lerobot/pusht_image",
-        target_repo=f"{hf_username}/ar-pusht-image"
-    )
-
-    # 2. LIBERO-10 Image Dataset
-    translate_and_push.remote(
-        dataset_name="lerobot/libero_10_image",
-        target_repo=f"{hf_username}/ar-libero-10-image"
-    )
-
-    print("\n✨ ALL DATASETS PROCESSED AND UPLOADED ✨")
+    # 0. Comparison/Verification
+    print("🧪 Verifying data integrity...")
+    compare_datasets.remote("lerobot/pusht_image", f"{hf_username}/ar-pusht-image")
+    compare_datasets.remote("lerobot/libero_10_image", f"{hf_username}/ar-libero-10-image")
