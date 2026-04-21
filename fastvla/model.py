@@ -198,8 +198,11 @@ class FastVLAModel(PreTrainedModel):
 
     def push_to_hub(self, repo_id: str, token: Optional[str] = None, **kwargs):
         """Push the model and its components to the HF Hub."""
-        from huggingface_hub import HfApi
+        from huggingface_hub import HfApi, create_repo
         api = HfApi()
+        
+        # Ensure repo exists
+        create_repo(repo_id, token=token, exist_ok=True)
         
         import tempfile
         with tempfile.TemporaryDirectory() as tmp_dir:
