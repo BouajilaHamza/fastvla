@@ -95,9 +95,17 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
         
         # DEFINITIVE FIX: Force AutoModel to treat it as a standard VLM or fallback to SigLIP
         try:
+            # Check if accelerate is available before passing device_map
+            try:
+                import accelerate
+                can_use_device_map = True
+            except ImportError:
+                can_use_device_map = False
+                device_map = None if device_map == "auto" else device_map
+
             full_model = AutoModel.from_pretrained(
                 model_id, 
-                device_map=device_map, 
+                device_map=device_map if can_use_device_map else None, 
                 quantization_config=quant_config,
                 token=hf_token, 
                 trust_remote_code=True
