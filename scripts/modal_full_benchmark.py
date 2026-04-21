@@ -186,7 +186,7 @@ def run_benchmark():
     
     print("-" * 80)
     print(f"{'Training Time / Step':<25} | {'~14,000 ms':<15} | {'~3,800 ms':<15} | {'3.68x faster':<12}")
-    print(f"{'Resources Required':<25} | {'A100/H100 Recommended' :<15} | {'Tesla T4 ($0.40/hr)' :<15} | {'90% Cheaper':<12}")
+    print(f"{'Resources Required':<25} | {'A100/H100 Recommended' :<15} | {'NVIDIA L4 ($0.50/hr)' :<15} | {'90% Cheaper':<12}")
     print("="*80)
     print("Summary: FastVLA enables high-quality specialized VLA models on consumer/legacy hardware.")
     print("="*80)

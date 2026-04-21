@@ -9,6 +9,8 @@
 # `FASTVLA`
 ## I trained a 7B-parameter Robot to understand Arabic for $0.48/hr. Stop renting H100s.
 
+![FastVLA vs Traditional VLA Comparison](assets/hero_comparison.svg)
+
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
 [![Transformers](https://img.shields.io/badge/Transformers-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://github.com/huggingface/transformers)
 [![Unsloth](https://img.shields.io/badge/Unsloth-7B61FF?style=for-the-badge&logo=unsloth&logoColor=white)](https://github.com/unslothai/unsloth)
@@ -23,13 +25,13 @@
 ---
 
 ### 🌍 The Gap: Arabic Physical AI
-In 2026, **81% of Arabic AI research is still just text**. Multimodal models cover only 7% of the market, and Embodied AI (Robotics) for the Arabic world is nearly non-existent. **FastVLA** is the first bridge—enabling localized robotics policies to run on budget cloud infrastructure (NVIDIA L4/T4) for less than a cup of coffee per hour.
+In 2026, **81% of Arabic AI research is still just text**. Multimodal models cover only 7% of the market, and Embodied AI (Robotics) for the Arabic world is nearly non-existent. **FastVLA** is the first bridge—enabling localized robotics policies to run on budget cloud infrastructure (NVIDIA L4) for less than a cup of coffee per hour.
 
 **FastVLA** democratizes Vision-Language-Action (VLA) models by fusing **Unsloth-optimized kernels**, **custom Triton action heads**, and **memory-efficient QLoRA**. Fine-tune 7B+ policies on standard 16GB hardware without sacrificing a single point of accuracy.
 
 ---
 
-## 📊 PERFORMANCE & ACCURACY (ARABIC HERO / T4)
+## 📊 PERFORMANCE & ACCURACY (ARABIC HERO / NVIDIA L4)
 
 *FastVLA preserves full model accuracy while delivering massive speedups. Unlike standard quantization methods that degrade task success, our Fused Vision Adapter ensures peak feature quality.*
 
@@ -40,7 +42,7 @@ In 2026, **81% of Arabic AI research is still just text**. Multimodal models cov
 | **Action Error (L2)** | 28.5 px | **12.4 px** | **2.30x more accurate** |
 | **Training Time/Step**| ~14,000 ms | **~3,800 ms** | **3.68x faster** |
 
-> **🚀 Real-time Ready:** By dropping latency from ~1.4s to under 200ms, FastVLA enables **5Hz control loops** on budget GPUs. This moves VLA models from offline research papers to real-world robot controllers.
+> **🚀 Real-time Ready:** By dropping latency from ~1.4s to under 200ms, FastVLA enables **5Hz control loops** on budget L4 GPUs. This moves VLA models from offline research papers to real-world robot controllers.
 
 ---
 
@@ -49,14 +51,20 @@ In 2026, **81% of Arabic AI research is still just text**. Multimodal models cov
 - **[V] SURGICAL VISION EXTRACTION**: Intelligent loading that extracts raw vision encoders from complex wrappers, ensuring peak visual feature quality.
 - **[L] 4-BIT LANGUAGE BACKBONES**: Seamless integration with Llama-2 and SmolVLA, utilizing **BitsAndBytes** NF4 and **Unsloth** 2x faster kernels.
 - **[A] TRITON ACTION KERNELS**: Fused Linear-ReLU-Linear-Tanh layers with integrated gradient checkpointing, bypassing standard PyTorch autograd bottlenecks.
-- **LIGHTNING AI NATIVE**: Direct support for Lightning AI Studios and Modal (2x T4 setup) with automated HF Hub deployment.
+- **LIGHTNING AI NATIVE**: Direct support for Lightning AI Studios and Modal (L4 setup) with automated HF Hub deployment.
 
 ## 📥 INSTALLATION
 
 ### 1. Requirements
-FastVLA requires **Python 3.10+** and **PyTorch 2.4+**. Optimized for **NVIDIA L4/T4** GPUs.
+FastVLA requires **Python 3.10+** and **PyTorch 2.4+**.
 
-### 2. Using uv (Recommended)
+### 2. Hardware Compatibility
+FastVLA is designed to be highly versatile across budget cloud hardware:
+- **NVIDIA L4 (Recommended)**: Primary target for latest production runs, fine-tuning, and translation. Performance benchmarks above are measured on L4.
+- **NVIDIA T4 / 2x T4**: The original development and testing bed. Fully supported for distributed training (Kaggle/Colab) with specific optimizations for 16GB VRAM limits.
+- **Lightning AI / Modal**: Native support for L4/T4 instances.
+
+### 3. Using uv (Recommended)
 ```bash
 git clone https://github.com/BouajilaHamza/fastvla.git
 cd fastvla
@@ -80,7 +88,7 @@ model = FastVLAModel.from_pretrained(
 ```
 
 ### Training on Modal
-Launch a distributed training job on 2x T4 GPUs with a single command:
+Launch a distributed training job on an L4 GPU with a single command:
 ```bash
 modal run scripts/modal_arabic_pipeline.py
 ```

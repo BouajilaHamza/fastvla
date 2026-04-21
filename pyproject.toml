@@ -1,7 +1,7 @@
 [project]
 name = "fastvla"
 version = "0.2.0"
-description = "A high-performance Vision-Language-Action (VLA) model fine-tuning library optimized for Tesla T4 hardware."
+description = "A high-performance Vision-Language-Action (VLA) model fine-tuning library optimized for NVIDIA L4 and T4 hardware."
 authors = [
     { name = "FastVLA Team", email = "bouajilahamza@outlook.com" }
 ]

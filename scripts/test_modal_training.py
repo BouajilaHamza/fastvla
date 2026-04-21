@@ -33,12 +33,12 @@ image = (
 
 app = modal.App("fastvla-training-test-distributed", image=image)
 
-# Kaggle-style setup: 2x T4 GPUs
+# Modal setup: NVIDIA L4 GPU
 # We pass the HF_TOKEN from .env into the Modal Secret
 hf_token = os.environ.get("HF_API_KEY")
 
 @app.function(
-    gpu="T4:2", 
+    gpu="L4", 
     timeout=3600, 
     secrets=[modal.Secret.from_dict({"HF_TOKEN": hf_token})]
 )
@@ -46,8 +46,8 @@ def run_training():
     import torch
     import os
     from fastvla import FastVLAModel, FastVLATrainer, get_dataset
-    
-    print("🚀 Starting FastVLA Distributed Training Test on Modal 2x T4...")
+
+    print("🚀 Starting FastVLA Training Test on Modal L4...")
     print(f"CUDA Available: {torch.cuda.is_available()}")
     print(f"GPU Count: {torch.cuda.device_count()}")
     for i in range(torch.cuda.device_count()):

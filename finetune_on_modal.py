@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 # Load local .env to get the HF token for the Modal Secret
 load_dotenv()
 
-# Define the production environment matching Kaggle 2x T4
+# Define the production environment matching Lightning AI / Modal L4
 # Acting as a stranger: Installing everything from remote sources
 image = (
     modal.Image.debian_slim()
@@ -29,7 +29,7 @@ app = modal.App("fastvla-pusht-finetuning", image=image)
 hf_token = os.environ.get("HF_API_KEY")
 
 @app.function(
-    gpu="T4:2", 
+    gpu="L4", 
     timeout=7200, 
     secrets=[modal.Secret.from_dict({"HF_TOKEN": hf_token})]
 )
@@ -39,7 +39,7 @@ def finetune():
     from fastvla import FastVLAModel, FastVLATrainer
     from fastvla.data.datasets import get_dataset
     
-    print("🚀 Starting PRODUCTION Finetuning on 2x T4 GPUs (Modal)...")
+    print("🚀 Starting PRODUCTION Finetuning on L4 GPU (Modal)...")
     
     try:
         # 1. Load Model

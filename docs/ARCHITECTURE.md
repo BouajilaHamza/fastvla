@@ -80,7 +80,7 @@ graph TD
 
 | Metric              | Target           |
 |---------------------|------------------|
-| VRAM Usage (2×T4)   | ≤ 12GB per GPU   |
+| VRAM Usage (NVIDIA L4) | ≤ 16GB           |
 | Throughput          | ≥ 1.9 samples/s  |
 | Training Time (1k steps) | ≤ 2.1 hours |
 | Accuracy Drop       | ≤ 1% vs FP32     |

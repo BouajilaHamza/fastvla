@@ -1,0 +1,55 @@
+<svg width="800" height="400" viewBox="0 0 800 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="800" height="400" rx="8" fill="#0A0A0B"/>
+  
+  <!-- Grid Lines -->
+  <path d="M0 100H800" stroke="#1A1A1C" stroke-width="1"/>
+  <path d="M0 200H800" stroke="#1A1A1C" stroke-width="1"/>
+  <path d="M0 300H800" stroke="#1A1A1C" stroke-width="1"/>
+  <path d="M400 0V400" stroke="#1A1A1C" stroke-width="2"/>
+
+  <!-- Left Side: Standard VLA -->
+  <text x="40" y="40" fill="#8E8E93" font-family="monospace" font-size="12" font-weight="bold">TRADITIONAL VLA (Llama-7B + SigLIP)</text>
+  <rect x="40" y="60" width="320" height="280" rx="4" fill="#1A1A1C" stroke="#2A2A2E"/>
+  
+  <!-- Terminal Content Left -->
+  <text x="60" y="90" fill="#FF453A" font-family="monospace" font-size="14">$ python train.py</text>
+  <text x="60" y="115" fill="#8E8E93" font-family="monospace" font-size="12">[INFO] Loading OpenVLA-7B...</text>
+  <text x="60" y="135" fill="#8E8E93" font-family="monospace" font-size="12">[WARN] VRAM detected: 16GB (Tesla T4)</text>
+  <text x="60" y="155" fill="#8E8E93" font-family="monospace" font-size="12">[INFO] Initializing Autograd...</text>
+  
+  <!-- Progress Bar Left (Slow) -->
+  <text x="60" y="200" fill="#8E8E93" font-family="monospace" font-size="12">Step 1/1000:</text>
+  <rect x="60" y="210" width="280" height="15" rx="2" fill="#0A0A0B"/>
+  <rect x="60" y="210" width="20" height="15" rx="2" fill="#8E8E93">
+    <animate attributeName="width" values="10;40;30;50" dur="5s" repeatCount="indefinite" />
+  </rect>
+  
+  <text x="60" y="245" fill="#FF453A" font-family="monospace" font-size="14" font-weight="bold">🚨 CUDA OUT OF MEMORY</text>
+  <text x="60" y="265" fill="#FF453A" font-family="monospace" font-size="12">Peak: 15.8GB / Latency: 1.4s/step</text>
+
+  <!-- Right Side: FastVLA -->
+  <text x="440" y="40" fill="#CCFF00" font-family="monospace" font-size="12" font-weight="bold">FASTVLA (Triton + Unsloth + Arabic)</text>
+  <rect x="440" y="60" width="320" height="280" rx="4" fill="#1A1A1C" stroke="#CCFF00" stroke-opacity="0.3"/>
+  
+  <!-- Terminal Content Right -->
+  <text x="460" y="90" fill="#CCFF00" font-family="monospace" font-size="14">$ fastvla-train --arabic</text>
+  <text x="460" y="115" fill="#8E8E93" font-family="monospace" font-size="12">[INFO] Fusing Triton Kernels...</text>
+  <text x="460" y="135" fill="#8E8E93" font-family="monospace" font-size="12">[INFO] Unsloth Optimization: ON</text>
+  <text x="460" y="155" fill="#CCFF00" font-family="monospace" font-size="12">[INFO] Memory Stable: 4.4GB / 16GB</text>
+  
+  <!-- Progress Bar Right (Fast) -->
+  <text x="460" y="200" fill="#CCFF00" font-family="monospace" font-size="12">Step 42/1000 (Processing Arabic):</text>
+  <rect x="460" y="210" width="280" height="15" rx="2" fill="#0A0A0B"/>
+  <rect x="460" y="210" width="180" height="15" rx="2" fill="#CCFF00">
+    <animate attributeName="width" values="180;220;200;280" dur="2s" repeatCount="indefinite" />
+  </rect>
+  
+  <text x="460" y="245" fill="#32D74B" font-family="monospace" font-size="14" font-weight="bold">✅ RUNNING (5Hz CONTROL)</text>
+  <text x="460" y="265" fill="#CCFF00" font-family="monospace" font-size="12">Latency: 0.19s/step | Speed: 7.1x ↑</text>
+  
+  <!-- Pulse Line (Action) -->
+  <path d="M460 310H480L490 290L500 330L510 310H740" stroke="#CCFF00" stroke-width="2">
+    <animate attributeName="stroke-dasharray" from="0,1000" to="1000,0" dur="2s" repeatCount="indefinite" />
+  </path>
+</svg>

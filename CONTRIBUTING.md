@@ -3,7 +3,7 @@
 Thank you for your interest in FastVLA! We welcome contributions that help make high-performance VLA finetuning more accessible on commodity hardware.
 
 ## Development Principles
-1.  **Efficiency First**: All kernels and loaders must be optimized for Tesla T4 hardware (16GB VRAM).
+1.  **Efficiency First**: All kernels and loaders must be optimized for NVIDIA L4 hardware (16GB VRAM).
 2.  **Test-Driven Development (TDD)**: Every new feature or bug fix must include a corresponding test in the `tests/` directory.
 3.  **Distributed Safety**: Ensure all changes are compatible with Hugging Face `Accelerator` and multi-GPU environments.
 
@@ -19,4 +19,4 @@ Thank you for your interest in FastVLA! We welcome contributions that help make 
 -   **Logging**: Use the standard `logging` module; avoid print statements in library code.
 
 ## Production Scripts
-The `finetune_on_modal.py` script is considered a production entry point. If you modify core model logic, ensure this script is updated and verified on Modal 2x T4.
+The `finetune_on_modal.py` script is considered a production entry point. If you modify core model logic, ensure this script is updated and verified on Modal L4.
