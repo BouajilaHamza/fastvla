@@ -334,6 +334,7 @@ class FastVLAModel(PreTrainedModel):
         Robust loader that handles both standard HF models and custom FastVLA checkpoints.
         Bypasses AutoModel registry to avoid 'fastvla' model_type errors.
         """
+        import os
         from .config import FastVLAConfig
         
         # 1. Handle Model Path / Checkpoint
