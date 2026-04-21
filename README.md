@@ -1,5 +1,11 @@
 <div align="center">
 
+<svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M20 20L50 80L80 20H65L50 55L35 20H20Z" fill="#CCFF00"/>
+    <rect x="20" y="85" width="60" height="4" fill="#CCFF00"/>
+    <path d="M85 45L95 50L85 55V45Z" fill="#CCFF00"/>
+</svg>
+
 # `FASTVLA`
 ## I trained a 7B-parameter Robot to understand Arabic for $0.48/hr. Stop renting H100s.
 
