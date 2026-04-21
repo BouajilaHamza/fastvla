@@ -238,6 +238,8 @@ def get_dataset(
     if data_path is None:
         if name_lower in ['pusht', 'lerobot/pusht_image']:
             data_path = "lerobot/pusht_image"
+        elif "/" in dataset_name: # Treat as direct HF repo ID
+            data_path = dataset_name
         else:
             raise ValueError(f"data_path must be provided for {dataset_name}")
             
