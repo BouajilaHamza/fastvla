@@ -23,8 +23,8 @@ image = (
 app = modal.App("fastvla-arabic-upload")
 volume = modal.Volume.from_name("fastvla-data", create_if_missing=True)
 
-@app.function(image=image, volumes={"/data": volume}, secrets=vla_secrets)
-def upload(repo_id="BouajilaHamza/arabic-vla-hero-adapter"):
+@app.function(image=image, gpu="L4", volumes={"/data": volume}, secrets=vla_secrets)
+def upload(repo_id="hamzabouajila/fastvla-arabic-hero"):
     from fastvla import FastVLAModel
     import os
 
@@ -41,9 +41,11 @@ def upload(repo_id="BouajilaHamza/arabic-vla-hero-adapter"):
     print(f"📦 Uploading latest checkpoint: {latest_cp} to {repo_id}")
 
     model = FastVLAModel.from_pretrained(
-        "openvla-7b", load_in_4bit=True, hf_token=os.environ.get("HF_TOKEN")
+        model_name_or_path=cp_path,
+        load_in_4bit=True,
+        hf_token=os.environ.get("HF_TOKEN")
     )
-    model.load_checkpoint(cp_path)
+    model.config.hf_token = None
     model.push_to_hub(repo_id, token=os.environ.get("HF_TOKEN"))
     print(f"✨ Model published: https://huggingface.co/{repo_id}")
 
