@@ -330,7 +330,37 @@ class FastVLAModel(PreTrainedModel):
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: Optional[str] = None, **kwargs):
-        """Load a FastVLA model from registry or HF."""
+        """
+        Robust loader that handles both standard HF models and custom FastVLA checkpoints.
+        Bypasses AutoModel registry to avoid 'fastvla' model_type errors.
+        """
+        from .config import FastVLAConfig
+        
+        # 1. Handle Model Path / Checkpoint
+        if model_name_or_path and (os.path.isdir(model_name_or_path) or os.path.isfile(model_name_or_path)):
+            try:
+                config = FastVLAConfig.from_pretrained(model_name_or_path, **kwargs)
+            except Exception:
+                config = FastVLAConfig(**kwargs)
+            
+            model = cls(config)
+            
+            # Load weights manually
+            state_dict_path = os.path.join(model_name_or_path, "pytorch_model.bin")
+            if not os.path.exists(state_dict_path):
+                state_dict_path = os.path.join(model_name_or_path, "model.safetensors")
+            
+            if os.path.exists(state_dict_path):
+                logger.info(f"Loading custom weights from {state_dict_path}")
+                if state_dict_path.endswith(".safetensors"):
+                    from safetensors.torch import load_file
+                    state_dict = load_file(state_dict_path, device="cpu")
+                else:
+                    state_dict = torch.load(state_dict_path, map_location="cpu")
+                model.load_state_dict(state_dict, strict=False)
+            return model
+
+        # 2. Standard Registry/HF Load
         if model_name_or_path:
             reg_config = VLAModelRegistry.get(model_name_or_path)
             if reg_config:
@@ -342,5 +372,6 @@ class FastVLAModel(PreTrainedModel):
                     kwargs["vision_encoder_name"] = model_name_or_path
                 if "llm_name" not in kwargs:
                     kwargs["llm_name"] = model_name_or_path
+        
         config = FastVLAConfig(**kwargs)
         return cls(config)
