@@ -19,6 +19,9 @@ class UnslothVLACollator:
     return_tensors: str = "pt"
     action_dim: int = 7  # Expected action dimension for validation
     image_size: int = 224  # Target image size (H=W)
+    chunk_size: int = 1
+    norm_min: torch.Tensor = None
+    norm_max: torch.Tensor = None
 
     def __call__(self, features: List[Dict[str, any]]) -> Dict[str, torch.Tensor]:
         """
@@ -91,32 +94,31 @@ class UnslothVLACollator:
             batch["states"] = torch.stack(states)
 
         # ── Handle actions (used as labels) ──────────────────────────
-        if "actions" in features[0]:
+        # Detect the correct key (robust across different dataset formats)
+        act_key = "action" if "action" in features[0] else "actions" if "actions" in features[0] else None
+        
+        if act_key:
             actions = []
             for f in features:
-                action_tensor = torch.as_tensor(f["actions"])
-                # Validate action dimension
+                action_tensor = torch.as_tensor(f[act_key]).float()
                 if action_tensor.dim() == 0:
-                    # Scalar action, reshape to [1]
                     action_tensor = action_tensor.unsqueeze(0)
+                
+                # Configurable Normalization via library parameters
+                if self.norm_min is not None and self.norm_max is not None:
+                    # Move norm tensors to correct device/dtype for the operation
+                    n_min = self.norm_min.to(device=action_tensor.device, dtype=action_tensor.dtype)
+                    n_max = self.norm_max.to(device=action_tensor.device, dtype=action_tensor.dtype)
+                    
+                    action_tensor = 2.0 * (action_tensor - n_min) / (n_max - n_min) - 1.0
+                    action_tensor = action_tensor.clamp(-1.0, 1.0)
+                
+                # Handle flattened chunks if needed
+                if self.chunk_size > 1 and action_tensor.dim() > 1:
+                    action_tensor = action_tensor.view(-1)
+                
                 actions.append(action_tensor)
             
-            # 1. Validate action dimensions are consistent within the batch
-            action_shapes = [a.shape for a in actions]
-            if len(set(action_shapes)) > 1:
-                raise ValueError(
-                    f"Inconsistent action dimensions in batch: {action_shapes}. "
-                    f"All actions in a batch must have the same dimension."
-                )
-
-            # 2. Check if batch dimension matches expected and update if needed
-            if actions[0].shape[-1] != self.action_dim:
-                print(
-                    f"⚠️ Warning: Action dimension mismatch (Batch: {actions[0].shape[-1]}, Collator: {self.action_dim}). "
-                    f"Updating action_dim to match batch."
-                )
-                self.action_dim = actions[0].shape[-1]
-
             batch["labels"] = torch.stack(actions)
 
         # ── Handle text instructions ────────────────────────────────

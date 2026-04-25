@@ -21,6 +21,7 @@ class RoboticsDataset(Dataset):
         instruction_key: str = 'instruction',
         image_size: Tuple[int, int] = (224, 224),
         max_sequence_length: int = 512,
+        chunk_size: int = 1,
         **kwargs
     ):
         """
@@ -34,6 +35,7 @@ class RoboticsDataset(Dataset):
             instruction_key: Key for language instruction
             image_size: Size to resize images to (H, W)
             max_sequence_length: Maximum sequence length for text
+            chunk_size: Number of future actions to predict
         """
         self.data_path = data_path
         self.image_keys = image_keys
@@ -42,10 +44,11 @@ class RoboticsDataset(Dataset):
         self.instruction_key = instruction_key
         self.image_size = image_size
         self.max_sequence_length = max_sequence_length
+        self.chunk_size = chunk_size
         
         # Load data
         self.data = self._load_data()
-        
+    
     def _load_data(self):
         """Load dataset from disk."""
         raise NotImplementedError("Subclasses must implement _load_data")
@@ -77,11 +80,30 @@ class RoboticsDataset(Dataset):
             if cam in item:
                 images[cam] = self._process_image(item[cam])
         
+        # Process actions (with chunking support)
+        if self.chunk_size > 1:
+            actions = []
+            # We assume data is organized so we can look ahead
+            # AND we assume 'episode_id' exists or indices are contiguous
+            curr_ep = item.get('episode_id', 0)
+            for i in range(self.chunk_size):
+                look_ahead_idx = min(idx + i, len(self.data) - 1)
+                look_ahead_item = self.data[look_ahead_idx]
+                
+                # Boundary check: if we hit a new episode, repeat the last action
+                if look_ahead_item.get('episode_id', curr_ep) != curr_ep:
+                    actions.append(actions[-1] if actions else look_ahead_item.get(self.action_key, []))
+                else:
+                    actions.append(look_ahead_item.get(self.action_key, []))
+            actions = np.array(actions)
+        else:
+            actions = item.get(self.action_key, [])
+        
         # Process other data
         sample = {
             'images': images,
             'states': torch.FloatTensor(item.get(self.state_key, [])),
-            'actions': torch.FloatTensor(item.get(self.action_key, [])),
+            'actions': torch.FloatTensor(actions),
             'instructions': item.get(self.instruction_key, ''),
         }
         
@@ -193,12 +215,16 @@ class LeRobotDataset(RoboticsDataset):
             # 4. Extract Instruction
             instruction = item.get('instruction') or item.get('language_instruction') or 'push the block to the goal'
 
+            # 5. Extract Episode ID (important for chunking)
+            episode_id = item.get('episode_id', 0)
+
             if img is not None:
                 data.append({
                     'rgb': img,
                     'state': state,
                     'action': action,
-                    'instruction': instruction
+                    'instruction': instruction,
+                    'episode_id': episode_id
                 })
             
         if not data:
