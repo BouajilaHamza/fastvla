@@ -327,9 +327,6 @@ class FastVLAModel(PreTrainedModel):
         head_device = next(self.action_head.parameters()).device
         pooled = outputs.hidden_states[-1].mean(dim=1).to(head_device)
         action_preds = self.action_head(pooled)
-        
-        # Apply Tanh to constrain output to [-1, 1] for stability
-        action_preds = torch.tanh(action_preds)
 
         loss = None
         if labels is not None:
