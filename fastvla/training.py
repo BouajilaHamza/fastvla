@@ -156,8 +156,11 @@ class FastVLATrainer:
         if isinstance(eval_dataset, str):
             eval_dataset = get_dataset(eval_dataset, **dataset_kwargs)
 
-        self.is_4bit = getattr(model, "is_loaded_in_4bit", False)
-        mixed_precision = "no"
+        self.learning_rate = learning_rate
+        self.max_steps = max_steps
+        self.num_epochs = num_epochs
+        self.warmup_steps = getattr(model.config, "warmup_steps", 1000)
+        self.gradient_accumulation_steps = gradient_accumulation_steps
         if use_mixed_precision and not self.is_4bit:
             if torch.cuda.is_available():
                 mixed_precision = "bf16" if torch.cuda.get_device_capability()[0] >= 8 else "fp16"
