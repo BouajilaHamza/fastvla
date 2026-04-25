@@ -125,16 +125,36 @@ class FastVLATrainer:
         translation_mapping: Optional[Union[str, Dict[str, str]]] = None,
         dataset: Optional[Union[torch.utils.data.Dataset, str]] = None,
         lr: Optional[float] = None,
+        use_wandb: bool = False,
+        wandb_project: str = "fastvla",
     ):
         if train_dataset is None: train_dataset = dataset
         if lr is not None: learning_rate = lr
 
+        self.use_wandb = use_wandb
+        if self.use_wandb:
+            import wandb
+            wandb.init(project=wandb_project, config={
+                "learning_rate": learning_rate,
+                "batch_size": batch_size,
+                "max_steps": max_steps,
+                "model_config": model.config.to_dict() if hasattr(model, "config") else None
+            })
+
         # Resolve dataset if string provided
         from .data.datasets import get_dataset
+        image_size = getattr(model.config, "image_size", 224)
+        if isinstance(image_size, int):
+            image_size = (image_size, image_size)
+            
+        dataset_kwargs = {
+            "chunk_size": getattr(model.config, "chunk_size", 1),
+            "image_size": image_size,
+        }
         if isinstance(train_dataset, str):
-            train_dataset = get_dataset(train_dataset)
+            train_dataset = get_dataset(train_dataset, **dataset_kwargs)
         if isinstance(eval_dataset, str):
-            eval_dataset = get_dataset(eval_dataset)
+            eval_dataset = get_dataset(eval_dataset, **dataset_kwargs)
 
         self.is_4bit = getattr(model, "is_loaded_in_4bit", False)
         mixed_precision = "no"
@@ -149,7 +169,10 @@ class FastVLATrainer:
             data_collator = UnslothVLACollator(
                 tokenizer=getattr(model, "tokenizer", None), 
                 action_dim=getattr(model.config, "action_dim", 7), 
-                image_size=getattr(model.config, "image_size", 224)
+                image_size=getattr(model.config, "image_size", 224),
+                chunk_size=getattr(model.config, "chunk_size", 1),
+                norm_min=torch.tensor(model.config.norm_min) if getattr(model.config, "norm_min", None) else None,
+                norm_max=torch.tensor(model.config.norm_max) if getattr(model.config, "norm_max", None) else None,
             )
 
         if train_dataloader is None and train_dataset is not None:
@@ -231,6 +254,9 @@ class FastVLATrainer:
                     progress_bar.set_postfix(metrics)
                     if self.accelerator.is_main_process:
                         self.training_history.append({"step": self.global_step, **metrics})
+                        if self.use_wandb:
+                            import wandb
+                            wandb.log(metrics, step=self.global_step)
                 
                 if self.global_step % self.eval_steps == 0:
                     eval_metrics = self.evaluate()

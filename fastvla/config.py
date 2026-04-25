@@ -28,8 +28,13 @@ class FastVLAConfig(PretrainedConfig):
         # Action head
         action_dim: int = 7,
         action_hidden_dim: int = 256,
+        chunk_size: int = 1,
+        # Action Normalization
+        norm_min: Optional[list] = None,
+        norm_max: Optional[list] = None,
         # Training
         learning_rate: float = 5e-5,
+        loss_type: str = "l1",  # "l1", "mse", "huber"
         weight_decay: float = 0.01,
         warmup_steps: int = 1000,
         # Quantization
@@ -62,7 +67,11 @@ class FastVLAConfig(PretrainedConfig):
         self.max_sequence_length = max_sequence_length
         self.action_dim = action_dim
         self.action_hidden_dim = action_hidden_dim
+        self.chunk_size = chunk_size
+        self.norm_min = norm_min
+        self.norm_max = norm_max
         self.learning_rate = learning_rate
+        self.loss_type = loss_type
         self.weight_decay = weight_decay
         self.warmup_steps = warmup_steps
         self.load_in_4bit = load_in_4bit

@@ -135,7 +135,7 @@ class FastVLAModel(PreTrainedModel):
         if config.dummy:
             self._tokenizer = AutoTokenizer.from_pretrained("gpt2")
             self._tokenizer.pad_token = self._tokenizer.eos_token
-            actual_vocab = len(self._tokenizer)
+            actual_vocab = config.vocab_size if hasattr(config, "vocab_size") and config.vocab_size != 1000 else len(self._tokenizer)
             self.llm = DummyLanguageModel(hidden_size=config.llm_hidden_size, vocab_size=actual_vocab)
         else:
             self.llm = self._load_component("llm", config)
@@ -151,7 +151,7 @@ class FastVLAModel(PreTrainedModel):
         nn.init.xavier_uniform_(self.vision_proj.weight)
 
         self.action_head = TritonActionHead(
-            config.llm_hidden_size, config.action_hidden_dim, config.action_dim
+            config.llm_hidden_size, config.action_hidden_dim, config.action_dim * config.chunk_size
         ).to(llm_device)
 
         # 6. Apply Unsloth Patches (Safety layer if not already handled by root)
@@ -280,7 +280,15 @@ class FastVLAModel(PreTrainedModel):
         if config.load_in_4bit:
             kwargs["quantization_config"] = get_quantization_config(load_in_4bit=True)
         
-        llm = AutoModelForCausalLM.from_pretrained(config.llm_name, **kwargs)
+        try:
+            llm = AutoModelForCausalLM.from_pretrained(config.llm_name, **kwargs)
+        except (ValueError, ImportError):
+            # Fallback for OpenVLA and other models with custom AutoModel mapping
+            llm = AutoModel.from_pretrained(config.llm_name, **kwargs)
+            # We only need the LLM backbone
+            if hasattr(llm, "language_model"):
+                llm = llm.language_model
+        
         self._tokenizer = AutoTokenizer.from_pretrained(config.llm_name, token=config.hf_token, trust_remote_code=True)
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
@@ -319,15 +327,25 @@ class FastVLAModel(PreTrainedModel):
         head_device = next(self.action_head.parameters()).device
         pooled = outputs.hidden_states[-1].mean(dim=1).to(head_device)
         action_preds = self.action_head(pooled)
+        
+        # Apply Tanh to constrain output to [-1, 1] for stability
+        action_preds = torch.tanh(action_preds)
 
         loss = None
         if labels is not None:
             labels = labels.to(device=head_device, dtype=action_preds.dtype)
             if action_preds.shape != labels.shape:
                 raise ValueError(
-                    f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}."
+                    f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}. "
+                    f"Check action_dim and chunk_size."
                 )
-            loss = nn.MSELoss()(action_preds, labels)
+            
+            if self.config.loss_type == "mse":
+                loss = nn.MSELoss()(action_preds, labels)
+            elif self.config.loss_type == "huber":
+                loss = nn.HuberLoss()(action_preds, labels)
+            else:
+                loss = nn.L1Loss()(action_preds, labels)
 
         return action_preds, loss
 
