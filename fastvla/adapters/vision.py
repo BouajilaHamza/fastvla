@@ -153,7 +153,8 @@ class SigLIPVisionAdapter(BaseVisionAdapter):
         self._embed_dim = self.model.config.hidden_size
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        outputs = self.model(pixel_values=pixel_values)
+        # Enable interpolation to support different resolutions (e.g. 224x224)
+        outputs = self.model(pixel_values=pixel_values, interpolate_pos_encoding=True)
         return outputs.last_hidden_state
 
     @classmethod
