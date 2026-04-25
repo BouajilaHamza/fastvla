@@ -16,18 +16,18 @@ image = (
     modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.10")
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0")
     .pip_install(
-        "torch>=2.2.0", "transformers>=4.40.0", "accelerate>=0.28.0",
+        "packaging>=20.0", "torch>=2.2.0", "transformers>=4.40.0", "accelerate>=0.28.0",
         "bitsandbytes>=0.42.0", "peft>=0.9.0", "datasets>=2.16.0",
         "torchvision>=0.17.0", "timm>=0.9.12", "numpy<2.0.0",
         "python-dotenv", "tqdm", "gymnasium", "opencv-python",
-        "sacremoses", "sentencepiece"
+        "sacremoses", "sentencepiece", "wandb"
     )
     .pip_install("git+https://github.com/unslothai/unsloth.git")
     .add_local_dir(Path(__file__).parent.parent, remote_path="/root/project", copy=True)
     .run_commands("pip install -e /root/project")
 )
 
-app = modal.App("fastvla-arabic-hero-run")
+app = modal.App("fastvla-arabic-precision-run")
 volume = modal.Volume.from_name("fastvla-data", create_if_missing=True)
 
 # ── 2. Fine-Tuning (Using Specialized Arabic Dataset) ──────────────────────
@@ -36,25 +36,30 @@ volume = modal.Volume.from_name("fastvla-data", create_if_missing=True)
     gpu="L4",
     timeout=12000,
     volumes={"/data": volume},
-    secrets=vla_secrets
+    secrets=vla_secrets,
+    env={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
 )
-def finetune_hero_arabic(dataset_id="hamzabouajila/ar-pusht-image"):
+def finetune_arabic_precision(dataset_id="hamzabouajila/ar-pusht-image"):
     from fastvla import FastVLAModel, FastVLATrainer
     import torch
     import os
 
-    print(f"🚀 Starting Arabic HERO Fine-Tuning (Dataset: {dataset_id})")
+    print(f"🚀 Starting Arabic Precision Fine-Tuning (Dataset: {dataset_id})")
     
-    output_dir = "/data/checkpoints/arabic-vla-hero"
+    output_dir = "/data/checkpoints/arabic-vla-precision-optimized"
     os.makedirs(output_dir, exist_ok=True)
     checkpoint_exists = any(f.startswith("checkpoint-") for f in os.listdir(output_dir))
 
-    # Load Model
+    # Load Model with Optimized Settings
     model = FastVLAModel.from_pretrained(
         "openvla-7b",
         load_in_4bit=True,
         use_peft=True,
-        action_dim=2, # PushT
+        action_dim=2,         # PushT
+        chunk_size=4,         # Stabilization
+        loss_type="huber",    # High precision
+        norm_min=[12.0, 25.0],
+        norm_max=[511.0, 511.0],
         hf_token=os.environ.get("HF_TOKEN"),
         gradient_checkpointing=True
     )
@@ -63,22 +68,29 @@ def finetune_hero_arabic(dataset_id="hamzabouajila/ar-pusht-image"):
     trainer = FastVLATrainer(
         model=model,
         train_dataset=dataset_id,
-        batch_size=12,
-        gradient_accumulation_steps=2,
-        max_steps=2000,
+        batch_size=12,           # Safer for L4 (24GB)
+        gradient_accumulation_steps=4, # Effective batch size 48
+        max_steps=5000,
         output_dir=output_dir,
-        save_steps=250,
-        logging_steps=10
+        save_steps=500,
+        logging_steps=10,
+        use_wandb=True,
+        wandb_project="arabic-vla-precision-optimized"
     )
     
     if checkpoint_exists:
         latest_cp = sorted([d for d in os.listdir(output_dir) if d.startswith("checkpoint-")])[-1]
-        print(f"🔄 Resuming from latest Hero checkpoint: {latest_cp}")
+        print(f"🔄 Resuming from latest Precision checkpoint: {latest_cp}")
         trainer.load_checkpoint(os.path.join(output_dir, latest_cp))
     
     trainer.train()
+    
+    if trainer.use_wandb:
+        import wandb
+        wandb.finish()
+        
     volume.commit()
-    print(f"✅ Hero Fine-tuning complete. Checkpoint saved in {output_dir}")
+    print(f"✅ Precision Fine-tuning complete. Checkpoint saved in {output_dir}")
     return output_dir
 
 # ── 3. Benchmarking ───────────────────────────────────────────────────────
@@ -99,6 +111,9 @@ def benchmark_arabic(checkpoint_path):
         "openvla-7b",
         load_in_4bit=True,
         action_dim=2,
+        chunk_size=4,
+        norm_min=[12.0, 25.0],
+        norm_max=[511.0, 511.0],
         hf_token=os.environ.get("HF_TOKEN")
     )
     
@@ -123,15 +138,19 @@ def benchmark_arabic(checkpoint_path):
     volumes={"/data": volume},
     secrets=vla_secrets
 )
-def upload_to_hf(checkpoint_path, repo_id="BouajilaHamza/arabic-vla-hero-adapter"):
+def upload_to_hf(checkpoint_path, repo_id="BouajilaHamza/arabic-vla-precision-adapter"):
     from fastvla import FastVLAModel
     import os
     
-    print(f"📦 Uploading Hero adapter to Hugging Face: {repo_id}")
+    print(f"📦 Uploading Precision adapter to Hugging Face: {repo_id}")
     
     model = FastVLAModel.from_pretrained(
         "openvla-7b",
         load_in_4bit=True,
+        action_dim=2,
+        chunk_size=4,
+        norm_min=[12.0, 25.0],
+        norm_max=[511.0, 511.0],
         hf_token=os.environ.get("HF_TOKEN")
     )
     
@@ -140,18 +159,18 @@ def upload_to_hf(checkpoint_path, repo_id="BouajilaHamza/arabic-vla-hero-adapter
     model.load_checkpoint(cp_full_path)
     
     model.push_to_hub(repo_id, token=os.environ.get("HF_TOKEN"))
-    print(f"✨ Hero Model published: https://huggingface.co/{repo_id}")
+    print(f"✨ Precision Model published: https://huggingface.co/{repo_id}")
     return f"https://huggingface.co/{repo_id}"
 
 # ── Orchestrator ──────────────────────────────────────────────────────────
 @app.local_entrypoint()
 def main():
-    # Execute the optimized Hero pipeline
-    checkpoint_path = finetune_hero_arabic.remote()
+    # Execute the optimized Precision pipeline
+    checkpoint_path = finetune_arabic_precision.remote()
     success_rate = benchmark_arabic.remote(checkpoint_path)
     repo_url = upload_to_hf.remote(checkpoint_path)
     
-    print(f"\n✨ HERO PIPELINE COMPLETE ✨")
+    print(f"\n✨ PRECISION PIPELINE COMPLETE ✨")
     print(f"Dataset Used: hamzabouajila/ar-pusht-image")
     print(f"Hugging Face Repo: {repo_url}")
     print(f"Verified Success Rate: {success_rate * 100}%")

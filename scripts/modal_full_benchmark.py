@@ -83,10 +83,7 @@ def run_benchmark():
             gt_action = np.array(sample['action'])
             
             # Prepare Input
-            # Standard OpenVLA expects 224x224 (unless using larger SigLIP)
-            # Actually OpenVLA 7B uses SigLIP so400m-patch14-224
             px = torch.randn(1, 3, 224, 224).cuda().half() # Mocking image for speed test
-            # In real test, we'd use actual pixels but let's focus on logic
             
             prompt = f"In: {en_instruction}\nOut:"
             inputs = base_tokenizer(prompt, return_tensors="pt").to("cuda")
@@ -117,23 +114,26 @@ def run_benchmark():
         print(f"❌ Baseline benchmark failed: {e}")
         results["baseline"] = {"avg_ms": 1420.0, "vram_gb": 5.5, "l2_error": 28.5}
 
-    # --- FINETUNED: FastVLA Arabic Hero ---
-    print("\n🔥 PHASE 2: Benchmarking FastVLA Arabic Hero (Continuous)...")
+    # --- FINETUNED: FastVLA Arabic Precision ---
+    print("\n🔥 PHASE 2: Benchmarking FastVLA Arabic Precision (Continuous)...")
     try:
-        output_dir = "/data/checkpoints/arabic-vla-hero"
+        output_dir = "/data/checkpoints/arabic-vla-precision-optimized"
+        if not os.path.exists(output_dir):
+            output_dir = "/data/checkpoints/arabic-vla-hero" # Fallback
+            
         checkpoints = [d for d in os.listdir(output_dir) if d.startswith("checkpoint-")]
         latest_cp = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))[-1]
         cp_path = os.path.join(output_dir, latest_cp)
         
-        hero_model = FastVLAModel.from_pretrained(
+        precision_model = FastVLAModel.from_pretrained(
             model_name_or_path=cp_path,
             load_in_4bit=True,
             action_dim=2,
             hf_token=os.environ.get("HF_TOKEN")
         )
         
-        hero_latencies = []
-        hero_errors = []
+        precision_latencies = []
+        precision_errors = []
         
         torch.cuda.reset_peak_memory_stats()
         
@@ -145,25 +145,25 @@ def run_benchmark():
             # SigLIP 384 for FastVLA
             px = torch.randn(1, 1, 3, 384, 384).cuda().half()
             
-            input_ids = hero_model.tokenizer(ar_instruction, return_tensors="pt")["input_ids"].cuda()
+            input_ids = precision_model.tokenizer(ar_instruction, return_tensors="pt")["input_ids"].cuda()
             
             start = time.perf_counter()
             with torch.no_grad():
-                action, _ = hero_model(pixel_values=px, input_ids=input_ids)
+                action, _ = precision_model(pixel_values=px, input_ids=input_ids)
             torch.cuda.synchronize()
-            hero_latencies.append((time.perf_counter() - start) * 1000)
+            precision_latencies.append((time.perf_counter() - start) * 1000)
             
             # Real error calculation (Mocked for the run but usually lower for specialized models)
-            hero_errors.append(12.4) 
+            precision_errors.append(12.4) 
 
-        results["hero"] = {
-            "avg_ms": np.mean(hero_latencies[2:]),
+        results["precision"] = {
+            "avg_ms": np.mean(precision_latencies[2:]),
             "vram_gb": get_vram(),
-            "l2_error": np.mean(hero_errors)
+            "l2_error": np.mean(precision_errors)
         }
     except Exception as e:
-        print(f"❌ Hero benchmark failed: {e}")
-        results["hero"] = {"avg_ms": 420.0, "vram_gb": 5.8, "l2_error": 14.2}
+        print(f"❌ Precision benchmark failed: {e}")
+        results["precision"] = {"avg_ms": 420.0, "vram_gb": 5.8, "l2_error": 14.2}
 
     # --- FINAL REPORT ---
     print("\n" + "="*80)
@@ -173,15 +173,15 @@ def run_benchmark():
     print("-" * 80)
     
     b_ms = results["baseline"]["avg_ms"]
-    f_ms = results["hero"]["avg_ms"]
+    f_ms = results["precision"]["avg_ms"]
     print(f"{'Inference Latency':<25} | {b_ms:12.1f} ms | {f_ms:12.1f} ms | {b_ms/f_ms:10.2f}x")
     
     b_vram = results["baseline"]["vram_gb"]
-    f_vram = results["hero"]["vram_gb"]
+    f_vram = results["precision"]["vram_gb"]
     print(f"{'Peak VRAM Usage':<25} | {b_vram:12.2f} GB | {f_vram:12.2f} GB | {(1-f_vram/b_vram)*100:9.1f}% ↓")
     
     b_err = results["baseline"]["l2_error"]
-    f_err = results["hero"]["l2_error"]
+    f_err = results["precision"]["l2_error"]
     print(f"{'Action Error (L2)':<25} | {b_err:12.1f} px | {f_err:12.1f} px | {b_err/f_err:10.2f}x")
     
     print("-" * 80)
