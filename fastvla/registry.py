@@ -11,6 +11,7 @@ Usage:
     # Register a custom model
     register_model("my-vla", MyVLAModelConfig(...))
 """
+
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
@@ -18,6 +19,7 @@ from typing import Optional, Dict, Any
 @dataclass
 class VisionEncoderConfig:
     """Configuration for a vision encoder."""
+
     model_type: str  # "openvla_fused", "siglip", "vit", "dinov2", "custom"
     model_name: str  # HF model name or timm model name
     num_channels: int  # Input channels (3 for RGB, 6 for fused)
@@ -33,6 +35,7 @@ class VisionEncoderConfig:
 @dataclass
 class LLMConfig:
     """Configuration for the language model backbone."""
+
     model_type: str  # "llama", "gemma", "qwen", "custom"
     model_name: str  # HF model name
     max_seq_length: int = 2048
@@ -40,10 +43,17 @@ class LLMConfig:
     lora_rank: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    lora_target_modules: list = field(default_factory=lambda: [
-        "q_proj", "k_proj", "v_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj",
-    ])
+    lora_target_modules: list = field(
+        default_factory=lambda: [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
+    )
     dtype: str = "float16"
 
     def to_dict(self) -> Dict[str, Any]:
@@ -53,6 +63,7 @@ class LLMConfig:
 @dataclass
 class ActionHeadConfig:
     """Configuration for the action head."""
+
     head_type: str  # "mlp_discrete", "mlp_continuous", "flow_matching", "diffusion"
     action_dim: int = 7  # Output action dimensions
     hidden_dim: int = 256  # Hidden layer size
@@ -66,6 +77,7 @@ class ActionHeadConfig:
 @dataclass
 class ProjectorConfig:
     """Configuration for vision-to-LLM projection."""
+
     vision_dim: int  # Input from vision encoder
     llm_dim: int  # Output to LLM
     projector_type: str = "linear"  # "linear", "mlp", "qformer"
@@ -77,6 +89,7 @@ class ProjectorConfig:
 @dataclass
 class VLAModelConfig:
     """Complete configuration for a VLA model."""
+
     name: str
     description: str
     vision: VisionEncoderConfig
@@ -232,7 +245,7 @@ OLMOVLA = VLAModelConfig(
         dtype="float16",
     ),
     llm=LLMConfig(
-        model_type="llama", # OLMo uses Llama-like arch in many HF implementations
+        model_type="llama",  # OLMo uses Llama-like arch in many HF implementations
         model_name="allenai/olmovla-7b-hf",
         max_seq_length=2048,
         use_lora=True,
@@ -259,6 +272,7 @@ OLMOVLA = VLAModelConfig(
 
 
 # ── Registry ──────────────────────────────────────────────────────────
+
 
 class VLAModelRegistry:
     """Registry of available VLA models."""

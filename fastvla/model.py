@@ -20,12 +20,13 @@ FastVisionModel = None
 try:
     import unsloth
     from unsloth import (
-        FastLanguageModel as _FLM, 
+        FastLanguageModel as _FLM,
         FastVisionModel as _FVM,
         patch_model,
         patch_forward,
-        patch_saving_functions
+        patch_saving_functions,
     )
+
     FastLanguageModel, FastVisionModel = _FLM, _FVM
     UNSLOTH_AVAILABLE = True
 except ImportError:
@@ -35,14 +36,13 @@ except ImportError:
 import torch.nn as nn
 import torch._dynamo
 from pathlib import Path
-from typing import Optional, Dict, Any, Union
-from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM, AutoConfig
+from typing import Optional, Dict, Union
+from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM
 
 from .config import FastVLAConfig
-from .kernels import vision_language_fusion_forward, TritonActionHead
-from .optimization import enable_gradient_checkpointing, get_peft_config
+from .kernels import TritonActionHead
+from .optimization import get_peft_config
 from .utils import check_environment, get_gpu_memory_report, get_device
-from .exceptions import ModelLoadingError, DistributedTrainingError, QuantizationError
 from .registry import VLAModelRegistry
 
 # Setup logging
@@ -50,26 +50,28 @@ logger = logging.getLogger(__name__)
 
 # ── Internal Helpers ──────────────────────────────────────────────────────
 
+
 def _get_target_device_map(config: FastVLAConfig) -> Union[str, Dict]:
     """Calculate the safest device map for the current environment."""
     if not torch.cuda.is_available():
         return "cpu"
-    
+
     # If explicit device map is provided, use it
     if config.device_map not in ["auto", "balanced"]:
         return config.device_map
-        
+
     # On multi-GPU (Kaggle T4 x2), "auto" creates AlignDevicesHook which
     # crashes Dynamo. We prefer a static mapping for 4-bit models.
     if config.load_in_4bit:
         # Default to current device (usually GPU 0)
         curr = torch.cuda.current_device()
         return {"": curr}
-        
+
     return config.device_map
 
 
 # ── Dummy modules for testing / CPU-only validation ──────────────────────
+
 
 class DummyVisionEncoder(nn.Module):
     def __init__(self, hidden_size: int = 768, **kwargs):
@@ -78,23 +80,31 @@ class DummyVisionEncoder(nn.Module):
         self.config = type("Config", (), {"hidden_size": hidden_size})()
         self.patch_embed = nn.Conv2d(3, hidden_size, kernel_size=16, stride=16)
         self.norm = nn.LayerNorm(hidden_size)
+
     def forward(self, pixel_values, **kwargs):
         x = self.patch_embed(pixel_values).flatten(2).transpose(1, 2)
         return self.norm(x)
 
+
 class DummyLanguageModel(nn.Module):
     def __init__(self, hidden_size: int = 128, vocab_size: int = 50257, **kwargs):
         super().__init__()
-        self.config = type("Config", (), {"hidden_size": hidden_size, "vocab_size": vocab_size})()
+        self.config = type(
+            "Config", (), {"hidden_size": hidden_size, "vocab_size": vocab_size}
+        )()
         self.embed_tokens = nn.Embedding(vocab_size, hidden_size)
         self.layer = nn.Linear(hidden_size, hidden_size)
-    def get_input_embeddings(self): return self.embed_tokens
+
+    def get_input_embeddings(self):
+        return self.embed_tokens
+
     def forward(self, inputs_embeds=None, **kwargs):
         x = self.layer(inputs_embeds)
         return type("Output", (), {"last_hidden_state": x, "hidden_states": (x,)})()
 
 
 # ── Main model ────────────────────────────────────────────────────────────
+
 
 class FastVLAModel(PreTrainedModel):
     config_class = FastVLAConfig
@@ -103,7 +113,13 @@ class FastVLAModel(PreTrainedModel):
     def __init__(self, config: FastVLAConfig):
         super().__init__(config)
         self.config = config
-        
+
+        # Ensure RL attributes exist (for older checkpoints)
+        if not hasattr(config, "use_rl"):
+            config.use_rl = False
+        if not hasattr(config, "rl_hidden_dim"):
+            config.rl_hidden_dim = 256
+
         # 1. Health Check
         if not config.dummy:
             check_environment(require_cuda=config.load_in_4bit)
@@ -111,32 +127,49 @@ class FastVLAModel(PreTrainedModel):
 
         # 2. Vision Encoder
         if config.dummy:
-            self.vision_encoder = DummyVisionEncoder(hidden_size=config.vision_hidden_size)
+            self.vision_encoder = DummyVisionEncoder(
+                hidden_size=config.vision_hidden_size
+            )
         else:
             device_map = _get_target_device_map(config)
-            
+
             from .adapters.vision import get_vision_adapter, OpenVLAFusedVisionAdapter
-            
+            from .adapters.value_head import ValueHead
+
             # CRITICAL: Always use OpenVLA adapter if it's OpenVLA, bypassing standard AutoModel
             v_name = str(config.vision_encoder_name)
             if "openvla" in v_name.lower():
                 self.vision_encoder = OpenVLAFusedVisionAdapter.from_pretrained(
-                    v_name, device_map=device_map, 
-                    load_in_4bit=config.load_in_4bit, hf_token=config.hf_token
+                    v_name,
+                    device_map=device_map,
+                    load_in_4bit=config.load_in_4bit,
+                    hf_token=config.hf_token,
                 )
             else:
                 # Use model registry to get vision config if available
                 reg_config = VLAModelRegistry.get(v_name)
-                v_config = reg_config.vision.to_dict() if reg_config else {"model_name": v_name, "model_type": "vit"}
+                v_config = (
+                    reg_config.vision.to_dict()
+                    if reg_config
+                    else {"model_name": v_name, "model_type": "vit"}
+                )
                 v_config["load_in_4bit"] = config.load_in_4bit
-                self.vision_encoder = get_vision_adapter(v_config, device_map=device_map, hf_token=config.hf_token)
+                self.vision_encoder = get_vision_adapter(
+                    v_config, device_map=device_map, hf_token=config.hf_token
+                )
 
         # 3. Language Model
         if config.dummy:
             self._tokenizer = AutoTokenizer.from_pretrained("gpt2")
             self._tokenizer.pad_token = self._tokenizer.eos_token
-            actual_vocab = config.vocab_size if hasattr(config, "vocab_size") and config.vocab_size != 1000 else len(self._tokenizer)
-            self.llm = DummyLanguageModel(hidden_size=config.llm_hidden_size, vocab_size=actual_vocab)
+            actual_vocab = (
+                config.vocab_size
+                if hasattr(config, "vocab_size") and config.vocab_size != 1000
+                else len(self._tokenizer)
+            )
+            self.llm = DummyLanguageModel(
+                hidden_size=config.llm_hidden_size, vocab_size=actual_vocab
+            )
         else:
             self.llm = self._load_component("llm", config)
 
@@ -147,12 +180,24 @@ class FastVLAModel(PreTrainedModel):
         # 5. Multimodal Projection & Action Head
         # Initialize on the same device as the LLM entry point
         llm_device = next(self.llm.parameters()).device
-        self.vision_proj = nn.Linear(config.vision_hidden_size, config.llm_hidden_size).to(llm_device)
+        self.vision_proj = nn.Linear(
+            config.vision_hidden_size, config.llm_hidden_size
+        ).to(llm_device)
         nn.init.xavier_uniform_(self.vision_proj.weight)
 
         self.action_head = TritonActionHead(
-            config.llm_hidden_size, config.action_hidden_dim, config.action_dim * config.chunk_size
+            config.llm_hidden_size,
+            config.action_hidden_dim,
+            config.action_dim * config.chunk_size,
         ).to(llm_device)
+
+        self.value_head = None
+        if config.use_rl:
+            from .adapters.value_head import ValueHead
+
+            self.value_head = ValueHead(
+                config.llm_hidden_size, config.rl_hidden_dim
+            ).to(llm_device)
 
         # 6. Apply Unsloth Patches (Safety layer if not already handled by root)
         if not config.dummy and UNSLOTH_AVAILABLE and torch.cuda.is_available():
@@ -181,37 +226,47 @@ class FastVLAModel(PreTrainedModel):
         """Unified save method that handles LoRA adapters and model configs correctly."""
         save_directory = Path(save_directory)
         save_directory.mkdir(parents=True, exist_ok=True)
-        
+
         # 1. Save Config
         self.config.save_pretrained(save_directory)
-        
+
         # 2. Save Model (Handles LoRA automatically if PEFT is wrapped)
-        self.llm.save_pretrained(save_directory, **kwargs)
-        
+        if hasattr(self.llm, "save_pretrained"):
+            self.llm.save_pretrained(save_directory, **kwargs)
+        else:
+            torch.save(self.llm.state_dict(), save_directory / "llm_model.bin")
+
         # 3. Save Heads
         torch.save(self.vision_proj.state_dict(), save_directory / "vision_proj.bin")
         torch.save(self.action_head.state_dict(), save_directory / "action_head.bin")
-        
-        # 4. Save Tokenizer
+        if self.value_head is not None:
+            torch.save(self.value_head.state_dict(), save_directory / "value_head.bin")
+
+        # 4. Save Vision Encoder if it's dummy
+        if not hasattr(self.vision_encoder, "save_pretrained"):
+            torch.save(
+                self.vision_encoder.state_dict(), save_directory / "vision_encoder.bin"
+            )
+
+        # 5. Save Tokenizer
         if self.tokenizer:
             self.tokenizer.save_pretrained(save_directory)
 
     def push_to_hub(self, repo_id: str, token: Optional[str] = None, **kwargs):
         """Push the model and its components to the HF Hub."""
         from huggingface_hub import HfApi, create_repo
+
         api = HfApi()
-        
+
         # Ensure repo exists
         create_repo(repo_id, token=token, exist_ok=True)
-        
+
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.save_pretrained(tmp_dir, **kwargs)
             api.upload_folder(
-                folder_path=tmp_dir,
-                repo_id=repo_id,
-                token=token,
-                **kwargs
+                folder_path=tmp_dir, repo_id=repo_id, token=token, **kwargs
             )
         logger.info(f"Model pushed to https://huggingface.co/{repo_id}")
 
@@ -228,16 +283,20 @@ class FastVLAModel(PreTrainedModel):
         """Remove Accelerate hooks that cause Dynamo graph breaks."""
         try:
             from accelerate.hooks import remove_hook_from_module
+
             target_device = get_device()
             remove_hook_from_module(self.vision_encoder, recurse=True)
             remove_hook_from_module(self.llm, recurse=True)
-            
-            if not getattr(self, "is_loaded_in_4bit", False) and target_device == "cuda":
+
+            if (
+                not getattr(self, "is_loaded_in_4bit", False)
+                and target_device == "cuda"
+            ):
                 self.vision_encoder.to(target_device)
                 self.llm.to(target_device)
                 self.vision_proj.to(target_device)
                 self.action_head.to(target_device)
-                
+
             torch._dynamo.disable(self.vision_encoder.forward)
             torch._dynamo.disable(self.llm.forward)
         except Exception as e:
@@ -247,7 +306,9 @@ class FastVLAModel(PreTrainedModel):
         """Update config attributes to match actual loaded model dimensions."""
         self.config.vision_hidden_size = self.vision_encoder.embed_dim
         l_conf = self.llm.config
-        self.config.llm_hidden_size = getattr(l_conf, "hidden_size", getattr(l_conf, "word_embed_proj_dim", 4096))
+        self.config.llm_hidden_size = getattr(
+            l_conf, "hidden_size", getattr(l_conf, "word_embed_proj_dim", 4096)
+        )
 
     def _load_component(self, component_type: str, config: FastVLAConfig):
         """Unified loader for Model components (Vision/LLM) with smart conflict resolution."""
@@ -261,14 +322,28 @@ class FastVLAModel(PreTrainedModel):
         if UNSLOTH_AVAILABLE and torch.cuda.is_available():
             try:
                 llm, tokenizer = FastLanguageModel.from_pretrained(
-                    model_name=config.llm_name, max_seq_length=config.max_sequence_length,
-                    load_in_4bit=config.load_in_4bit, device_map=device_map, token=config.hf_token
+                    model_name=config.llm_name,
+                    max_seq_length=config.max_sequence_length,
+                    load_in_4bit=config.load_in_4bit,
+                    device_map=device_map,
+                    token=config.hf_token,
                 )
                 self._tokenizer = tokenizer
                 if config.use_peft:
                     llm = FastLanguageModel.get_peft_model(
-                        llm, r=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=config.lora_dropout,
-                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                        llm,
+                        r=config.lora_rank,
+                        lora_alpha=config.lora_alpha,
+                        lora_dropout=config.lora_dropout,
+                        target_modules=[
+                            "q_proj",
+                            "k_proj",
+                            "v_proj",
+                            "o_proj",
+                            "gate_proj",
+                            "up_proj",
+                            "down_proj",
+                        ],
                     )
                 return llm
             except Exception as e:
@@ -276,10 +351,15 @@ class FastVLAModel(PreTrainedModel):
 
         # Path 2: Standard HF
         from .optimization import get_quantization_config
-        kwargs = {"device_map": device_map, "token": config.hf_token, "trust_remote_code": True}
+
+        kwargs = {
+            "device_map": device_map,
+            "token": config.hf_token,
+            "trust_remote_code": True,
+        }
         if config.load_in_4bit:
             kwargs["quantization_config"] = get_quantization_config(load_in_4bit=True)
-        
+
         try:
             llm = AutoModelForCausalLM.from_pretrained(config.llm_name, **kwargs)
         except (ValueError, ImportError):
@@ -288,17 +368,21 @@ class FastVLAModel(PreTrainedModel):
             # We only need the LLM backbone
             if hasattr(llm, "language_model"):
                 llm = llm.language_model
-        
-        self._tokenizer = AutoTokenizer.from_pretrained(config.llm_name, token=config.hf_token, trust_remote_code=True)
+
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            config.llm_name, token=config.hf_token, trust_remote_code=True
+        )
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
         if config.use_peft:
             from peft import get_peft_model
+
             llm = get_peft_model(llm, get_peft_config(config.lora_rank))
         return llm
 
     @property
-    def tokenizer(self): return getattr(self, "_tokenizer", None)
+    def tokenizer(self):
+        return getattr(self, "_tokenizer", None)
 
     def forward(self, pixel_values, input_ids, attention_mask=None, labels=None):
         """Forward pass handles multi-camera inputs and action prediction."""
@@ -307,7 +391,7 @@ class FastVLAModel(PreTrainedModel):
             cam_images = pixel_values[:, cam_idx]
             # Use the adapter interface directly
             cam_feats = self.vision_encoder(cam_images)
-            
+
             # Project to LLM dimension if needed
             proj_device = next(self.vision_proj.parameters()).device
             cam_feats = self.vision_proj(cam_feats.to(proj_device))
@@ -315,18 +399,29 @@ class FastVLAModel(PreTrainedModel):
 
         # Concatenate multi-camera features along sequence dimension [B, num_cams * T_v, D]
         visual_features = torch.cat(visual_features, dim=1)
-        
+
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
-        
+
         # Use optimized Cross-Attention Fusion (Text attends to Visual)
         from .kernels import vision_language_cross_attention
-        fused_embeds = vision_language_cross_attention(text_embeds, visual_features.to(llm_device))
-        outputs = self.llm(inputs_embeds=fused_embeds, attention_mask=attention_mask, output_hidden_states=True)
+
+        fused_embeds = vision_language_cross_attention(
+            text_embeds, visual_features.to(llm_device)
+        )
+        outputs = self.llm(
+            inputs_embeds=fused_embeds,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
 
         head_device = next(self.action_head.parameters()).device
         pooled = outputs.hidden_states[-1].mean(dim=1).to(head_device)
         action_preds = self.action_head(pooled)
+
+        value_preds = None
+        if self.value_head is not None:
+            value_preds = self.value_head(pooled)
 
         loss = None
         if labels is not None:
@@ -336,13 +431,16 @@ class FastVLAModel(PreTrainedModel):
                     f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}. "
                     f"Check action_dim and chunk_size."
                 )
-            
+
             if self.config.loss_type == "mse":
                 loss = nn.MSELoss()(action_preds, labels)
             elif self.config.loss_type == "huber":
                 loss = nn.HuberLoss()(action_preds, labels)
             else:
                 loss = nn.L1Loss()(action_preds, labels)
+
+        if self.value_head is not None:
+            return (action_preds, value_preds), loss
 
         return action_preds, loss
 
@@ -354,25 +452,28 @@ class FastVLAModel(PreTrainedModel):
         """
         import os
         from .config import FastVLAConfig
-        
+
         # 1. Handle Model Path / Checkpoint
-        if model_name_or_path and (os.path.isdir(model_name_or_path) or os.path.isfile(model_name_or_path)):
+        if model_name_or_path and (
+            os.path.isdir(model_name_or_path) or os.path.isfile(model_name_or_path)
+        ):
             try:
                 config = FastVLAConfig.from_pretrained(model_name_or_path, **kwargs)
             except Exception:
                 config = FastVLAConfig(**kwargs)
-            
+
             model = cls(config)
-            
+
             # Load weights manually
             state_dict_path = os.path.join(model_name_or_path, "pytorch_model.bin")
             if not os.path.exists(state_dict_path):
                 state_dict_path = os.path.join(model_name_or_path, "model.safetensors")
-            
+
             if os.path.exists(state_dict_path):
                 logger.info(f"Loading custom weights from {state_dict_path}")
                 if state_dict_path.endswith(".safetensors"):
                     from safetensors.torch import load_file
+
                     state_dict = load_file(state_dict_path, device="cpu")
                 else:
                     state_dict = torch.load(state_dict_path, map_location="cpu")
@@ -383,14 +484,32 @@ class FastVLAModel(PreTrainedModel):
         if model_name_or_path:
             reg_config = VLAModelRegistry.get(model_name_or_path)
             if reg_config:
-                kwargs["vision_encoder_name"] = reg_config.vision.model_name
-                kwargs["llm_name"] = reg_config.llm.model_name
-                kwargs["image_size"] = reg_config.vision.image_size
+                kwargs.setdefault("vision_encoder_name", reg_config.vision.model_name)
+                kwargs.setdefault("llm_name", reg_config.llm.model_name)
+                kwargs.setdefault("image_size", reg_config.vision.image_size)
+                kwargs.setdefault("vision_hidden_size", reg_config.vision.output_dim)
+                kwargs.setdefault(
+                    "llm_hidden_size",
+                    reg_config.projector.llm_dim if reg_config.projector else 128,
+                )
+                kwargs.setdefault("action_dim", reg_config.action_head.action_dim)
+                kwargs.setdefault(
+                    "action_hidden_dim", reg_config.action_head.hidden_dim
+                )
+                kwargs.setdefault("use_peft", reg_config.llm.use_lora)
+                kwargs.setdefault("lora_rank", reg_config.llm.lora_rank)
+                kwargs.setdefault("lora_alpha", reg_config.llm.lora_alpha)
+                kwargs.setdefault("lora_dropout", reg_config.llm.lora_dropout)
+                kwargs.setdefault("max_sequence_length", reg_config.llm.max_seq_length)
+                kwargs.setdefault("load_in_4bit", reg_config.quantization_4bit)
+                kwargs.setdefault(
+                    "gradient_checkpointing", reg_config.gradient_checkpointing
+                )
             else:
                 if "vision_encoder_name" not in kwargs:
                     kwargs["vision_encoder_name"] = model_name_or_path
                 if "llm_name" not in kwargs:
                     kwargs["llm_name"] = model_name_or_path
-        
+
         config = FastVLAConfig(**kwargs)
         return cls(config)

@@ -315,8 +315,12 @@ def main():
     parser.add_argument(
         "--model", type=str, default="openvla/openvla-7b", help="Model ID to benchmark"
     )
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for benchmark")
-    parser.add_argument("--steps", type=int, default=20, help="Number of steps for benchmark")
+    parser.add_argument(
+        "--batch_size", type=int, default=1, help="Batch size for benchmark"
+    )
+    parser.add_argument(
+        "--steps", type=int, default=20, help="Number of steps for benchmark"
+    )
     args = parser.parse_args()
 
     print(f"\n🚀 Running FastVLA Benchmark: {args.model}")

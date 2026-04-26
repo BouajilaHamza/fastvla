@@ -113,10 +113,14 @@ def action_decode_forward(
 
     # 1. Normalize dtypes (Zero-copy if already matched)
     dtype = hidden.dtype
-    if weight1.dtype != dtype: weight1 = weight1.to(dtype)
-    if bias1.dtype != dtype: bias1 = bias1.to(dtype)
-    if weight2.dtype != dtype: weight2 = weight2.to(dtype)
-    if bias2.dtype != dtype: bias2 = bias2.to(dtype)
+    if weight1.dtype != dtype:
+        weight1 = weight1.to(dtype)
+    if bias1.dtype != dtype:
+        bias1 = bias1.to(dtype)
+    if weight2.dtype != dtype:
+        weight2 = weight2.to(dtype)
+    if bias2.dtype != dtype:
+        bias2 = bias2.to(dtype)
 
     try:
         out = torch.empty(B, A, device=hidden.device, dtype=hidden.dtype)
@@ -153,8 +157,11 @@ def action_decode_forward(
         return out
     except Exception as e:
         # ⚠️ Fail-soft: Fallback to high-performance PyTorch implementation
-        print(f"⚠️ Warning: Triton Action Kernel failed ({e}). Falling back to torch.linear.")
+        print(
+            f"⚠️ Warning: Triton Action Kernel failed ({e}). Falling back to torch.linear."
+        )
         from .cpu_fallbacks import action_decode_cpu
+
         return action_decode_cpu(hidden, weight1, bias1, weight2, bias2)
 
 
@@ -165,10 +172,14 @@ def action_decode_backward(grad_output, hidden, weight1, bias1, weight2, bias2):
     """
     # Normalize dtypes for all inputs to prevent mixed precision issues
     dtype = hidden.dtype
-    if weight1.dtype != dtype: weight1 = weight1.to(dtype)
-    if bias1.dtype != dtype: bias1 = bias1.to(dtype)
-    if weight2.dtype != dtype: weight2 = weight2.to(dtype)
-    if bias2.dtype != dtype: bias2 = bias2.to(dtype)
+    if weight1.dtype != dtype:
+        weight1 = weight1.to(dtype)
+    if bias1.dtype != dtype:
+        bias1 = bias1.to(dtype)
+    if weight2.dtype != dtype:
+        weight2 = weight2.to(dtype)
+    if bias2.dtype != dtype:
+        bias2 = bias2.to(dtype)
 
     # Recompute intermediate hidden state (Gradient Checkpointing)
     # This avoids storing h1 during the forward pass of the model.

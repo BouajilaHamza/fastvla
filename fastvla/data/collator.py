@@ -43,7 +43,7 @@ class UnslothVLACollator:
         if "images" in features[0]:
             is_dict = isinstance(features[0]["images"], dict)
             target_size = (self.image_size, self.image_size)
-            
+
             if is_dict:
                 # Collect all unique camera keys preserving order
                 camera_keys = []
@@ -51,7 +51,7 @@ class UnslothVLACollator:
                     for cam_key in feature["images"]:
                         if cam_key not in camera_keys:
                             camera_keys.append(cam_key)
-                
+
                 # Stack: [B, num_cams, C, H, W]
                 cam_images = []
                 for feature in features:
@@ -61,7 +61,10 @@ class UnslothVLACollator:
                         # Resize if necessary
                         if img.shape[-2:] != target_size:
                             img = torch.nn.functional.interpolate(
-                                img.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False
+                                img.unsqueeze(0),
+                                size=target_size,
+                                mode="bilinear",
+                                align_corners=False,
                             ).squeeze(0)
                         cam_list.append(img)
                     cam_images.append(torch.stack(cam_list, dim=0))
@@ -77,10 +80,13 @@ class UnslothVLACollator:
                         if img_tensor.shape[-2:] != target_size:
                             if img_tensor.dim() == 3:
                                 img_tensor = torch.nn.functional.interpolate(
-                                    img_tensor.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False
+                                    img_tensor.unsqueeze(0),
+                                    size=target_size,
+                                    mode="bilinear",
+                                    align_corners=False,
                                 ).squeeze(0)
                         imgs.append(img_tensor)
-                        
+
                     # Pad with zeros if necessary
                     while len(imgs) < max_cams:
                         imgs.append(torch.zeros(3, *target_size))
@@ -95,30 +101,42 @@ class UnslothVLACollator:
 
         # ── Handle actions (used as labels) ──────────────────────────
         # Detect the correct key (robust across different dataset formats)
-        act_key = "action" if "action" in features[0] else "actions" if "actions" in features[0] else None
-        
+        act_key = (
+            "action"
+            if "action" in features[0]
+            else "actions"
+            if "actions" in features[0]
+            else None
+        )
+
         if act_key:
             actions = []
             for f in features:
                 action_tensor = torch.as_tensor(f[act_key]).float()
                 if action_tensor.dim() == 0:
                     action_tensor = action_tensor.unsqueeze(0)
-                
+
                 # Configurable Normalization via library parameters
                 if self.norm_min is not None and self.norm_max is not None:
                     # Move norm tensors to correct device/dtype for the operation
-                    n_min = self.norm_min.to(device=action_tensor.device, dtype=action_tensor.dtype)
-                    n_max = self.norm_max.to(device=action_tensor.device, dtype=action_tensor.dtype)
-                    
-                    action_tensor = 2.0 * (action_tensor - n_min) / (n_max - n_min) - 1.0
+                    n_min = self.norm_min.to(
+                        device=action_tensor.device, dtype=action_tensor.dtype
+                    )
+                    n_max = self.norm_max.to(
+                        device=action_tensor.device, dtype=action_tensor.dtype
+                    )
+
+                    action_tensor = (
+                        2.0 * (action_tensor - n_min) / (n_max - n_min) - 1.0
+                    )
                     action_tensor = action_tensor.clamp(-1.0, 1.0)
-                
+
                 # Handle flattened chunks if needed
                 if self.chunk_size > 1 and action_tensor.dim() > 1:
                     action_tensor = action_tensor.view(-1)
-                
+
                 actions.append(action_tensor)
-            
+
             batch["labels"] = torch.stack(actions)
 
         # ── Handle text instructions ────────────────────────────────
@@ -139,11 +157,11 @@ class UnslothVLACollator:
         else:
             # Provide default empty text input if instructions are missing
             # This prevents model crashes when text data is missing
-            if hasattr(self.tokenizer, 'pad_token_id'):
+            if hasattr(self.tokenizer, "pad_token_id"):
                 batch["input_ids"] = torch.full(
                     (len(features), 1),
                     fill_value=self.tokenizer.pad_token_id,
-                    dtype=torch.long
+                    dtype=torch.long,
                 )
             else:
                 batch["input_ids"] = torch.zeros((len(features), 1), dtype=torch.long)

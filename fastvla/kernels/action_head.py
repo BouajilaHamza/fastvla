@@ -20,7 +20,7 @@ class ActionDecodeFunction(torch.autograd.Function):
             weight2 = weight2.to(dtype)
         if bias2.dtype != dtype:
             bias2 = bias2.to(dtype)
-        
+
         # We only save what's absolutely necessary for recomputation
         ctx.save_for_backward(hidden, weight1, bias1, weight2, bias2)
         return action_decode_forward(hidden, weight1, bias1, weight2, bias2)
@@ -28,12 +28,12 @@ class ActionDecodeFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         hidden, weight1, bias1, weight2, bias2 = ctx.saved_tensors
-        
+
         # Ensure dtype consistency in backward pass
         dtype = hidden.dtype
         if grad_output.dtype != dtype:
             grad_output = grad_output.to(dtype)
-        
+
         grads = action_decode_backward(
             grad_output, hidden, weight1, bias1, weight2, bias2
         )
@@ -70,7 +70,7 @@ class TritonActionHead(nn.Module):
 
         if x.is_cuda:
             return ActionDecodeFunction.apply(x, w1, b1, w2, b2)
-        
+
         # Fallback for CPU / No-Triton
         h = torch.nn.functional.relu(x @ w1 + b1)
         return torch.tanh(h @ w2 + b2)

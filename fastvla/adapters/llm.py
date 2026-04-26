@@ -1,4 +1,5 @@
 """LLM Adapters for FastVLA — Unified interface for any language model."""
+
 import torch.nn as nn
 
 
@@ -33,8 +34,15 @@ class LLaMAQLoRAAdapter(BaseLLMAdapter):
     def get_input_embeddings(self) -> nn.Embedding:
         return self.model.get_input_embeddings()
 
-    def forward(self, input_ids=None, attention_mask=None, inputs_embeds=None,
-                output_hidden_states=True, use_cache=False, **kwargs):
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        inputs_embeds=None,
+        output_hidden_states=True,
+        use_cache=False,
+        **kwargs,
+    ):
         return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -60,8 +68,15 @@ class GenericLLMAdapter(BaseLLMAdapter):
     def get_input_embeddings(self) -> nn.Embedding:
         return self.model.get_input_embeddings()
 
-    def forward(self, input_ids=None, attention_mask=None, inputs_embeds=None,
-                output_hidden_states=True, use_cache=False, **kwargs):
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        inputs_embeds=None,
+        output_hidden_states=True,
+        use_cache=False,
+        **kwargs,
+    ):
         return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,

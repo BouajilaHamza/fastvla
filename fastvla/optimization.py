@@ -100,11 +100,17 @@ def enable_gradient_checkpointing(model: nn.Module):
     for module in model.modules():
         if module is model:
             continue
-            
-        for method_name in ["gradient_checkpointing_enable", "enable_gradient_checkpointing"]:
+
+        for method_name in [
+            "gradient_checkpointing_enable",
+            "enable_gradient_checkpointing",
+        ]:
             if hasattr(module, method_name):
                 try:
-                    if hasattr(module, "supports_gradient_checkpointing") and not module.supports_gradient_checkpointing:
+                    if (
+                        hasattr(module, "supports_gradient_checkpointing")
+                        and not module.supports_gradient_checkpointing
+                    ):
                         continue
                     getattr(module, method_name)()
                 except Exception:
@@ -177,7 +183,7 @@ def get_peft_config(
     lora_alpha: int = 32,
     lora_dropout: float = 0.05,
     target_modules: Optional[list] = None,
-    task_type = None,
+    task_type=None,
 ) -> Union["LoraConfig", Any]:
     """
     Create PEFT (LoRA) configuration.

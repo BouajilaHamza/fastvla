@@ -1,4 +1,5 @@
 """Action Head Adapters for FastVLA — Different action representations."""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,9 +29,14 @@ class DiscreteActionHead(BaseActionHead):
     Output: [B, action_dim] (argmax of bin predictions)
     """
 
-    def __init__(self, input_dim: int, action_dim: int = 7,
-                 hidden_dim: int = 256, num_bins: int = 256,
-                 use_triton: bool = True):
+    def __init__(
+        self,
+        input_dim: int,
+        action_dim: int = 7,
+        hidden_dim: int = 256,
+        num_bins: int = 256,
+        use_triton: bool = True,
+    ):
         super().__init__(input_dim, action_dim)
         self.num_bins = num_bins
         self.use_triton = use_triton and get_device() == "cuda"
@@ -64,12 +70,14 @@ class DiscreteActionHead(BaseActionHead):
         if self.training or logits.requires_grad:
             # Soft-argmax: expectation over bins
             probs = F.softmax(logits, dim=-1)
-            bin_values = torch.linspace(0, 1, self.num_bins, device=logits.device, dtype=logits.dtype)
+            bin_values = torch.linspace(
+                0, 1, self.num_bins, device=logits.device, dtype=logits.dtype
+            )
             actions = (probs * bin_values).sum(dim=-1)
         else:
             # Inference: Hard argmax
             actions = logits.argmax(dim=-1).float() / (self.num_bins - 1)
-            
+
         return actions
 
     def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -83,14 +91,20 @@ class ContinuousActionHead(BaseActionHead):
     Outputs continuous values in [-1, 1] via Tanh.
     """
 
-    def __init__(self, input_dim: int, action_dim: int = 7,
-                 hidden_dim: int = 256, use_triton: bool = True):
+    def __init__(
+        self,
+        input_dim: int,
+        action_dim: int = 7,
+        hidden_dim: int = 256,
+        use_triton: bool = True,
+    ):
         super().__init__(input_dim, action_dim)
         self.use_triton = use_triton and get_device() == "cuda"
 
         if self.use_triton:
             # Use Triton action head
             from ..kernels.action_head import TritonActionHead
+
             self.triton_head = TritonActionHead(input_dim, hidden_dim, action_dim)
             self.fc1 = None
             self.fc2 = None
@@ -127,8 +141,7 @@ class FlowMatchingActionHead(BaseActionHead):
     Simplified implementation for demonstration.
     """
 
-    def __init__(self, input_dim: int, action_dim: int = 7,
-                 hidden_dim: int = 256):
+    def __init__(self, input_dim: int, action_dim: int = 7, hidden_dim: int = 256):
         super().__init__(input_dim, action_dim)
         # Simplified: MLP that predicts action directly
         # Full implementation would use flow matching ODE solver

@@ -14,15 +14,18 @@ from .cpu_fallbacks import (
 # Kaggle/Colab always have CUDA but triton may not be installed yet.
 TRITON_AVAILABLE = False
 
+
 def _check_triton_available() -> bool:
     """Return True only if CUDA is present AND triton can be imported."""
     if not torch.cuda.is_available():
         return False
     try:
         import triton  # noqa: F401
+
         return True
     except ImportError:
         return False
+
 
 TRITON_AVAILABLE = _check_triton_available()
 
@@ -62,6 +65,7 @@ def vision_language_cross_attention(
     if _use_triton(text) and _triton_cross_attention is not None:
         return _triton_cross_attention(text, visual)
     from .fusion import vision_language_cross_attention as _cpu_impl
+
     return _cpu_impl(text, visual)
 
 
