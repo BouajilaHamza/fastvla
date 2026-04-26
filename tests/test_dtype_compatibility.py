@@ -2,13 +2,14 @@
 Comprehensive test suite for FastVLA dtype handling and mixed precision compatibility.
 Tests all critical paths: CPU/GPU, float16/float32, all action heads, full model.
 """
+
 import pytest
 import torch
 import sys
 import os
 
 # Add project root to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fastvla.kernels.action_head import TritonActionHead
 from fastvla.adapters.action_head import (
@@ -43,7 +44,7 @@ def check_backward_pass(module, input_tensor, name="module"):
     output = module(input_tensor)
     loss = output.sum()
     loss.backward()
-    
+
     assert input_tensor.grad is not None, f"{name} has no gradient"
     assert not torch.isnan(input_tensor.grad).any(), f"{name} gradient contains NaN"
     assert not torch.isinf(input_tensor.grad).any(), f"{name} gradient contains Inf"
@@ -83,24 +84,20 @@ class TestTritonActionHead:
     def test_cpu_float32_backward(self, action_head):
         """CPU float32 backward pass."""
         x = torch.randn(2, 768, dtype=torch.float32)
-        grad = check_backward_pass(
-            action_head, x, "TritonActionHead CPU float32"
-        )
+        grad = check_backward_pass(action_head, x, "TritonActionHead CPU float32")
         assert grad.shape == (2, 768)
 
     def test_cpu_float16_backward(self, action_head):
         """CPU float16 backward pass (mixed precision simulation)."""
         x = torch.randn(2, 768, dtype=torch.float16)
-        grad = check_backward_pass(
-            action_head, x, "TritonActionHead CPU float16"
-        )
+        grad = check_backward_pass(action_head, x, "TritonActionHead CPU float16")
         assert grad.shape == (2, 768)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_gpu_float32_forward(self, action_head):
         """GPU float32 forward pass."""
         action_head = action_head.cuda()
-        x = torch.randn(2, 768, dtype=torch.float32, device='cuda')
+        x = torch.randn(2, 768, dtype=torch.float32, device="cuda")
         output = check_forward_pass(
             action_head, x, (2, 7), "TritonActionHead GPU float32"
         )
@@ -109,7 +106,7 @@ class TestTritonActionHead:
     def test_gpu_float16_forward(self, action_head):
         """GPU float16 forward pass (mixed precision)."""
         action_head = action_head.cuda()
-        x = torch.randn(2, 768, dtype=torch.float16, device='cuda')
+        x = torch.randn(2, 768, dtype=torch.float16, device="cuda")
         output = check_forward_pass(
             action_head, x, (2, 7), "TritonActionHead GPU float16"
         )
@@ -123,7 +120,9 @@ class TestDiscreteActionHead:
 
     @pytest.fixture
     def action_head(self):
-        return DiscreteActionHead(input_dim=768, action_dim=7, hidden_dim=256, num_bins=256)
+        return DiscreteActionHead(
+            input_dim=768, action_dim=7, hidden_dim=256, num_bins=256
+        )
 
     def test_cpu_float32_forward(self, action_head):
         """CPU float32 forward pass."""
@@ -148,17 +147,13 @@ class TestDiscreteActionHead:
     def test_cpu_float32_backward(self, action_head):
         """CPU float32 backward pass."""
         x = torch.randn(2, 768, dtype=torch.float32)
-        grad = check_backward_pass(
-            action_head, x, "DiscreteActionHead CPU float32"
-        )
+        grad = check_backward_pass(action_head, x, "DiscreteActionHead CPU float32")
         assert grad.shape == (2, 768)
 
     def test_cpu_float16_backward(self, action_head):
         """CPU float16 backward pass (mixed precision simulation)."""
         x = torch.randn(2, 768, dtype=torch.float16)
-        grad = check_backward_pass(
-            action_head, x, "DiscreteActionHead CPU float16"
-        )
+        grad = check_backward_pass(action_head, x, "DiscreteActionHead CPU float16")
         assert grad.shape == (2, 768)
 
 
@@ -170,7 +165,9 @@ class TestContinuousActionHead:
 
     @pytest.fixture
     def action_head(self):
-        return ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+        return ContinuousActionHead(
+            input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+        )
 
     def test_cpu_float32_forward(self, action_head):
         """CPU float32 forward pass."""
@@ -195,17 +192,13 @@ class TestContinuousActionHead:
     def test_cpu_float32_backward(self, action_head):
         """CPU float32 backward pass."""
         x = torch.randn(2, 768, dtype=torch.float32)
-        grad = check_backward_pass(
-            action_head, x, "ContinuousActionHead CPU float32"
-        )
+        grad = check_backward_pass(action_head, x, "ContinuousActionHead CPU float32")
         assert grad.shape == (2, 768)
 
     def test_cpu_float16_backward(self, action_head):
         """CPU float16 backward pass (mixed precision simulation)."""
         x = torch.randn(2, 768, dtype=torch.float16)
-        grad = check_backward_pass(
-            action_head, x, "ContinuousActionHead CPU float16"
-        )
+        grad = check_backward_pass(action_head, x, "ContinuousActionHead CPU float16")
         assert grad.shape == (2, 768)
 
 
@@ -290,13 +283,13 @@ class TestDataCollator:
         class MockTokenizer:
             pad_token_id = 0
             eos_token_id = 1
-            
+
             def __call__(self, texts, **kwargs):
                 return {
                     "input_ids": torch.zeros(len(texts), 10, dtype=torch.long),
                     "attention_mask": torch.ones(len(texts), 10, dtype=torch.long),
                 }
-        
+
         return MockTokenizer()
 
     def test_collator_with_all_fields(self, mock_tokenizer):
@@ -357,13 +350,13 @@ class TestMixedPrecisionIntegration:
     def test_action_head_autocast_simulation_cpu(self):
         """Simulate autocast behavior on CPU (float16 input to float32 model)."""
         head = TritonActionHead(input_dim=256, hidden_dim=64, output_dim=5)
-        
+
         # Simulate autocast providing float16 input
         x_fp16 = torch.randn(4, 256, dtype=torch.float16)
-        
+
         # This should NOT raise dtype mismatch
         output = head(x_fp16)
-        
+
         assert output.shape == (4, 5)
         assert not torch.isnan(output).any()
 
@@ -371,14 +364,14 @@ class TestMixedPrecisionIntegration:
         """Verify float16 and float32 produce similar outputs."""
         head = TritonActionHead(input_dim=128, hidden_dim=32, output_dim=3)
         torch.manual_seed(42)
-        
+
         x_fp32 = torch.randn(2, 128, dtype=torch.float32)
         x_fp16 = x_fp32.to(torch.float16)
-        
+
         with torch.no_grad():
             out_fp32 = head(x_fp32)
             out_fp16 = head(x_fp16).to(torch.float32)
-        
+
         # Outputs should be numerically similar (allowing for precision loss)
         assert torch.allclose(out_fp32, out_fp16, rtol=1e-2, atol=1e-2), (
             f"float16/float32 outputs differ significantly: max diff = {(out_fp32 - out_fp16).abs().max()}"

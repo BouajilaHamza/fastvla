@@ -1,6 +1,7 @@
 """
 Run dtype compatibility tests without pytest framework.
 """
+
 import sys
 import os
 import torch
@@ -37,14 +38,18 @@ print("\n" + "=" * 80)
 print("1. IMPORT TESTS")
 print("=" * 80)
 
+
 def test_import_kernels():
     pass
+
 
 def test_import_adapters():
     pass
 
+
 def test_import_fusion():
     pass
+
 
 def test_import_collator():
     pass
@@ -106,9 +111,15 @@ def test_triton_cpu_fp16_backward():
 
 
 test("TritonActionHead CPU float32 forward", test_triton_cpu_fp32_forward)
-test("TritonActionHead CPU float16 forward (MIXED PRECISION)", test_triton_cpu_fp16_forward)
+test(
+    "TritonActionHead CPU float16 forward (MIXED PRECISION)",
+    test_triton_cpu_fp16_forward,
+)
 test("TritonActionHead CPU float32 backward", test_triton_cpu_fp32_backward)
-test("TritonActionHead CPU float16 backward (MIXED PRECISION)", test_triton_cpu_fp16_backward)
+test(
+    "TritonActionHead CPU float16 backward (MIXED PRECISION)",
+    test_triton_cpu_fp16_backward,
+)
 
 
 # ── DiscreteActionHead Tests ────────────────────────────────────────────
@@ -150,7 +161,10 @@ def test_discrete_cpu_fp32_backward():
 
 
 test("DiscreteActionHead CPU float32 forward", test_discrete_cpu_fp32_forward)
-test("DiscreteActionHead CPU float16 forward (MIXED PRECISION)", test_discrete_cpu_fp16_forward)
+test(
+    "DiscreteActionHead CPU float16 forward (MIXED PRECISION)",
+    test_discrete_cpu_fp16_forward,
+)
 test("DiscreteActionHead CPU float32 backward", test_discrete_cpu_fp32_backward)
 
 
@@ -164,26 +178,36 @@ from fastvla.adapters.action_head import ContinuousActionHead
 
 
 def test_continuous_cpu_fp32_forward():
-    head = ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+    head = ContinuousActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+    )
     x = torch.randn(2, 768, dtype=torch.float32)
     with torch.no_grad():
         output = head(x)
     assert output.shape == (2, 7), f"Expected shape (2, 7), got {output.shape}"
-    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), "Output not in [-1, 1]"
+    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), (
+        "Output not in [-1, 1]"
+    )
 
 
 def test_continuous_cpu_fp16_forward():
     """CRITICAL TEST: Mixed precision with ContinuousActionHead."""
-    head = ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+    head = ContinuousActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+    )
     x = torch.randn(2, 768, dtype=torch.float16)
     with torch.no_grad():
         output = head(x)  # This would fail without dtype fix
     assert output.shape == (2, 7), f"Expected shape (2, 7), got {output.shape}"
-    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), "Output not in [-1, 1]"
+    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), (
+        "Output not in [-1, 1]"
+    )
 
 
 def test_continuous_cpu_fp32_backward():
-    head = ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+    head = ContinuousActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+    )
     x = torch.randn(2, 768, dtype=torch.float32, requires_grad=True)
     output = head(x)
     loss = output.sum()
@@ -193,7 +217,10 @@ def test_continuous_cpu_fp32_backward():
 
 
 test("ContinuousActionHead CPU float32 forward", test_continuous_cpu_fp32_forward)
-test("ContinuousActionHead CPU float16 forward (MIXED PRECISION)", test_continuous_cpu_fp16_forward)
+test(
+    "ContinuousActionHead CPU float16 forward (MIXED PRECISION)",
+    test_continuous_cpu_fp16_forward,
+)
 test("ContinuousActionHead CPU float32 backward", test_continuous_cpu_fp32_backward)
 
 
@@ -213,10 +240,15 @@ def test_flow_cpu_fp16_forward():
     with torch.no_grad():
         output = head(x)  # This would fail without dtype fix
     assert output.shape == (2, 7), f"Expected shape (2, 7), got {output.shape}"
-    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), "Output not in [-1, 1]"
+    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), (
+        "Output not in [-1, 1]"
+    )
 
 
-test("FlowMatchingActionHead CPU float16 forward (MIXED PRECISION)", test_flow_cpu_fp16_forward)
+test(
+    "FlowMatchingActionHead CPU float16 forward (MIXED PRECISION)",
+    test_flow_cpu_fp16_forward,
+)
 
 
 # ── Vision-Language Fusion Tests ────────────────────────────────────────
@@ -270,7 +302,7 @@ from fastvla.data.collator import UnslothVLACollator
 class MockTokenizer:
     pad_token_id = 0
     eos_token_id = 1
-    
+
     def __call__(self, texts, **kwargs):
         return {
             "input_ids": torch.zeros(len(texts), 10, dtype=torch.long),
@@ -313,7 +345,9 @@ def test_collator_missing_instructions():
     batch = collator(features)
     assert "input_ids" in batch, "Missing input_ids even with fallback"
     assert "attention_mask" in batch, "Missing attention_mask even with fallback"
-    assert batch["input_ids"].shape[0] == 2, f"Wrong batch size: {batch['input_ids'].shape}"
+    assert batch["input_ids"].shape[0] == 2, (
+        f"Wrong batch size: {batch['input_ids'].shape}"
+    )
 
 
 def test_collator_missing_images_raises():
@@ -336,7 +370,10 @@ def test_collator_missing_images_raises():
 
 
 test("Collator with complete data", test_collator_complete_data)
-test("Collator with missing instructions (graceful fallback)", test_collator_missing_instructions)
+test(
+    "Collator with missing instructions (graceful fallback)",
+    test_collator_missing_instructions,
+)
 test("Collator with missing images (raises error)", test_collator_missing_images_raises)
 
 
@@ -351,11 +388,11 @@ def test_autocast_simulation_cpu():
     """Simulate autocast behavior on CPU (float16 input to float32 model)."""
     head = TritonActionHead(input_dim=256, hidden_dim=64, output_dim=5)
     x_fp16 = torch.randn(4, 256, dtype=torch.float16)
-    
+
     # This should NOT raise dtype mismatch
     with torch.no_grad():
         output = head(x_fp16)
-    
+
     assert output.shape == (4, 5), f"Expected shape (4, 5), got {output.shape}"
     assert not torch.isnan(output).any(), "Output contains NaN"
 
@@ -364,21 +401,23 @@ def test_dtype_consistency():
     """Verify float16 and float32 produce similar outputs."""
     head = TritonActionHead(input_dim=128, hidden_dim=32, output_dim=3)
     torch.manual_seed(42)
-    
+
     x_fp32 = torch.randn(2, 128, dtype=torch.float32)
     x_fp16 = x_fp32.to(torch.float16)
-    
+
     with torch.no_grad():
         out_fp32 = head(x_fp32)
         out_fp16 = head(x_fp16).to(torch.float32)
-    
+
     # Outputs should be numerically similar (allowing for precision loss)
     assert torch.allclose(out_fp32, out_fp16, rtol=1e-2, atol=1e-2), (
         f"float16/float32 outputs differ: max diff = {(out_fp32 - out_fp16).abs().max()}"
     )
 
 
-test("Autocast simulation (float16 input to float32 model)", test_autocast_simulation_cpu)
+test(
+    "Autocast simulation (float16 input to float32 model)", test_autocast_simulation_cpu
+)
 test("Dtype consistency (float16 vs float32 outputs)", test_dtype_consistency)
 
 

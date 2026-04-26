@@ -25,7 +25,7 @@ class TestShapeValidation:
                     "images": {"rgb": torch.randn(3, 224, 224)},
                     # Wrong action dimension (2 instead of 7)
                     "actions": torch.randn(2),
-                    "instructions": "test"
+                    "instructions": "test",
                 }
 
         dataset = MismatchedDataset()
@@ -56,7 +56,7 @@ class TestShapeValidation:
                 return {
                     "images": {"rgb": torch.randn(3, 224, 224)},
                     "actions": torch.randn(7),
-                    "instructions": "test instruction"
+                    "instructions": "test instruction",
                 }
 
         dataset = VariableBatchDataset()
@@ -91,7 +91,7 @@ class TestShapeValidation:
                 return {
                     "images": {"rgb": torch.randn(3, 224, 224)},
                     "actions": torch.randn(7),
-                    "instructions": "test"
+                    "instructions": "test",
                 }
 
         dataset = SingleSampleDataset()
@@ -124,12 +124,12 @@ class TestCollatorValidation:
             {
                 "images": {"rgb": torch.randn(3, 224, 224)},
                 "actions": torch.randn(7),  # Correct dimension
-                "instructions": "test1"
+                "instructions": "test1",
             },
             {
                 "images": {"rgb": torch.randn(3, 224, 224)},
                 "actions": torch.randn(3),  # Wrong dimension
-                "instructions": "test2"
+                "instructions": "test2",
             },
         ]
 
@@ -147,12 +147,12 @@ class TestCollatorValidation:
             {
                 "images": {"rgb": torch.randn(3, 224, 224)},
                 "actions": torch.tensor(0.5),  # Scalar action
-                "instructions": "test1"
+                "instructions": "test1",
             },
             {
                 "images": {"rgb": torch.randn(3, 224, 224)},
                 "actions": torch.tensor(0.3),  # Scalar action
-                "instructions": "test2"
+                "instructions": "test2",
             },
         ]
 
@@ -172,12 +172,12 @@ class TestCollatorValidation:
             {
                 "images": {"rgb": torch.randn(3, 224, 224)},
                 "actions": torch.randn(2),  # Different dimension
-                "instructions": "test1"
+                "instructions": "test1",
             },
             {
                 "images": {"rgb": torch.randn(3, 224, 224)},
                 "actions": torch.randn(2),  # Same dimension
-                "instructions": "test2"
+                "instructions": "test2",
             },
         ]
 
@@ -204,7 +204,7 @@ class TestGradientAccumulation:
                 return {
                     "images": {"rgb": torch.randn(3, 224, 224)},
                     "actions": torch.randn(7),
-                    "instructions": "test"
+                    "instructions": "test",
                 }
 
         dataset = SimpleDataset()
@@ -247,7 +247,7 @@ class TestDistributedTrainingSimulation:
                     return {
                         "images": {"rgb": torch.randn(3, 224, 224)},
                         "actions": torch.randn(7),
-                        "instructions": "test"
+                        "instructions": "test",
                     }
 
             dataset = ConsistentDataset()
@@ -280,7 +280,7 @@ class TestDistributedTrainingSimulation:
                 return {
                     "images": {"rgb": torch.randn(3, 224, 224)},
                     "actions": torch.randn(7),
-                    "instructions": "test"
+                    "instructions": "test",
                 }
 
         dataset = DeviceDataset()
@@ -315,7 +315,7 @@ class TestEdgeCases:
             def __getitem__(self, idx):
                 return {
                     "images": {"rgb": torch.randn(3, 224, 224)},
-                    "instructions": "test"
+                    "instructions": "test",
                     # No actions/labels
                 }
 
@@ -344,9 +344,7 @@ class TestEdgeCases:
     def test_very_long_sequence(self):
         """Test handling of long sequences."""
         model = FastVLAModel.from_pretrained(
-            dummy=True,
-            vocab_size=50257,
-            max_sequence_length=1024
+            dummy=True, vocab_size=50257, max_sequence_length=1024
         )
 
         class LongSequenceDataset(torch.utils.data.Dataset):
@@ -358,7 +356,7 @@ class TestEdgeCases:
                     "images": {"rgb": torch.randn(3, 224, 224)},
                     "actions": torch.randn(7),
                     # Very long instruction
-                    "instructions": "do this task " * 100
+                    "instructions": "do this task " * 100,
                 }
 
         dataset = LongSequenceDataset()
@@ -391,7 +389,7 @@ class TestEdgeCases:
                         "cam3": torch.randn(3, 224, 224),
                     },
                     "actions": torch.randn(7),
-                    "instructions": "test"
+                    "instructions": "test",
                 }
 
         dataset = MultiCameraDataset()

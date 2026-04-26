@@ -2,6 +2,7 @@
 Standalone dtype compatibility test - bypasses broken imports.
 Tests ONLY the kernel modules directly without importing from fastvla.__init__
 """
+
 import sys
 import os
 import torch
@@ -31,6 +32,7 @@ def test(name, func):
         print(f"❌ FAIL: {name}")
         print(f"   Error: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -85,9 +87,15 @@ def test_triton_cpu_fp16_backward():
 
 
 test("TritonActionHead CPU float32 forward", test_triton_cpu_fp32_forward)
-test("TritonActionHead CPU float16 forward (MIXED PRECISION - ORIGINAL BUG)", test_triton_cpu_fp16_forward)
+test(
+    "TritonActionHead CPU float16 forward (MIXED PRECISION - ORIGINAL BUG)",
+    test_triton_cpu_fp16_forward,
+)
 test("TritonActionHead CPU float32 backward", test_triton_cpu_fp32_backward)
-test("TritonActionHead CPU float16 backward (MIXED PRECISION)", test_triton_cpu_fp16_backward)
+test(
+    "TritonActionHead CPU float16 backward (MIXED PRECISION)",
+    test_triton_cpu_fp16_backward,
+)
 
 
 # ── DiscreteActionHead Tests ────────────────────────────────────────────
@@ -99,16 +107,24 @@ print("=" * 80)
 # We need to import the adapters module directly
 # First let's import just the module file directly
 import importlib.util
+
 spec = importlib.util.spec_from_file_location(
     "adapters_action_head",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fastvla", "adapters", "action_head.py")
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "fastvla",
+        "adapters",
+        "action_head.py",
+    ),
 )
 adapters_action_head = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(adapters_action_head)
 
 
 def test_discrete_cpu_fp32_forward():
-    head = adapters_action_head.DiscreteActionHead(input_dim=768, action_dim=7, hidden_dim=256, num_bins=256)
+    head = adapters_action_head.DiscreteActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, num_bins=256
+    )
     x = torch.randn(2, 768, dtype=torch.float32)
     with torch.no_grad():
         output = head(x)
@@ -118,7 +134,9 @@ def test_discrete_cpu_fp32_forward():
 
 def test_discrete_cpu_fp16_forward():
     """CRITICAL TEST: Mixed precision with DiscreteActionHead."""
-    head = adapters_action_head.DiscreteActionHead(input_dim=768, action_dim=7, hidden_dim=256, num_bins=256)
+    head = adapters_action_head.DiscreteActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, num_bins=256
+    )
     x = torch.randn(2, 768, dtype=torch.float16)
     with torch.no_grad():
         output = head(x)  # This would fail without dtype fix
@@ -127,7 +145,9 @@ def test_discrete_cpu_fp16_forward():
 
 
 def test_discrete_cpu_fp32_backward():
-    head = adapters_action_head.DiscreteActionHead(input_dim=768, action_dim=7, hidden_dim=256, num_bins=256)
+    head = adapters_action_head.DiscreteActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, num_bins=256
+    )
     x = torch.randn(2, 768, dtype=torch.float32, requires_grad=True)
     output = head(x)
     loss = output.sum()
@@ -137,7 +157,10 @@ def test_discrete_cpu_fp32_backward():
 
 
 test("DiscreteActionHead CPU float32 forward", test_discrete_cpu_fp32_forward)
-test("DiscreteActionHead CPU float16 forward (MIXED PRECISION)", test_discrete_cpu_fp16_forward)
+test(
+    "DiscreteActionHead CPU float16 forward (MIXED PRECISION)",
+    test_discrete_cpu_fp16_forward,
+)
 test("DiscreteActionHead CPU float32 backward", test_discrete_cpu_fp32_backward)
 
 
@@ -149,26 +172,36 @@ print("=" * 80)
 
 
 def test_continuous_cpu_fp32_forward():
-    head = adapters_action_head.ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+    head = adapters_action_head.ContinuousActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+    )
     x = torch.randn(2, 768, dtype=torch.float32)
     with torch.no_grad():
         output = head(x)
     assert output.shape == (2, 7), f"Expected shape (2, 7), got {output.shape}"
-    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), "Output not in [-1, 1]"
+    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), (
+        "Output not in [-1, 1]"
+    )
 
 
 def test_continuous_cpu_fp16_forward():
     """CRITICAL TEST: Mixed precision with ContinuousActionHead."""
-    head = adapters_action_head.ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+    head = adapters_action_head.ContinuousActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+    )
     x = torch.randn(2, 768, dtype=torch.float16)
     with torch.no_grad():
         output = head(x)  # This would fail without dtype fix
     assert output.shape == (2, 7), f"Expected shape (2, 7), got {output.shape}"
-    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), "Output not in [-1, 1]"
+    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), (
+        "Output not in [-1, 1]"
+    )
 
 
 def test_continuous_cpu_fp32_backward():
-    head = adapters_action_head.ContinuousActionHead(input_dim=768, action_dim=7, hidden_dim=256, use_triton=False)
+    head = adapters_action_head.ContinuousActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256, use_triton=False
+    )
     x = torch.randn(2, 768, dtype=torch.float32, requires_grad=True)
     output = head(x)
     loss = output.sum()
@@ -178,7 +211,10 @@ def test_continuous_cpu_fp32_backward():
 
 
 test("ContinuousActionHead CPU float32 forward", test_continuous_cpu_fp32_forward)
-test("ContinuousActionHead CPU float16 forward (MIXED PRECISION)", test_continuous_cpu_fp16_forward)
+test(
+    "ContinuousActionHead CPU float16 forward (MIXED PRECISION)",
+    test_continuous_cpu_fp16_forward,
+)
 test("ContinuousActionHead CPU float32 backward", test_continuous_cpu_fp32_backward)
 
 
@@ -191,15 +227,22 @@ print("=" * 80)
 
 def test_flow_cpu_fp16_forward():
     """CRITICAL TEST: Mixed precision with FlowMatchingActionHead."""
-    head = adapters_action_head.FlowMatchingActionHead(input_dim=768, action_dim=7, hidden_dim=256)
+    head = adapters_action_head.FlowMatchingActionHead(
+        input_dim=768, action_dim=7, hidden_dim=256
+    )
     x = torch.randn(2, 768, dtype=torch.float16)
     with torch.no_grad():
         output = head(x)  # This would fail without dtype fix
     assert output.shape == (2, 7), f"Expected shape (2, 7), got {output.shape}"
-    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), "Output not in [-1, 1]"
+    assert torch.all(output >= -1.0) and torch.all(output <= 1.0), (
+        "Output not in [-1, 1]"
+    )
 
 
-test("FlowMatchingActionHead CPU float16 forward (MIXED PRECISION)", test_flow_cpu_fp16_forward)
+test(
+    "FlowMatchingActionHead CPU float16 forward (MIXED PRECISION)",
+    test_flow_cpu_fp16_forward,
+)
 
 
 # ── Fusion Kernel Tests ─────────────────────────────────────────────────
@@ -249,7 +292,12 @@ print("=" * 80)
 
 spec2 = importlib.util.spec_from_file_location(
     "collator",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fastvla", "data", "collator.py")
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "fastvla",
+        "data",
+        "collator.py",
+    ),
 )
 collator_module = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(collator_module)
@@ -258,7 +306,7 @@ spec2.loader.exec_module(collator_module)
 class MockTokenizer:
     pad_token_id = 0
     eos_token_id = 1
-    
+
     def __call__(self, texts, **kwargs):
         return {
             "input_ids": torch.zeros(len(texts), 10, dtype=torch.long),
@@ -301,7 +349,9 @@ def test_collator_missing_instructions():
     batch = collator(features)
     assert "input_ids" in batch, "Missing input_ids even with fallback"
     assert "attention_mask" in batch, "Missing attention_mask even with fallback"
-    assert batch["input_ids"].shape[0] == 2, f"Wrong batch size: {batch['input_ids'].shape}"
+    assert batch["input_ids"].shape[0] == 2, (
+        f"Wrong batch size: {batch['input_ids'].shape}"
+    )
 
 
 def test_collator_missing_images_raises():
@@ -324,7 +374,10 @@ def test_collator_missing_images_raises():
 
 
 test("Collator with complete data", test_collator_complete_data)
-test("Collator with missing instructions (graceful fallback)", test_collator_missing_instructions)
+test(
+    "Collator with missing instructions (graceful fallback)",
+    test_collator_missing_instructions,
+)
 test("Collator with missing images (raises error)", test_collator_missing_images_raises)
 
 
@@ -339,11 +392,11 @@ def test_autocast_simulation_cpu():
     """Simulate autocast behavior on CPU (float16 input to float32 model)."""
     head = action_head.TritonActionHead(input_dim=256, hidden_dim=64, output_dim=5)
     x_fp16 = torch.randn(4, 256, dtype=torch.float16)
-    
+
     # This should NOT raise dtype mismatch
     with torch.no_grad():
         output = head(x_fp16)
-    
+
     assert output.shape == (4, 5), f"Expected shape (4, 5), got {output.shape}"
     assert not torch.isnan(output).any(), "Output contains NaN"
 
@@ -352,21 +405,23 @@ def test_dtype_consistency():
     """Verify float16 and float32 produce similar outputs."""
     head = action_head.TritonActionHead(input_dim=128, hidden_dim=32, output_dim=3)
     torch.manual_seed(42)
-    
+
     x_fp32 = torch.randn(2, 128, dtype=torch.float32)
     x_fp16 = x_fp32.to(torch.float16)
-    
+
     with torch.no_grad():
         out_fp32 = head(x_fp32)
         out_fp16 = head(x_fp16).to(torch.float32)
-    
+
     # Outputs should be numerically similar (allowing for precision loss)
     assert torch.allclose(out_fp32, out_fp16, rtol=1e-2, atol=1e-2), (
         f"float16/float32 outputs differ: max diff = {(out_fp32 - out_fp16).abs().max()}"
     )
 
 
-test("Autocast simulation (float16 input to float32 model)", test_autocast_simulation_cpu)
+test(
+    "Autocast simulation (float16 input to float32 model)", test_autocast_simulation_cpu
+)
 test("Dtype consistency (float16 vs float32 outputs)", test_dtype_consistency)
 
 
