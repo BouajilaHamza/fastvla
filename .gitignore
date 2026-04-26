@@ -54,9 +54,25 @@ results/
 htmlcov/
 .ruff_cache/
 .qwen/
+wandb/
+*.log
 
 # Large Files & Data
 *.zip
 *.tar.gz
 *.7z
 .env
+
+# Publication Cleanup
+scripts/
+notebooks/
+artifacts/
+marketing/
+readme_references/
+branding_preview.html
+*.txt
+*.csv
+check_dataset.py
+fetch_rl_results.py
+finetune_on_modal.py
+list_modal_vol.py
