@@ -9,6 +9,7 @@ While the broader ecosystem focuses on massive compute clusters and English-only
 1. **Uncompromised Quality:** Fine-tuning must match or exceed FP32 training quality.
 2. **Seamless Extensibility:** Adding a new VLA policy should require minimal, declarative config, not messy heuristic hacking.
 3. **Sim-to-Real Ready:** Built-in middleware (ROS 2) and production deployment tools.
+4. **"Unsloth-Style" Proof (New):** Every major feature must be accompanied by reproducible Pareto-frontier benchmarks (Speed vs. VRAM vs. L2 Error) to drive viral marketing and empirically prove our claims.
 
 ---
 
@@ -18,55 +19,54 @@ To scale globally, the library architecture must shift from a "functional protot
 
 ### A. The "Surgical Extraction" Refactor (Critical)
 *   **The Problem:** `fastvla/model.py` currently uses brittle, hardcoded heuristics (`_extract_vision_only`) to rip vision encoders out of complex Hugging Face wrappers (like PEFT). This will break as HF updates or new models arrive.
-*   **The Solution:** Move to a **Declarative Extraction Registry**. Models will define their architectural paths in config files (e.g., `vision_path: "model.vision_model"`). The extractor will use dynamic programmatic access based on these configs, eliminating spaghetti code and making new model integration trivial.
+*   **The Solution:** Move to a **Declarative Extraction Registry**. Models will define their architectural paths in config files. The extractor will use dynamic programmatic access based on these configs.
+*   **Marketing & Validation Gate:** *Zero-Degradation Extraction Benchmark.* We must script a test proving that features extracted via our registry match the original FP32 model's vision features with < 1e-5 error.
 
 ### B. Standardized Fusion Module
-*   **The Problem:** Current multi-camera/modality fusion relies on simple mathematical averaging, which loses critical spatial and relational data.
-*   **The Solution:** Implement a highly optimized, memory-efficient **Cross-Attention Fusion Module** as a standard Triton kernel. This ensures high-quality alignment between text prompts and visual states.
+*   **The Problem:** Current multi-camera/modality fusion relies on simple mathematical averaging.
+*   **The Solution:** Implement a highly optimized, memory-efficient **Cross-Attention Fusion Module** as a standard Triton kernel.
+*   **Marketing & Validation Gate:** *Fusion Speedup Chart.* Demonstrate 2x+ faster multi-camera processing latency and lower VRAM usage compared to standard PyTorch attention blocks.
 
 ### C. Fine-Tuning Quality: QAT Integration
 *   **The Problem:** QLoRA introduces minor accuracy degradation compared to full-precision training.
-*   **The Solution:** Integrate **Quantization-Aware Training (QAT)**. This will ensure that the 4-bit weights are mathematically aware of their quantization during the forward/backward passes, maximizing the final policy quality.
+*   **The Solution:** Integrate **Quantization-Aware Training (QAT)**.
+*   **Marketing & Validation Gate:** *The "Robotics Pareto Frontier" Chart.* Produce an "Action L2 Error vs. Disk Space/VRAM" graph (matching the Unsloth KL Divergence style) showing FastVLA-QAT matches FP32 accuracy while using 70% less memory.
 
 ### D. Multi-GPU / Distributed Stabilization
 *   **The Problem:** Multi-GPU logic is currently experimental and tightly coupled with specific cloud setups (Modal).
-*   **The Solution:** Abstract the distributed data parallel (DDP) and Fully Sharded Data Parallel (FSDP) logic into a clean `fastvla.distributed` module that seamlessly supports Lightning AI, Modal, or local clusters.
+*   **The Solution:** Abstract the DDP/FSDP logic into a clean `fastvla.distributed` module.
+*   **Marketing & Validation Gate:** *Linear Scaling Benchmark.* Graph showing near-perfect multi-GPU training time scaling on 2x, 4x, and 8x T4/L4 setups.
 
 ---
 
 ## 3. Model & Policy Integration Roadmap: The "Any-Model" Strategy
 
-FastVLA will use a strict **Adapter Pattern** (`BaseVisionAdapter`, `BaseLLMAdapter`, `BaseActionHead`) powered by our **Declarative Extraction Registry**. This registry is the "secret sauce" that allows us to support any model by simply mapping its internal tensor paths in a config file, rather than writing custom loading code for every new release.
-
-### Phase 1: The VLM-Backbone Pioneers (Immediate)
+### Phase 1: The VLM-Backbone Pioneers (CURRENT STAGE)
 *   **Models:** **OpenVLA-7B**, **OlmoVLA**
-*   **Why:** These are the current "workhorses" of open-source robotics. OlmoVLA is particularly critical as it uses a fully open-source LLM backbone (OLMo), aligning perfectly with our mission of transparency.
-*   **When:** Q1
-*   **How:** Stabilize current implementations, refactoring the extraction logic into the new declarative registry to handle their specific internal attribute naming conventions (e.g., `model.vision_tower` vs `model.vision_model`).
+*   **Status:** Arabic data translated, Modal L4 pipeline working, OpenVLA logic fixed.
+*   **Next Immediate Goal:** Run robust evaluations on the fine-tuned Arabic OpenVLA policy.
+*   **Marketing & Validation Gate (Immediate):** Generate the definitive "FastVLA vs OpenVLA Base" comparison chart (Latency vs L2 Error) for the Arabic PushT task to use for the initial launch announcement.
 
-### Phase 2: Multilingual & High-Reasoning VLAs (Near-Term)
+### Phase 2: Multilingual & High-Reasoning VLAs (Next Major Milestone)
 *   **Models:** **Qwen2-VL**, **Pixtral**, **Pi0**
-*   **Why:** State-of-the-art multimodal capabilities. **Qwen2-VL** is the gold standard for the Arabic VLA "Blue Ocean" due to its native multilingual tokenization and superior spatial reasoning. **Pi0** represents the next generation of generalist robotics foundation models.
-*   **When:** Q2
-*   **How:** Implement specialized adapters for their unique vision-language projection layers (e.g., Qwen's 2D-RoPE and windowed attention).
+*   **Why:** Qwen2-VL is the gold standard for the Arabic VLA "Blue Ocean" due to native multilingual tokenization and superior spatial reasoning.
+*   **Marketing & Validation Gate:** *Long-Horizon & Multilingual Benchmarks.* Unsloth-style charts highlighting "7x Longer Task Horizons" (if using GRPO/optimized RL context) and natively superior Arabic spatial accuracy over base OpenVLA.
 
-### Phase 3: Generalist Agents & Diffusion Control (Mid-Term)
-*   **Models:** **GR00T-1**, **Octo**, **Diffusion Policies**
-*   **Why:** While autoregressive models are great for reasoning, **GR00T** and **Octo** are built for cross-embodiment (different robots, same model). Diffusion Policies offer superior continuous control and action chunking for complex manipulation.
-*   **When:** Q3
-*   **How:** Abstract the `TritonActionHead` into a `BasePolicyHead`. Implement a `DiffusionActionHead` that replaces next-token-prediction with a DDPM/DDIM denoising process, allowing the user to swap "Reasoning Heads" for "Control Heads" seamlessly.
+### Phase 3: Generalist Agents, MoE & Diffusion Control (Mid-Term)
+*   **Models:** **GR00T-1**, **Octo**, **Diffusion Policies**, **MoE VLAs**
+*   **Why:** Diffusion for continuous control; MoE for efficiency.
+*   **Marketing & Validation Gate:** *"12x Faster MoE Training" Chart.* Replicate the Unsloth MoE performance claims using custom FastVLA Triton MoE kernels. Compare Diffusion action chunking speed against standard implementations.
 
 ### Phase 4: Edge-Ready & Tiny VLAs (Long-Term)
 *   **Models:** **TinyVLA**, **SmolVLA**, **MobileVLA**
-*   **Why:** For robots with severe compute constraints (e.g., Raspberry Pi or Jetson Nano) that require <1B parameter models.
-*   **When:** Q4
-*   **How:** Direct integration using standard FP16/INT8 ONNX exports alongside our optimized training pipeline, ensuring the transition from 7B "teacher" models to 135M "student" models is seamless within FastVLA.
+*   **Why:** For robots with severe compute constraints (Raspberry Pi/Jetson).
+*   **Marketing & Validation Gate:** *Edge Inference Benchmark.* Show 50Hz+ control loops on Jetson Nano targets.
 
 ---
 
 ## 4. Closing the Loop: Sim-to-Real & Ecosystem
 
 To be the "go-to" library, FastVLA must extend beyond training:
-1. **ROS 2 Integration Node:** A natively supported `fastvla-ros2` package that wraps the optimized inference engine into an Action Server out-of-the-box.
-2. **Dataset Augmentation Utilities:** Built-in pipelines (like the Llama-3.1 batch translation script discussed previously) mapped directly to LeRobot dataset formats to encourage custom, regionalized datasets.
-3. **Lightning Studio Templates:** 1-click launch templates demonstrating L4 training efficiency (<$1/hr) to drive viral adoption.
+1. **ROS 2 Integration Node:** Natively supported `fastvla-ros2` package.
+2. **Dataset Augmentation Utilities:** Built-in pipelines mapped to LeRobot for custom datasets.
+3. **Lightning Studio Templates:** 1-click launch templates demonstrating L4 training efficiency.

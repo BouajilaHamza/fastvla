@@ -49,6 +49,9 @@ class FastVLAConfig(PretrainedConfig):
         # Memory
         gradient_checkpointing: bool = True,
         device_map: str = "auto",
+        # RL Integration
+        use_rl: bool = False,
+        rl_hidden_dim: int = 256,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -82,3 +85,5 @@ class FastVLAConfig(PretrainedConfig):
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout
         self.gradient_checkpointing = gradient_checkpointing
+        self.use_rl = use_rl
+        self.rl_hidden_dim = rl_hidden_dim
