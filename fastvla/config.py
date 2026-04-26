@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 from transformers.configuration_utils import PretrainedConfig
 
@@ -11,7 +12,7 @@ class FastVLAConfig(PretrainedConfig):
         self,
         # Model selection
         vision_encoder_name: str = "google/vit-base-patch16-224",
-        llm_name: str = "meta-llama/Llama-2-7b-hf",
+        llm_name: str = "unsloth/Llama-3.2-1B-Instruct",
         hf_token: Optional[str] = None,
         # Dummy mode
         dummy: bool = False,
@@ -48,6 +49,7 @@ class FastVLAConfig(PretrainedConfig):
         lora_dropout: float = 0.05,
         # Memory
         gradient_checkpointing: bool = True,
+        use_relative_delta: bool = False,
         device_map: str = "auto",
         # RL Integration
         use_rl: bool = False,
@@ -58,7 +60,7 @@ class FastVLAConfig(PretrainedConfig):
         self.device_map = device_map
         self.vision_encoder_name = vision_encoder_name
         self.llm_name = llm_name
-        self.hf_token = hf_token
+        self.hf_token = hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HF_API_KEY")
         self.dummy = dummy
         self.vision_hidden_size = vision_hidden_size
         self.llm_hidden_size = llm_hidden_size
@@ -85,5 +87,6 @@ class FastVLAConfig(PretrainedConfig):
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout
         self.gradient_checkpointing = gradient_checkpointing
+        self.use_relative_delta = use_relative_delta
         self.use_rl = use_rl
         self.rl_hidden_dim = rl_hidden_dim

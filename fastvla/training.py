@@ -10,6 +10,7 @@ from accelerate import Accelerator
 
 from .optimization import get_8bit_optimizer
 from .data.collator import UnslothVLACollator
+from transformers import get_cosine_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 
@@ -170,31 +171,37 @@ class FastVLATrainer:
         lr: Optional[float] = None,
         use_wandb: bool = False,
         wandb_project: str = "fastvla",
+        checkpoint_callback: Optional[callable] = None,
     ):
         if train_dataset is None:
             train_dataset = dataset
         if lr is not None:
             learning_rate = lr
 
+        self.checkpoint_callback = checkpoint_callback
         self.use_wandb = use_wandb
         if self.use_wandb:
             import wandb
+            import os
 
             wandb.init(
                 project=wandb_project,
+                entity=os.environ.get("WANDB_ENTITY"),
                 config={
                     "learning_rate": learning_rate,
                     "batch_size": batch_size,
                     "max_steps": max_steps,
-                    "model_config": model.config.to_dict()
-                    if hasattr(model, "config")
-                    else None,
                 },
+                reinit=True
             )
+            if wandb.run:
+                print(f"📊 WandB Run started: {wandb.run.get_url()}")
 
         # Resolve dataset if string provided
         from .data.datasets import get_dataset
 
+        self.is_4bit = getattr(model, "is_quantized", False) or "4bit" in str(getattr(model, "config", ""))
+        
         image_size = getattr(model.config, "image_size", 224)
         if isinstance(image_size, int):
             image_size = (image_size, image_size)
@@ -202,6 +209,7 @@ class FastVLATrainer:
         dataset_kwargs = {
             "chunk_size": getattr(model.config, "chunk_size", 1),
             "image_size": image_size,
+            "hf_token": getattr(model.config, "hf_token", None),
         }
         if isinstance(train_dataset, str):
             train_dataset = get_dataset(train_dataset, **dataset_kwargs)
@@ -213,6 +221,8 @@ class FastVLATrainer:
         self.num_epochs = num_epochs
         self.warmup_steps = getattr(model.config, "warmup_steps", 1000)
         self.gradient_accumulation_steps = gradient_accumulation_steps
+        
+        mixed_precision = None
         if use_mixed_precision and not self.is_4bit:
             if torch.cuda.is_available():
                 mixed_precision = (
@@ -235,6 +245,7 @@ class FastVLATrainer:
                 action_dim=getattr(model.config, "action_dim", 7),
                 image_size=getattr(model.config, "image_size", 224),
                 chunk_size=getattr(model.config, "chunk_size", 1),
+                use_relative_delta=getattr(model.config, "use_relative_delta", False),
                 norm_min=torch.tensor(model.config.norm_min)
                 if getattr(model.config, "norm_min", None)
                 else None,
@@ -271,6 +282,16 @@ class FastVLATrainer:
             if use_8bit_optimizer
             else torch.optim.AdamW(
                 model.parameters(), lr=learning_rate, weight_decay=0.01
+            )
+        )
+
+        # Setup Scheduler
+        total_steps = max_steps if max_steps else (len(self.train_dataloader) * num_epochs)
+        self.scheduler = self.accelerator.prepare(
+            get_cosine_schedule_with_warmup(
+                self.optimizer,
+                num_warmup_steps=self.warmup_steps,
+                num_training_steps=total_steps,
             )
         )
 
@@ -325,9 +346,10 @@ class FastVLATrainer:
                     )
 
             self.optimizer.step()
+            self.scheduler.step()
             self.optimizer.zero_grad()
 
-        return {"loss": loss.item(), "lr": self.optimizer.param_groups[0]["lr"]}
+        return {"loss": loss.item(), "lr": self.scheduler.get_last_lr()[0]}
 
     def evaluate(self) -> Dict[str, float]:
         if not self.eval_dataloader:
@@ -348,6 +370,8 @@ class FastVLATrainer:
         self.checkpoint_manager.save(
             step, self.global_step, self.model, self.accelerator
         )
+        if self.checkpoint_callback is not None:
+            self.checkpoint_callback(self.model, step, phase="bc")
 
     def load_checkpoint(self, checkpoint_path: Union[str, Path]):
         self.global_step = self.checkpoint_manager.load(

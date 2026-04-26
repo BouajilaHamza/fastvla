@@ -1,37 +1,45 @@
----
-language:
-- ar
-- en
-license: apache-2.0
-library_name: lerobot
-tags:
-- robotics
-- vla
-- imitation-learning
-- arabic
-- libero-10
-datasets:
-- lerobot/libero_10_image
+# Arabic-Native Datasets for Robotics
+
+This document provides details on the Arabic-localized datasets used for training and fine-tuning FastVLA. These datasets enable Vision-Language-Action (VLA) models to perform robotic manipulation using native Arabic instructions.
+
 ---
 
-# ar-libero-10-image: Arabic-Native LIBERO-10 Dataset for Robotics
+## 1. ar-pusht-image: Arabic-Native PushT Dataset
 
-This dataset is an **Arabic-localized version** of the standard `lerobot/libero_10_image` dataset. It is specifically designed to enable the training and fine-tuning of **Vision-Language-Action (VLA)** models (like OpenVLA or FastVLA) to perform complex multi-task robotic manipulation using native Arabic instructions.
+This is an Arabic-localized version of the standard `lerobot/pusht_image` dataset.
 
-## Dataset Summary
+### Dataset Summary
+- **Task:** Push-T (2D Robotic manipulation)
+- **Localization:** 100% Arabic (Translated using NLLB-200)
+- **Size:** ~48.3k frames across 206 episodes
+- **Format:** LeRobot-compatible Parquet
+- **Resolution:** 96x96 (Top-down view)
+
+### Sample Instruction
+- **English:** "push the block to the goal"
+- **Arabic:** "إدفع الكتلة إلى الهدف"
+
+### Data Structure
+| Feature | Type | Description |
+| :--- | :--- | :--- |
+| `instruction` | string | **Arabic natural language instruction.** |
+| `observation.image` | image | Top-down camera observation. |
+| `observation.state` | list | 2D position of the robot end-effector `[x, y]`. |
+| `action` | list | 2D target position for the end-effector `[x, y]`. |
+
+---
+
+## 2. ar-libero-10-image: Arabic-Native LIBERO-10 Dataset
+
+This is an Arabic-localized version of the standard `lerobot/libero_10_image` dataset.
+
+### Dataset Summary
 - **Task:** LIBERO-10 (Long-horizon multi-task manipulation)
 - **Localization:** 100% Arabic (Translated using NLLB-200)
 - **Robot:** Franka Emika Panda
 - **Size:** ~101.4k frames across 379 episodes
-- **Tasks:** 10 distinct long-horizon tasks
 - **Format:** LeRobot-compatible Parquet
 - **Resolution:** 256x256 (Global & Wrist view)
-
-## Localization Process
-The dataset was processed using the **FastVLA Arabic Dataset Factory**. 
-1. **Metadata-to-Data Mapping:** Since the original `libero_10_image` dataset uses `task_index` to reference instructions, we mapped every frame to its corresponding natural language instruction.
-2. **Arabic Translation:** Instructions were translated from English to Arabic using the **NLLB-200-distilled-600M** model.
-3. **Explicit Columns:** A literal `instruction` column was added to the dataset rows to ensure seamless integration with the FastVLA training pipeline.
 
 ### Task List (Arabic-English Mapping)
 
@@ -48,22 +56,13 @@ The dataset was processed using the **FastVLA Arabic Dataset Factory**.
 | **8** | ضع الكأس الزجاجي على الطبق وضع الطبق على الرف. | Put the glass cup on the plate and put the plate on the shelf. |
 | **9** | ضع الكوب الأبيض على الكتاب وضع الكتاب على الرف. | Put the white mug on the book and put the book on the shelf. |
 
-## Data Structure
-The dataset follows the `LeRobotDataset` schema with the following additions:
+---
 
-| Feature | Type | Description |
-| :--- | :--- | :--- |
-| `instruction` | string | **Arabic natural language instruction.** |
-| `observation.images.image` | image | Global camera view (256x256). |
-| `observation.images.wrist_image` | image | Wrist-mounted camera view (256x256). |
-| `observation.state` | list | Robot state (Joints/Gripper). |
-| `action` | list | Target actions (EE/Gripper). |
+## Localization Process
+All datasets were processed using the **FastVLA Arabic Dataset Factory**:
+1. **Instruction Mapping:** English instructions were extracted or mapped from task indices.
+2. **Translation:** Translated to Arabic using the **NLLB-200-distilled-600M** model.
+3. **Column Injection:** A literal `instruction` column was added to ensure direct compatibility with multi-modal training pipelines.
 
 ## Citation & Credits
-This dataset is a derivative work of `lerobot/libero_10_image`. 
-- **Original Authors:** Bo Liu, et al. (LIBERO Benchmark)
-- **LeRobot Integration:** Hugging Face LeRobot Team
-- **Arabic Localization:** FastVLA Project
-
-## License
-This dataset is released under the **Apache 2.0 License**, matching the original LIBERO-10 dataset.
+These datasets are derivative works of the original PushT and LIBERO-10 datasets, integrated into the LeRobot format by the Hugging Face team and localized by the **FastVLA Project**.

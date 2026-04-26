@@ -6,6 +6,7 @@ Routes to specific RL algorithms (PPO, DPO, etc.) based on configuration.
 import torch.nn as nn
 from accelerate import Accelerator
 from .ppo import PPOTrainer
+from .grpo import GRPOTrainer
 
 
 class RLTrainer:
@@ -19,6 +20,16 @@ class RLTrainer:
         self.model = model
         self.algo = algo.lower()
         self.accelerator = Accelerator()
+
+        # Handle 4-bit models: ensure we don't do illegal .to(float32)
+        is_quantized = getattr(model, "is_quantized", False) or getattr(
+            model.config, "load_in_4bit", False
+        )
+        if is_quantized:
+            print(
+                "🚀 Quantized model detected. RL Trainer will operate in PEFT/Mixed precision mode. "
+                "Casting to float32 skipped for quantized base weights."
+            )
 
         # Ensure model has value head if using PPO
         if self.algo == "ppo" and not getattr(self.model, "value_head", None):
@@ -36,6 +47,15 @@ class RLTrainer:
                 accelerator=self.accelerator,
                 **kwargs,
             )
+        elif self.algo == "grpo":
+            self.trainer = GRPOTrainer(
+                model=self.model,
+                learning_rate=learning_rate,
+                accelerator=self.accelerator,
+                num_warmup_steps=kwargs.get("num_warmup_steps", 100),
+                num_training_steps=kwargs.get("num_training_steps", 1000),
+                **{k: v for k, v in kwargs.items() if k not in ["num_warmup_steps", "num_training_steps"]},
+            )
         else:
             raise ValueError(f"RL Algorithm '{algo}' not yet implemented.")
 
@@ -46,8 +66,8 @@ class RLTrainer:
     def store_transition(
         self, obs, input_ids, action, log_prob, reward, value, terminal
     ):
-        """Store experience in the buffer."""
-        self.trainer.buffer.add(
+        """Store experience using the trainer's logic."""
+        self.trainer.store_transition(
             obs, input_ids, action, log_prob, reward, value, terminal
         )
 

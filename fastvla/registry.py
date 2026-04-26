@@ -277,8 +277,13 @@ OLMOVLA = VLAModelConfig(
 class VLAModelRegistry:
     """Registry of available VLA models."""
 
+    # Heuristic list of keywords that identify a composite VLM (model containing both vision & LLM)
+    # These are used to decide whether to fallback llm_name to model_name in from_pretrained.
+    COMPOSITE_VLM_KEYWORDS = ["openvla", "llava", "vla-7b", "vla-2b", "paligemma", "pi0", "olmovla"]
+
     _registry: Dict[str, VLAModelConfig] = {
         "openvla-7b": OPENVLA_7B,
+        "openvla/openvla-7b": OPENVLA_7B,  # Alias for HF name
         "smolvla": SMOLVLA,
         "pi0-base": PI0_BASE,
         "olmovla": OLMOVLA,

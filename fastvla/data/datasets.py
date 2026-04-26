@@ -46,6 +46,7 @@ class RoboticsDataset(Dataset):
         self.image_size = image_size
         self.max_sequence_length = max_sequence_length
         self.chunk_size = chunk_size
+        self.hf_token = kwargs.get("hf_token")
 
         # Load data
         self.data = self._load_data()
@@ -185,9 +186,11 @@ class LeRobotDataset(RoboticsDataset):
         print(f"📥 Loading dataset {self.data_path} from HuggingFace...")
 
         # Load the dataset (usually 'train' split)
-        hf_ds = load_dataset(self.data_path, split="train")
+        hf_ds = load_dataset(self.data_path, split="train", token=self.hf_token)
 
         def get_nested(d, path, default=None):
+            if path in d:
+                return d[path]
             keys = path.split(".")
             curr = d
             for k in keys:

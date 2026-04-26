@@ -17,7 +17,13 @@ _import_structure = {
     "training": ["FastVLATrainer"],
     "registry": ["VLAModelRegistry", "register_model"],
     "utils": ["get_device", "check_environment"],
-    "data.datasets": ["get_dataset"],
+    "data.datasets": [
+        "get_dataset",
+        "LeRobotDataset",
+        "RoboticsDataset",
+        "LIBERODataset",
+        "FrankaKitchenDataset",
+    ],
     "data.collator": ["UnslothVLACollator"],
     "optimization": ["get_quantization_config", "get_8bit_optimizer"],
 }
@@ -33,9 +39,7 @@ def _ensure_env_stabilized():
     # Phase A: Unsloth Patching (CRITICAL: MUST be before transformers/torch)
     try:
         import unsloth
-        from unsloth import patch_saving_functions
-
-        patch_saving_functions()
+        # Global patches (if any) go here, but patch_saving_functions needs a model.
     except ImportError:
         pass
 

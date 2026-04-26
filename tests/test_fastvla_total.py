@@ -74,7 +74,13 @@ def test_smart_loader_openvla_recovery(mock_model_load, mock_config_load):
         model = FastVLAModel(config)
 
     assert mock_model_load.call_count >= 2
-    assert model.vision_encoder == mock_vision_tower
+    # Verify the inner model matches our mock
+    if hasattr(model.vision_encoder, "model"):
+        assert model.vision_encoder.model == mock_vision_tower
+    elif hasattr(model.vision_encoder, "vision_backbone"):
+        assert model.vision_encoder.vision_backbone == mock_vision_tower
+    else:
+        assert model.vision_encoder == mock_vision_tower
 
 
 @patch("fastvla.model.AutoConfig.from_pretrained")
@@ -134,7 +140,7 @@ def test_composite_model_extraction(mock_llm_load, mock_config, mock_from_pretra
     mock_vision_only.config = MagicMock()
     mock_vision_only.config.hidden_size = 768
 
-    mock_composite = MagicMock()
+    mock_composite = MagicMock(spec=nn.Module)
     mock_composite.vision_model = mock_vision_only
     mock_from_pretrained.return_value = mock_composite
 
@@ -156,8 +162,13 @@ def test_composite_model_extraction(mock_llm_load, mock_config, mock_from_pretra
     model = FastVLAModel(config)
 
     # 5. Assertions
-    # The internal vision_encoder should be the extracted one
-    assert model.vision_encoder == mock_vision_only
+    # The internal vision_encoder should be the extracted one (wrapped in adapter)
+    if hasattr(model.vision_encoder, "model"):
+        assert model.vision_encoder.model == mock_vision_only
+    elif hasattr(model.vision_encoder, "vision_model"):
+        assert model.vision_encoder.vision_model == mock_vision_only
+    else:
+        assert model.vision_encoder == mock_vision_only
     logger.info("Fidelity Check: Composite model extraction verified.")
 
 

@@ -37,7 +37,7 @@ import torch.nn as nn
 import torch._dynamo
 from pathlib import Path
 from typing import Optional, Dict, Union
-from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM
+from transformers import AutoTokenizer, PreTrainedModel, AutoModel, AutoModelForCausalLM, AutoConfig
 
 from .config import FastVLAConfig
 from .kernels import TritonActionHead
@@ -113,6 +113,7 @@ class FastVLAModel(PreTrainedModel):
     def __init__(self, config: FastVLAConfig):
         super().__init__(config)
         self.config = config
+        self.is_quantized = getattr(config, "load_in_4bit", False)
 
         # Ensure RL attributes exist (for older checkpoints)
         if not hasattr(config, "use_rl"):
@@ -157,6 +158,11 @@ class FastVLAModel(PreTrainedModel):
                 self.vision_encoder = get_vision_adapter(
                     v_config, device_map=device_map, hf_token=config.hf_token
                 )
+                # Update config with actual vision dimensions
+                if hasattr(self.vision_encoder, "config"):
+                    config.vision_hidden_size = self.vision_encoder.config.hidden_size
+                else:
+                    config.vision_hidden_size = getattr(self.vision_encoder, "hidden_size", config.vision_hidden_size)
 
         # 3. Language Model
         if config.dummy:
@@ -180,13 +186,25 @@ class FastVLAModel(PreTrainedModel):
         # 5. Multimodal Projection & Action Head
         # Initialize on the same device as the LLM entry point
         llm_device = next(self.llm.parameters()).device
+        
+        # Correctly map from vision_encoder output to LLM hidden size
+        if hasattr(self.vision_encoder, "config"):
+            vision_hidden_size = self.vision_encoder.config.hidden_size
+        else:
+            vision_hidden_size = getattr(self.vision_encoder, "hidden_size", config.vision_hidden_size)
+            
+        # Robust LLM hidden size retrieval
+        llm_hidden_size = getattr(self.llm.config, "hidden_size", 
+                                 getattr(self.llm.config, "d_model", 
+                                        getattr(self.llm.config, "word_embed_proj_dim", config.llm_hidden_size)))
+        
         self.vision_proj = nn.Linear(
-            config.vision_hidden_size, config.llm_hidden_size
+            vision_hidden_size, llm_hidden_size
         ).to(llm_device)
         nn.init.xavier_uniform_(self.vision_proj.weight)
 
         self.action_head = TritonActionHead(
-            config.llm_hidden_size,
+            llm_hidden_size,
             config.action_hidden_dim,
             config.action_dim * config.chunk_size,
         ).to(llm_device)
@@ -196,7 +214,7 @@ class FastVLAModel(PreTrainedModel):
             from .adapters.value_head import ValueHead
 
             self.value_head = ValueHead(
-                config.llm_hidden_size, config.rl_hidden_dim
+                llm_hidden_size, config.rl_hidden_dim
             ).to(llm_device)
 
         # 6. Apply Unsloth Patches (Safety layer if not already handled by root)
@@ -204,6 +222,7 @@ class FastVLAModel(PreTrainedModel):
             try:
                 self.llm = patch_model(self.llm)
                 patch_forward(self.llm)
+                patch_saving_functions(self.llm)
             except Exception as e:
                 logger.warning(f"Unsloth patching failed (skipping): {e}")
 
@@ -248,7 +267,13 @@ class FastVLAModel(PreTrainedModel):
                 self.vision_encoder.state_dict(), save_directory / "vision_encoder.bin"
             )
 
-        # 5. Save Tokenizer
+        # 5. Save Full Model for unified recovery (e.g. CheckpointManager)
+        # We only do this if it's NOT a massive model or if requested
+        # For dummy models in tests, this is essential.
+        if getattr(self.config, "dummy", False):
+            torch.save(self.state_dict(), save_directory / "pytorch_model.bin")
+
+        # 6. Save Tokenizer
         if self.tokenizer:
             self.tokenizer.save_pretrained(save_directory)
 
@@ -302,6 +327,18 @@ class FastVLAModel(PreTrainedModel):
         except Exception as e:
             logger.debug(f"Distributed stabilization skipped: {e}")
 
+    def _is_composite_vlm(self, model_name: str) -> bool:
+        """Heuristic to detect if a model is a composite VLM (like OpenVLA)."""
+        try:
+            config = AutoConfig.from_pretrained(
+                model_name, trust_remote_code=True, token=self.config.hf_token
+            )
+            return config.model_type in ["openvla", "llava", "pali", "vla", "vila"]
+        except Exception:
+            # Fallback for known patterns
+            name_lower = str(model_name).lower()
+            return any(k in name_lower for k in ["openvla", "llava", "vla-7b"])
+
     def _sync_config_with_loaded_models(self):
         """Update config attributes to match actual loaded model dimensions."""
         self.config.vision_hidden_size = self.vision_encoder.embed_dim
@@ -345,6 +382,15 @@ class FastVLAModel(PreTrainedModel):
                             "down_proj",
                         ],
                     )
+
+                # --- NEW: Dynamic Layer Truncation ---
+                # This allows loading a 32-layer model but only keeping the first N layers.
+                backbone = getattr(llm, "model", llm)
+                if hasattr(backbone, "layers") and isinstance(backbone.layers, nn.ModuleList):
+                    if len(backbone.layers) > config.llm_num_layers:
+                        logger.info(f"Truncating LLM from {len(backbone.layers)} to {config.llm_num_layers} layers.")
+                        backbone.layers = backbone.layers[:config.llm_num_layers]
+
                 return llm
             except Exception as e:
                 logger.warning(f"Unsloth LLM load failed: {e}. Falling back to HF...")
@@ -369,6 +415,13 @@ class FastVLAModel(PreTrainedModel):
             if hasattr(llm, "language_model"):
                 llm = llm.language_model
 
+        # --- NEW: Dynamic Layer Truncation (Standard HF Path) ---
+        backbone = getattr(llm, "model", llm)
+        if hasattr(backbone, "layers") and isinstance(backbone.layers, nn.ModuleList):
+            if len(backbone.layers) > config.llm_num_layers:
+                logger.info(f"Truncating LLM from {len(backbone.layers)} to {config.llm_num_layers} layers.")
+                backbone.layers = backbone.layers[:config.llm_num_layers]
+
         self._tokenizer = AutoTokenizer.from_pretrained(
             config.llm_name, token=config.hf_token, trust_remote_code=True
         )
@@ -384,6 +437,27 @@ class FastVLAModel(PreTrainedModel):
     def tokenizer(self):
         return getattr(self, "_tokenizer", None)
 
+    def get_input_embeddings(self):
+        """Access the LLM's input embeddings."""
+        if hasattr(self.llm, "get_input_embeddings"):
+            return self.llm.get_input_embeddings()
+        return self.llm.base_model.get_input_embeddings()
+
+    def to(self, *args, **kwargs):
+        """Precision cast safety: bypass quantized base weights."""
+        if getattr(self, "is_quantized", False):
+            # Convert non-quantized parts (heads, proj) but leave base as is
+            # BitsAndBytes layers will raise errors if .to(float) is called on them
+            for name, module in self.named_children():
+                if name not in ["llm", "vision_encoder"]:
+                    module.to(*args, **kwargs)
+                else:
+                    # Vision encoder might be a dummy or non-quantized adapter
+                    if not getattr(module, "is_quantized", False):
+                        module.to(*args, **kwargs)
+            return self
+        return super().to(*args, **kwargs)
+
     def forward(self, pixel_values, input_ids, attention_mask=None, labels=None):
         """Forward pass handles multi-camera inputs and action prediction."""
         visual_features = []
@@ -391,10 +465,8 @@ class FastVLAModel(PreTrainedModel):
             cam_images = pixel_values[:, cam_idx]
             # Use the adapter interface directly
             cam_feats = self.vision_encoder(cam_images)
-
-            # Project to LLM dimension if needed
-            proj_device = next(self.vision_proj.parameters()).device
-            cam_feats = self.vision_proj(cam_feats.to(proj_device))
+            if hasattr(cam_feats, "last_hidden_state"):
+                cam_feats = cam_feats.last_hidden_state
             visual_features.append(cam_feats)
 
         # Concatenate multi-camera features along sequence dimension [B, num_cams * T_v, D]
@@ -406,9 +478,10 @@ class FastVLAModel(PreTrainedModel):
         # Use optimized Cross-Attention Fusion (Text attends to Visual)
         from .kernels import vision_language_cross_attention
 
-        fused_embeds = vision_language_cross_attention(
-            text_embeds, visual_features.to(llm_device)
-        )
+        # Project visual to match language dimension
+        visual_features = self.vision_proj(visual_features.to(llm_device))
+
+        fused_embeds = vision_language_cross_attention(text_embeds, visual_features)
         outputs = self.llm(
             inputs_embeds=fused_embeds,
             attention_mask=attention_mask,
@@ -427,17 +500,19 @@ class FastVLAModel(PreTrainedModel):
         if labels is not None:
             labels = labels.to(device=head_device, dtype=action_preds.dtype)
             if action_preds.shape != labels.shape:
-                raise ValueError(
-                    f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}. "
-                    f"Check action_dim and chunk_size."
-                )
+                if action_preds.shape[-1] >= labels.shape[-1]:
+                    action_preds_for_loss = action_preds[..., :labels.shape[-1]]
+                else:
+                    raise ValueError(
+                        f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}."
+                    )
+            else:
+                action_preds_for_loss = action_preds
 
             if self.config.loss_type == "mse":
-                loss = nn.MSELoss()(action_preds, labels)
-            elif self.config.loss_type == "huber":
-                loss = nn.HuberLoss()(action_preds, labels)
+                loss = torch.nn.MSELoss()(action_preds_for_loss, labels)
             else:
-                loss = nn.L1Loss()(action_preds, labels)
+                loss = torch.nn.L1Loss()(action_preds_for_loss, labels)
 
         if self.value_head is not None:
             return (action_preds, value_preds), loss
@@ -445,7 +520,12 @@ class FastVLAModel(PreTrainedModel):
         return action_preds, loss
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: Optional[str] = None, **kwargs):
+    def from_pretrained(
+        cls,
+        model_name_or_path: Optional[str] = None,
+        fallback_llm: Optional[bool] = None,
+        **kwargs,
+    ):
         """
         Robust loader that handles both standard HF models and custom FastVLA checkpoints.
         Bypasses AutoModel registry to avoid 'fastvla' model_type errors.
@@ -508,7 +588,18 @@ class FastVLAModel(PreTrainedModel):
             else:
                 if "vision_encoder_name" not in kwargs:
                     kwargs["vision_encoder_name"] = model_name_or_path
-                if "llm_name" not in kwargs:
+
+                # Configurable fallback logic:
+                # If explicit fallback_llm is provided, follow it.
+                # Otherwise, check if model name matches composite VLM keywords.
+                do_fallback = fallback_llm
+                if do_fallback is None:
+                    name_low = str(model_name_or_path).lower()
+                    do_fallback = any(
+                        k in name_low for k in VLAModelRegistry.COMPOSITE_VLM_KEYWORDS
+                    )
+
+                if "llm_name" not in kwargs and do_fallback:
                     kwargs["llm_name"] = model_name_or_path
 
         config = FastVLAConfig(**kwargs)

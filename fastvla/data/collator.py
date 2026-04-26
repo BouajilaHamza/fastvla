@@ -22,6 +22,7 @@ class UnslothVLACollator:
     chunk_size: int = 1
     norm_min: torch.Tensor = None
     norm_max: torch.Tensor = None
+    use_relative_delta: bool = False
 
     def __call__(self, features: List[Dict[str, any]]) -> Dict[str, torch.Tensor]:
         """
@@ -95,8 +96,17 @@ class UnslothVLACollator:
             batch["pixel_values"] = torch.stack(cam_images, dim=0)
 
         # ── Handle states ────────────────────────────────────────────
-        if "states" in features[0]:
-            states = [torch.as_tensor(f["states"]) for f in features]
+        # ── Handle states (for relative deltas or observation history) ──
+        st_key = (
+            "states"
+            if "states" in features[0]
+            else "state"
+            if "state" in features[0]
+            else None
+        )
+
+        if st_key:
+            states = [torch.as_tensor(f[st_key]) for f in features]
             batch["states"] = torch.stack(states)
 
         # ── Handle actions (used as labels) ──────────────────────────
@@ -115,6 +125,20 @@ class UnslothVLACollator:
                 action_tensor = torch.as_tensor(f[act_key]).float()
                 if action_tensor.dim() == 0:
                     action_tensor = action_tensor.unsqueeze(0)
+
+                # --- NEW: Relative Delta Logic ---
+                if self.use_relative_delta and st_key in f:
+                    state_tensor = torch.as_tensor(f[st_key]).float()
+                    # Compute delta: action - current_state
+                    min_dim = min(action_tensor.shape[-1], state_tensor.shape[-1])
+                    delta = action_tensor[..., :min_dim] - state_tensor[..., :min_dim]
+                    
+                    # Pad delta if action has more dims than state
+                    if action_tensor.shape[-1] > min_dim:
+                        padding = action_tensor[..., min_dim:]
+                        action_tensor = torch.cat([delta, padding], dim=-1)
+                    else:
+                        action_tensor = delta
 
                 # Configurable Normalization via library parameters
                 if self.norm_min is not None and self.norm_max is not None:
@@ -136,6 +160,24 @@ class UnslothVLACollator:
                     action_tensor = action_tensor.view(-1)
 
                 actions.append(action_tensor)
+
+            # --- Validation: Ensure all actions in batch have same dimension ---
+            first_shape = actions[0].shape
+            for i, a in enumerate(actions):
+                if a.shape != first_shape:
+                    raise ValueError(
+                        f"Inconsistent action dimensions in batch: entry 0 has {first_shape}, "
+                        f"but entry {i} has {a.shape}."
+                    )
+
+            # --- Auto-update action_dim if it differs from expected ---
+            current_dim = first_shape[-1]
+            if current_dim != self.action_dim:
+                print(
+                    f"Warning: Dataset action_dim ({current_dim}) differs from "
+                    f"collator.action_dim ({self.action_dim}). Auto-updating collator."
+                )
+                self.action_dim = current_dim
 
             batch["labels"] = torch.stack(actions)
 
