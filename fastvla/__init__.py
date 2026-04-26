@@ -7,7 +7,7 @@ import sys
 import importlib
 import logging
 
-__version__ = "0.1.8.1"
+__version__ = "0.2.1"
 
 # ── 1. Native Lazy Loading (PEP 562) ───────────────────────────────────────
 
