@@ -126,96 +126,66 @@ class FastVLAModel(PreTrainedModel):
             check_environment(require_cuda=config.load_in_4bit)
             logger.info(f"Initializing FastVLA with {get_gpu_memory_report()}")
 
-        # 2. Vision Encoder
+        # 2. Vision Encoder & Language Model (Unified Loading)
         if config.dummy:
-            self.vision_encoder = DummyVisionEncoder(
-                hidden_size=config.vision_hidden_size
-            )
-        else:
-            device_map = _get_target_device_map(config)
-
-            from .adapters.vision import get_vision_adapter, OpenVLAFusedVisionAdapter
-            from .adapters.value_head import ValueHead
-
-            # CRITICAL: Always use OpenVLA adapter if it's OpenVLA, bypassing standard AutoModel
-            v_name = str(config.vision_encoder_name)
-            if "openvla" in v_name.lower():
-                self.vision_encoder = OpenVLAFusedVisionAdapter.from_pretrained(
-                    v_name,
-                    device_map=device_map,
-                    load_in_4bit=config.load_in_4bit,
-                    hf_token=config.hf_token,
-                )
-            else:
-                # Use model registry to get vision config if available
-                reg_config = VLAModelRegistry.get(v_name)
-                v_config = (
-                    reg_config.vision.to_dict()
-                    if reg_config
-                    else {"model_name": v_name, "model_type": "vit"}
-                )
-                v_config["load_in_4bit"] = config.load_in_4bit
-                self.vision_encoder = get_vision_adapter(
-                    v_config, device_map=device_map, hf_token=config.hf_token
-                )
-                # Update config with actual vision dimensions
-                if hasattr(self.vision_encoder, "config"):
-                    config.vision_hidden_size = self.vision_encoder.config.hidden_size
-                else:
-                    config.vision_hidden_size = getattr(self.vision_encoder, "hidden_size", config.vision_hidden_size)
-
-        # 3. Language Model
-        if config.dummy:
+            self.vision_encoder = DummyVisionEncoder(hidden_size=config.vision_hidden_size)
+            self.llm = DummyLanguageModel(hidden_size=config.llm_hidden_size)
             self._tokenizer = AutoTokenizer.from_pretrained("gpt2")
             self._tokenizer.pad_token = self._tokenizer.eos_token
-            actual_vocab = (
-                config.vocab_size
-                if hasattr(config, "vocab_size") and config.vocab_size != 1000
-                else len(self._tokenizer)
-            )
-            self.llm = DummyLanguageModel(
-                hidden_size=config.llm_hidden_size, vocab_size=actual_vocab
-            )
         else:
-            self.llm = self._load_component("llm", config)
+            device_map = _get_target_device_map(config)
+            
+            # CRITICAL: Detect if vision and LLM use the same base model (like OpenVLA)
+            is_unified = (config.vision_encoder_name == config.llm_name) or ("openvla" in str(config.llm_name).lower())
+            
+            if is_unified:
+                logger.info(f"🚀 Loading Unified VLM: {config.llm_name}")
+                # Load the full model once
+                from .optimization import get_quantization_config
+                kwargs = {"device_map": device_map, "token": config.hf_token, "trust_remote_code": True}
+                if config.load_in_4bit:
+                    kwargs["quantization_config"] = get_quantization_config(load_in_4bit=True)
+                
+                # We use AutoModel to get the backbone components
+                vlm = AutoModel.from_pretrained(config.llm_name, **kwargs)
+                
+                if hasattr(vlm, "vision_tower"):
+                    self.vision_encoder = vlm.vision_tower
+                elif hasattr(vlm, "get_vision_tower"):
+                    self.vision_encoder = vlm.get_vision_tower()
+                else:
+                    # Fallback for standard VLAs
+                    from .adapters.vision import get_vision_adapter
+                    self.vision_encoder = get_vision_adapter({"model_name": config.vision_encoder_name}, device_map=device_map, hf_token=config.hf_token)
+                
+                if hasattr(vlm, "language_model"):
+                    self.llm = vlm.language_model
+                else:
+                    self.llm = vlm
+                
+                self._tokenizer = AutoTokenizer.from_pretrained(config.llm_name, token=config.hf_token, trust_remote_code=True)
+            else:
+                # Separate loading for heterogeneous setups
+                from .adapters.vision import get_vision_adapter
+                self.vision_encoder = get_vision_adapter({"model_name": config.vision_encoder_name}, device_map=device_map, hf_token=config.hf_token)
+                self.llm = self._load_component("llm", config)
 
-        # 4. Sync Hidden Sizes
+        # 3. Sync and Heads
         if not config.dummy:
             self._sync_config_with_loaded_models()
 
-        # 5. Multimodal Projection & Action Head
-        # Initialize on the same device as the LLM entry point
         llm_device = next(self.llm.parameters()).device
+        v_hidden = getattr(self.vision_encoder.config, "hidden_size", config.vision_hidden_size)
+        l_hidden = getattr(self.llm.config, "hidden_size", config.llm_hidden_size)
         
-        # Correctly map from vision_encoder output to LLM hidden size
-        if hasattr(self.vision_encoder, "config"):
-            vision_hidden_size = self.vision_encoder.config.hidden_size
-        else:
-            vision_hidden_size = getattr(self.vision_encoder, "hidden_size", config.vision_hidden_size)
-            
-        # Robust LLM hidden size retrieval
-        llm_hidden_size = getattr(self.llm.config, "hidden_size", 
-                                 getattr(self.llm.config, "d_model", 
-                                        getattr(self.llm.config, "word_embed_proj_dim", config.llm_hidden_size)))
+        self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
+        self.action_head = TritonActionHead(l_hidden, config.action_hidden_dim, config.action_dim * config.chunk_size).to(llm_device)
         
-        self.vision_proj = nn.Linear(
-            vision_hidden_size, llm_hidden_size
-        ).to(llm_device)
-        nn.init.xavier_uniform_(self.vision_proj.weight)
-
-        self.action_head = TritonActionHead(
-            llm_hidden_size,
-            config.action_hidden_dim,
-            config.action_dim * config.chunk_size,
-        ).to(llm_device)
-
-        self.value_head = None
         if config.use_rl:
             from .adapters.value_head import ValueHead
-
-            self.value_head = ValueHead(
-                llm_hidden_size, config.rl_hidden_dim
-            ).to(llm_device)
+            self.value_head = ValueHead(l_hidden, config.rl_hidden_dim).to(llm_device)
+        else:
+            self.value_head = None
 
         # 6. Apply Unsloth Patches (Safety layer if not already handled by root)
         if not config.dummy and UNSLOTH_AVAILABLE and torch.cuda.is_available():
