@@ -49,7 +49,9 @@ def get_quantization_config(
     )
 
 
-def get_8bit_optimizer(model: nn.Module, learning_rate: float = 5e-5):
+def get_8bit_optimizer(
+    model: nn.Module, learning_rate: float = 5e-5, weight_decay: float = 0.01
+):
     """
     Create optimizer. Uses 8-bit AdamW from bitsandbytes if available,
     otherwise falls back to standard AdamW.
@@ -61,24 +63,18 @@ def get_8bit_optimizer(model: nn.Module, learning_rate: float = 5e-5):
         }
     ]
 
-    if BNB_AVAILABLE and torch.cuda.is_available():
-        optimizer = bnb.optim.AdamW8bit(
-            param_groups,
-            lr=learning_rate,
-            betas=(0.9, 0.999),
-            eps=1e-8,
-            weight_decay=0.01,
-        )
-    else:
-        optimizer = torch.optim.AdamW(
-            param_groups,
-            lr=learning_rate,
-            betas=(0.9, 0.999),
-            eps=1e-8,
-            weight_decay=0.01,
-        )
-
-    return optimizer
+    optimizer_cls = (
+        bnb.optim.AdamW8bit
+        if (BNB_AVAILABLE and torch.cuda.is_available())
+        else torch.optim.AdamW
+    )
+    return optimizer_cls(
+        param_groups,
+        lr=learning_rate,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=weight_decay,
+    )
 
 
 def enable_gradient_checkpointing(model: nn.Module):

@@ -56,18 +56,48 @@ def _get_target_device_map(config: FastVLAConfig) -> Union[str, Dict]:
     if not torch.cuda.is_available():
         return "cpu"
 
-    # If explicit device map is provided, use it
+    # If explicit device map is provided, use it verbatim.
     if config.device_map not in ["auto", "balanced"]:
         return config.device_map
 
-    # On multi-GPU (Kaggle T4 x2), "auto" creates AlignDevicesHook which
-    # crashes Dynamo. We prefer a static mapping for 4-bit models.
-    if config.load_in_4bit:
-        # Default to current device (usually GPU 0)
-        curr = torch.cuda.current_device()
-        return {"": curr}
+    n_gpus = torch.cuda.device_count()
+
+    # "balanced" is an explicit request to shard across all visible GPUs.
+    # Honour it (HF/accelerate handles the split) rather than collapsing to one
+    # device. This is the proper multi-GPU path for large 4-bit models.
+    if config.device_map == "balanced" and n_gpus > 1:
+        return "balanced"
+
+    # "auto" on multi-GPU creates an AlignDevicesHook that crashes Dynamo, so
+    # for 4-bit models we pin to a single device by default. Users who want
+    # sharding should pass device_map="balanced".
+    if config.load_in_4bit and n_gpus > 1:
+        return {"": torch.cuda.current_device()}
 
     return config.device_map
+
+
+def _truncate_llm_layers(llm: nn.Module, num_layers: int) -> nn.Module:
+    """
+    Keep only the first ``num_layers`` transformer blocks.
+
+    Re-wraps the slice in an ``nn.ModuleList`` (plain list slicing returns a
+    list, which silently drops the submodules from the parameter registry,
+    state_dict, and ``.to(device)``) and keeps the backbone config's layer
+    count in sync so downstream code (cache, generation) stays consistent.
+    """
+    backbone = getattr(llm, "model", llm)
+    if hasattr(backbone, "layers") and isinstance(backbone.layers, nn.ModuleList):
+        if len(backbone.layers) > num_layers:
+            logger.info(
+                f"Truncating LLM from {len(backbone.layers)} to {num_layers} layers."
+            )
+            backbone.layers = nn.ModuleList(list(backbone.layers[:num_layers]))
+            # Keep config metadata consistent with the actual module count.
+            for cfg in (getattr(backbone, "config", None), getattr(llm, "config", None)):
+                if cfg is not None and hasattr(cfg, "num_hidden_layers"):
+                    cfg.num_hidden_layers = num_layers
+    return llm
 
 
 # ── Dummy modules for testing / CPU-only validation ──────────────────────
@@ -179,7 +209,29 @@ class FastVLAModel(PreTrainedModel):
         l_hidden = getattr(self.llm.config, "hidden_size", config.llm_hidden_size)
         
         self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
-        self.action_head = TritonActionHead(l_hidden, config.action_hidden_dim, config.action_dim * config.chunk_size).to(llm_device)
+
+        out_action_dim = config.action_dim * config.chunk_size
+        head_type = getattr(config, "head_type", "mlp_continuous")
+        if head_type in (None, "mlp_continuous", "triton"):
+            # Default: optimized fused Triton continuous head (preserves
+            # checkpoint layout for existing models).
+            self.action_head = TritonActionHead(
+                l_hidden, config.action_hidden_dim, out_action_dim
+            ).to(llm_device)
+        else:
+            from .adapters.action_head import get_action_head
+
+            self.action_head = get_action_head(
+                l_hidden,
+                {
+                    "head_type": head_type,
+                    "action_dim": out_action_dim,
+                    "hidden_dim": config.action_hidden_dim,
+                    "num_bins": getattr(config, "num_bins", 256),
+                    "num_inference_steps": getattr(config, "num_inference_steps", 10),
+                    "use_triton": True,
+                },
+            ).to(llm_device)
         
         if config.use_rl:
             from .adapters.value_head import ValueHead
@@ -317,6 +369,26 @@ class FastVLAModel(PreTrainedModel):
             l_conf, "hidden_size", getattr(l_conf, "word_embed_proj_dim", 4096)
         )
 
+    def _resolve_attn_implementation(self, config) -> Optional[str]:
+        """
+        Decide which attention implementation to request from HF.
+
+        Honours an explicit ``config.attn_implementation`` when set; otherwise
+        auto-selects FlashAttention-2 if the package is importable and CUDA is
+        available. Returns None to let transformers pick its default.
+        """
+        explicit = getattr(config, "attn_implementation", None)
+        if explicit is not None:
+            return explicit
+        if not torch.cuda.is_available():
+            return None
+        try:
+            import flash_attn  # noqa: F401
+
+            return "flash_attention_2"
+        except ImportError:
+            return None
+
     def _load_component(self, component_type: str, config: FastVLAConfig):
         """Unified loader for Model components (Vision/LLM) with smart conflict resolution."""
         device_map = _get_target_device_map(config)
@@ -353,13 +425,8 @@ class FastVLAModel(PreTrainedModel):
                         ],
                     )
 
-                # --- NEW: Dynamic Layer Truncation ---
-                # This allows loading a 32-layer model but only keeping the first N layers.
-                backbone = getattr(llm, "model", llm)
-                if hasattr(backbone, "layers") and isinstance(backbone.layers, nn.ModuleList):
-                    if len(backbone.layers) > config.llm_num_layers:
-                        logger.info(f"Truncating LLM from {len(backbone.layers)} to {config.llm_num_layers} layers.")
-                        backbone.layers = backbone.layers[:config.llm_num_layers]
+                # Dynamic layer truncation: load a deep model but keep only N layers.
+                llm = _truncate_llm_layers(llm, config.llm_num_layers)
 
                 return llm
             except Exception as e:
@@ -376,21 +443,38 @@ class FastVLAModel(PreTrainedModel):
         if config.load_in_4bit:
             kwargs["quantization_config"] = get_quantization_config(load_in_4bit=True)
 
-        try:
-            llm = AutoModelForCausalLM.from_pretrained(config.llm_name, **kwargs)
-        except (ValueError, ImportError):
-            # Fallback for OpenVLA and other models with custom AutoModel mapping
-            llm = AutoModel.from_pretrained(config.llm_name, **kwargs)
-            # We only need the LLM backbone
-            if hasattr(llm, "language_model"):
-                llm = llm.language_model
+        # Enable FlashAttention-2 when available (Unsloth handles this on its own
+        # path; the HF fallback does not unless asked). This is the single
+        # biggest attention speedup for the non-Unsloth path.
+        attn_impl = self._resolve_attn_implementation(config)
+        if attn_impl is not None:
+            kwargs["attn_implementation"] = attn_impl
 
-        # --- NEW: Dynamic Layer Truncation (Standard HF Path) ---
-        backbone = getattr(llm, "model", llm)
-        if hasattr(backbone, "layers") and isinstance(backbone.layers, nn.ModuleList):
-            if len(backbone.layers) > config.llm_num_layers:
-                logger.info(f"Truncating LLM from {len(backbone.layers)} to {config.llm_num_layers} layers.")
-                backbone.layers = backbone.layers[:config.llm_num_layers]
+        def _load_causal_lm():
+            try:
+                return AutoModelForCausalLM.from_pretrained(config.llm_name, **kwargs)
+            except (ValueError, ImportError):
+                # Fallback for OpenVLA and other models with custom AutoModel mapping
+                m = AutoModel.from_pretrained(config.llm_name, **kwargs)
+                # We only need the LLM backbone
+                return getattr(m, "language_model", m)
+
+        try:
+            llm = _load_causal_lm()
+        except (ValueError, ImportError, RuntimeError) as e:
+            # If FlashAttention was the culprit, drop it and retry once.
+            if "attn_implementation" in kwargs:
+                logger.warning(
+                    f"Load with {kwargs['attn_implementation']} failed ({e}); "
+                    "retrying with default attention."
+                )
+                kwargs.pop("attn_implementation", None)
+                llm = _load_causal_lm()
+            else:
+                raise
+
+        # Dynamic layer truncation (Standard HF Path)
+        llm = _truncate_llm_layers(llm, config.llm_num_layers)
 
         self._tokenizer = AutoTokenizer.from_pretrained(
             config.llm_name, token=config.hf_token, trust_remote_code=True
@@ -428,6 +512,37 @@ class FastVLAModel(PreTrainedModel):
             return self
         return super().to(*args, **kwargs)
 
+    def _pool_hidden_states(self, last_hidden, attention_mask=None):
+        """
+        Pool the LLM's last hidden state to a single vector per example.
+
+        Defaults to masked mean pooling, which ignores padding positions —
+        plain ``mean`` dilutes the representation with pad tokens. Also
+        supports ``last`` (last non-pad token) and unmasked ``mean``.
+        """
+        strategy = getattr(self.config, "pooling_strategy", "masked_mean")
+        seq_len = last_hidden.shape[1]
+
+        mask = None
+        if attention_mask is not None and attention_mask.shape[1] == seq_len:
+            mask = attention_mask.to(last_hidden.device)
+
+        if strategy == "last":
+            if mask is not None:
+                idx = (mask.sum(dim=1).long() - 1).clamp(min=0)
+                rows = torch.arange(last_hidden.shape[0], device=last_hidden.device)
+                return last_hidden[rows, idx]
+            return last_hidden[:, -1]
+
+        if strategy == "masked_mean" and mask is not None:
+            m = mask.to(last_hidden.dtype).unsqueeze(-1)
+            summed = (last_hidden * m).sum(dim=1)
+            counts = m.sum(dim=1).clamp(min=1.0)
+            return summed / counts
+
+        # "mean" or masked_mean without a usable mask
+        return last_hidden.mean(dim=1)
+
     def forward(self, pixel_values, input_ids, attention_mask=None, labels=None):
         """Forward pass handles multi-camera inputs and action prediction."""
         visual_features = []
@@ -459,7 +574,9 @@ class FastVLAModel(PreTrainedModel):
         )
 
         head_device = next(self.action_head.parameters()).device
-        pooled = outputs.hidden_states[-1].mean(dim=1).to(head_device)
+        pooled = self._pool_hidden_states(
+            outputs.hidden_states[-1], attention_mask
+        ).to(head_device)
         action_preds = self.action_head(pooled)
 
         value_preds = None
@@ -468,21 +585,33 @@ class FastVLAModel(PreTrainedModel):
 
         loss = None
         if labels is not None:
-            labels = labels.to(device=head_device, dtype=action_preds.dtype)
-            if action_preds.shape != labels.shape:
-                if action_preds.shape[-1] >= labels.shape[-1]:
-                    action_preds_for_loss = action_preds[..., :labels.shape[-1]]
-                else:
-                    raise ValueError(
-                        f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}."
-                    )
-            else:
-                action_preds_for_loss = action_preds
+            labels = labels.to(device=head_device, dtype=pooled.dtype)
 
-            if self.config.loss_type == "mse":
-                loss = torch.nn.MSELoss()(action_preds_for_loss, labels)
+            # Heads with a bespoke training objective (discrete cross-entropy,
+            # flow-matching velocity) compute the loss from the conditioning
+            # directly; otherwise fall back to regression on decoded actions.
+            internal_loss = None
+            if hasattr(self.action_head, "compute_loss"):
+                internal_loss = self.action_head.compute_loss(pooled, labels)
+
+            if internal_loss is not None:
+                loss = internal_loss
             else:
-                loss = torch.nn.L1Loss()(action_preds_for_loss, labels)
+                labels = labels.to(dtype=action_preds.dtype)
+                if action_preds.shape != labels.shape:
+                    if action_preds.shape[-1] >= labels.shape[-1]:
+                        action_preds_for_loss = action_preds[..., :labels.shape[-1]]
+                    else:
+                        raise ValueError(
+                            f"Action dimension mismatch: model predicts {action_preds.shape} but labels have {labels.shape}."
+                        )
+                else:
+                    action_preds_for_loss = action_preds
+
+                if self.config.loss_type == "mse":
+                    loss = torch.nn.MSELoss()(action_preds_for_loss, labels)
+                else:
+                    loss = torch.nn.L1Loss()(action_preds_for_loss, labels)
 
         if self.value_head is not None:
             return (action_preds, value_preds), loss

@@ -66,6 +66,7 @@ class UnslothVLACollator:
                                 size=target_size,
                                 mode="bilinear",
                                 align_corners=False,
+                                antialias=True,
                             ).squeeze(0)
                         cam_list.append(img)
                     cam_images.append(torch.stack(cam_list, dim=0))
@@ -85,6 +86,7 @@ class UnslothVLACollator:
                                     size=target_size,
                                     mode="bilinear",
                                     align_corners=False,
+                                    antialias=True,
                                 ).squeeze(0)
                         imgs.append(img_tensor)
 
