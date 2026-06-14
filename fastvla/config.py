@@ -26,10 +26,15 @@ class FastVLAConfig(PretrainedConfig):
         patch_size: int = 16,
         # Language model details
         max_sequence_length: int = 2048,
+        attn_implementation: Optional[str] = None,  # e.g. "flash_attention_2"; None = auto
         # Action head
         action_dim: int = 7,
         action_hidden_dim: int = 256,
         chunk_size: int = 1,
+        head_type: str = "mlp_continuous",  # "mlp_continuous", "mlp_discrete", "flow_matching"
+        num_bins: int = 256,  # bins for the discrete head
+        num_inference_steps: int = 10,  # ODE steps for the flow-matching head
+        pooling_strategy: str = "masked_mean",  # "masked_mean", "mean", "last"
         # Action Normalization
         norm_min: Optional[list] = None,
         norm_max: Optional[list] = None,
@@ -70,9 +75,14 @@ class FastVLAConfig(PretrainedConfig):
         self.image_size = image_size
         self.patch_size = patch_size
         self.max_sequence_length = max_sequence_length
+        self.attn_implementation = attn_implementation
         self.action_dim = action_dim
         self.action_hidden_dim = action_hidden_dim
         self.chunk_size = chunk_size
+        self.head_type = head_type
+        self.num_bins = num_bins
+        self.num_inference_steps = num_inference_steps
+        self.pooling_strategy = pooling_strategy
         self.norm_min = norm_min
         self.norm_max = norm_max
         self.learning_rate = learning_rate

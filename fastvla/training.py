@@ -161,6 +161,8 @@ class FastVLATrainer:
         use_8bit_optimizer: bool = True,
         use_mixed_precision: bool = True,
         gradient_accumulation_steps: int = 1,
+        num_workers: int = 4,
+        pin_memory: bool = True,
         max_grad_norm: float = 1.0,
         output_dir: str = "./checkpoints",
         save_steps: int = 500,
@@ -221,6 +223,12 @@ class FastVLATrainer:
         self.num_epochs = num_epochs
         self.warmup_steps = getattr(model.config, "warmup_steps", 1000)
         self.gradient_accumulation_steps = gradient_accumulation_steps
+
+        # DataLoader parallelism. The default single-process loader (num_workers=0)
+        # serializes image decoding/resizing on the main process and starves the
+        # GPU; overlap it with worker processes and pinned host memory.
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory and torch.cuda.is_available()
         
         mixed_precision = None
         if use_mixed_precision and not self.is_4bit:
@@ -254,12 +262,19 @@ class FastVLATrainer:
                 else None,
             )
 
+        loader_kwargs = {
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.num_workers > 0,
+        }
+
         if train_dataloader is None and train_dataset is not None:
             train_dataloader = DataLoader(
                 train_dataset,
                 batch_size=batch_size,
                 shuffle=True,
                 collate_fn=data_collator,
+                **loader_kwargs,
             )
 
         if train_dataloader is None:
@@ -272,18 +287,24 @@ class FastVLATrainer:
                 batch_size=batch_size,
                 shuffle=False,
                 collate_fn=data_collator,
+                **loader_kwargs,
             )
         self.eval_dataloader = (
             self.accelerator.prepare(eval_dataloader) if eval_dataloader else None
         )
 
-        self.optimizer = self.accelerator.prepare(
-            get_8bit_optimizer(model, learning_rate=learning_rate)
-            if use_8bit_optimizer
-            else torch.optim.AdamW(
-                model.parameters(), lr=learning_rate, weight_decay=0.01
+        weight_decay = getattr(model.config, "weight_decay", 0.01)
+        if use_8bit_optimizer:
+            base_optimizer = get_8bit_optimizer(
+                model, learning_rate=learning_rate, weight_decay=weight_decay
             )
-        )
+        else:
+            base_optimizer = torch.optim.AdamW(
+                [p for p in model.parameters() if p.requires_grad],
+                lr=learning_rate,
+                weight_decay=weight_decay,
+            )
+        self.optimizer = self.accelerator.prepare(base_optimizer)
 
         # Setup Scheduler
         total_steps = max_steps if max_steps else (len(self.train_dataloader) * num_epochs)

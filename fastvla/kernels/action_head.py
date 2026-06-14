@@ -1,49 +1,69 @@
 import torch
 import torch.nn as nn
-from .action import action_decode_forward, action_decode_backward
+from .action import action_decode_forward
+
+
+def _match_dtype(t: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    """Cast only when needed (zero-copy if dtypes already match)."""
+    return t if t.dtype == dtype else t.to(dtype)
 
 
 class ActionDecodeFunction(torch.autograd.Function):
     """
-    Triton-optimized action decoding with gradient checkpointing.
+    Autograd-aware action decoding for the fused 2-layer MLP
+    ``tanh(ReLU(x @ W1 + b1) @ W2 + b2)``.
+
+    The intermediate activation ``h1`` and the output are saved during the
+    forward pass so the backward pass does NOT recompute the forward chain.
+    For a small action head these activations are negligible in memory, so
+    storing them is strictly cheaper than the previous recompute-everything
+    approach.
     """
 
     @staticmethod
     def forward(ctx, hidden, weight1, bias1, weight2, bias2):
-        # Ensure all inputs have the same dtype to prevent mixed precision errors
         dtype = hidden.dtype
-        if weight1.dtype != dtype:
-            weight1 = weight1.to(dtype)
-        if bias1.dtype != dtype:
-            bias1 = bias1.to(dtype)
-        if weight2.dtype != dtype:
-            weight2 = weight2.to(dtype)
-        if bias2.dtype != dtype:
-            bias2 = bias2.to(dtype)
+        weight1 = _match_dtype(weight1, dtype)
+        bias1 = _match_dtype(bias1, dtype)
+        weight2 = _match_dtype(weight2, dtype)
+        bias2 = _match_dtype(bias2, dtype)
 
-        # We only save what's absolutely necessary for recomputation
-        ctx.save_for_backward(hidden, weight1, bias1, weight2, bias2)
-        return action_decode_forward(hidden, weight1, bias1, weight2, bias2)
+        h1 = torch.relu(hidden @ weight1 + bias1)
+        out = torch.tanh(h1 @ weight2 + bias2)
+
+        ctx.save_for_backward(hidden, weight1, weight2, h1, out)
+        return out
 
     @staticmethod
     def backward(ctx, grad_output):
-        hidden, weight1, bias1, weight2, bias2 = ctx.saved_tensors
+        hidden, weight1, weight2, h1, out = ctx.saved_tensors
+        grad_output = _match_dtype(grad_output, hidden.dtype)
 
-        # Ensure dtype consistency in backward pass
-        dtype = hidden.dtype
-        if grad_output.dtype != dtype:
-            grad_output = grad_output.to(dtype)
+        # d/dx tanh = 1 - tanh^2  (reuse cached output, no recompute)
+        d_out = grad_output * (1.0 - out * out)
 
-        grads = action_decode_backward(
-            grad_output, hidden, weight1, bias1, weight2, bias2
-        )
-        return grads
+        grad_weight2 = h1.t() @ d_out
+        grad_bias2 = d_out.sum(dim=0)
+        d_h1 = d_out @ weight2.t()
+
+        # ReLU gradient via cached h1
+        d_h1_relu = d_h1 * (h1 > 0).to(d_h1.dtype)
+
+        grad_weight1 = hidden.t() @ d_h1_relu
+        grad_bias1 = d_h1_relu.sum(dim=0)
+        grad_hidden = d_h1_relu @ weight1.t()
+
+        return grad_hidden, grad_weight1, grad_bias1, grad_weight2, grad_bias2
 
 
 class TritonActionHead(nn.Module):
     """
     Memory-efficient Action Head using custom Triton kernels.
     Fuses: Linear -> ReLU -> Linear -> Tanh
+
+    - Inference (no grad): uses the fully-fused Triton forward kernel.
+    - Training: uses an autograd Function with a backward that reuses cached
+      activations instead of recomputing the forward chain.
     """
 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
@@ -62,15 +82,19 @@ class TritonActionHead(nn.Module):
         nn.init.zeros_(self.bias2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Fix dtype mismatch for mixed precision training
-        # We ensure weights and biases match the input x's dtype
         dtype = x.dtype
-        w1, b1 = self.weight1.to(dtype), self.bias1.to(dtype)
-        w2, b2 = self.weight2.to(dtype), self.bias2.to(dtype)
+        w1 = _match_dtype(self.weight1, dtype)
+        b1 = _match_dtype(self.bias1, dtype)
+        w2 = _match_dtype(self.weight2, dtype)
+        b2 = _match_dtype(self.bias2, dtype)
+
+        # Fully-fused Triton path only when we don't need a graph.
+        if x.is_cuda and not torch.is_grad_enabled():
+            return action_decode_forward(x, w1, b1, w2, b2)
 
         if x.is_cuda:
             return ActionDecodeFunction.apply(x, w1, b1, w2, b2)
 
-        # Fallback for CPU / No-Triton
+        # CPU / no-Triton fallback
         h = torch.nn.functional.relu(x @ w1 + b1)
         return torch.tanh(h @ w2 + b2)
