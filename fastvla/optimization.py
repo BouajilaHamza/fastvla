@@ -50,11 +50,15 @@ def get_quantization_config(
 
 
 def get_8bit_optimizer(
-    model: nn.Module, learning_rate: float = 5e-5, weight_decay: float = 0.01
+    model: nn.Module,
+    learning_rate: float = 5e-5,
+    weight_decay: float = 0.01,
+    paged: bool = True,
 ):
     """
-    Create optimizer. Uses 8-bit AdamW from bitsandbytes if available,
-    otherwise falls back to standard AdamW.
+    Create optimizer. Prefers bitsandbytes paged 8-bit AdamW (optimizer state
+    is 8-bit AND paged to CPU under memory pressure — the safest choice for a
+    16GB T4), then plain 8-bit AdamW, then standard AdamW on CPU.
     """
     param_groups = [
         {
@@ -63,11 +67,15 @@ def get_8bit_optimizer(
         }
     ]
 
-    optimizer_cls = (
-        bnb.optim.AdamW8bit
-        if (BNB_AVAILABLE and torch.cuda.is_available())
-        else torch.optim.AdamW
-    )
+    if BNB_AVAILABLE and torch.cuda.is_available():
+        optimizer_cls = None
+        if paged:
+            optimizer_cls = getattr(bnb.optim, "PagedAdamW8bit", None)
+        if optimizer_cls is None:
+            optimizer_cls = bnb.optim.AdamW8bit
+    else:
+        optimizer_cls = torch.optim.AdamW
+
     return optimizer_cls(
         param_groups,
         lr=learning_rate,

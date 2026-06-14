@@ -54,6 +54,8 @@ class FastVLAConfig(PretrainedConfig):
         lora_dropout: float = 0.05,
         # Memory
         gradient_checkpointing: bool = True,
+        freeze_vision_encoder: bool = True,
+        use_torch_compile: bool = False,
         use_relative_delta: bool = False,
         device_map: str = "auto",
         # RL Integration
@@ -97,6 +99,8 @@ class FastVLAConfig(PretrainedConfig):
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout
         self.gradient_checkpointing = gradient_checkpointing
+        self.freeze_vision_encoder = freeze_vision_encoder
+        self.use_torch_compile = use_torch_compile
         self.use_relative_delta = use_relative_delta
         self.use_rl = use_rl
         self.rl_hidden_dim = rl_hidden_dim
