@@ -263,6 +263,36 @@ class FastVLAModel(PreTrainedModel):
         if config.use_peft and config.dummy:
             self._apply_peft_freezing(config)
 
+        # 10. Freeze the vision encoder (standard for VLA fine-tuning). Removes
+        # its parameters from the optimizer state and its backward pass — a
+        # meaningful memory + speed saving on a 16GB T4.
+        if not config.dummy and getattr(config, "freeze_vision_encoder", True):
+            self._freeze_vision_encoder()
+
+        # 11. Optional torch.compile (CUDA graphs + fusion). Opt-in: it can clash
+        # with the multi-GPU hook removal, so restrict to single-device setups.
+        if (
+            not config.dummy
+            and getattr(config, "use_torch_compile", False)
+            and torch.cuda.is_available()
+            and torch.cuda.device_count() == 1
+        ):
+            try:
+                self.llm = torch.compile(self.llm, mode="reduce-overhead")
+                logger.info("torch.compile enabled on the language backbone.")
+            except Exception as e:
+                logger.warning(f"torch.compile failed (continuing eager): {e}")
+
+    def _freeze_vision_encoder(self):
+        """Disable gradients on the vision encoder to save memory/compute."""
+        frozen = 0
+        for param in self.vision_encoder.parameters():
+            if param.requires_grad:
+                param.requires_grad = False
+                frozen += param.numel()
+        if frozen:
+            logger.info(f"Froze vision encoder ({frozen/1e6:.1f}M params).")
+
     def save_pretrained(self, save_directory: Union[str, Path], **kwargs):
         """Unified save method that handles LoRA adapters and model configs correctly."""
         save_directory = Path(save_directory)
@@ -382,12 +412,19 @@ class FastVLAModel(PreTrainedModel):
             return explicit
         if not torch.cuda.is_available():
             return None
-        try:
-            import flash_attn  # noqa: F401
 
-            return "flash_attention_2"
-        except ImportError:
-            return None
+        # FlashAttention-2 requires Ampere+ (sm_80). Turing T4 (sm_75) cannot
+        # run it — fall back to the memory-efficient SDPA backend there, which
+        # is still far cheaper (memory and speed) than the default eager path.
+        major = torch.cuda.get_device_capability()[0]
+        if major >= 8:
+            try:
+                import flash_attn  # noqa: F401
+
+                return "flash_attention_2"
+            except ImportError:
+                pass
+        return "sdpa"
 
     def _load_component(self, component_type: str, config: FastVLAConfig):
         """Unified loader for Model components (Vision/LLM) with smart conflict resolution."""
@@ -543,6 +580,50 @@ class FastVLAModel(PreTrainedModel):
         # "mean" or masked_mean without a usable mask
         return last_hidden.mean(dim=1)
 
+    def _encode_sequence(self, inputs_embeds, attention_mask):
+        """
+        Run the language backbone and return ONLY the final hidden state.
+
+        Two large memory/compute wins on the L4/T4 budget:
+          1. Skip the LM head. Action prediction never uses vocab logits, yet
+             ``AutoModelForCausalLM`` materializes a ``[B, T, vocab]`` tensor
+             (vocab ~128k for Llama-3) plus the matmul to produce it. Calling
+             the transformer trunk directly avoids both.
+          2. Skip ``output_hidden_states=True``, which otherwise stores every
+             layer's ``[B, T, D]`` activation — we only need the last one.
+
+        Falls back to a full forward for exotic/dummy models.
+        """
+        base = self.llm
+        if hasattr(base, "get_base_model"):  # unwrap PEFT
+            base = base.get_base_model()
+        trunk = getattr(base, "model", None)
+
+        if trunk is not None and not isinstance(trunk, nn.Linear):
+            try:
+                out = trunk(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    use_cache=False,
+                )
+                last = getattr(out, "last_hidden_state", None)
+                if last is not None:
+                    return last
+            except (TypeError, ValueError, AttributeError):
+                pass
+
+        # Fallback: single full forward, handling both base- and CausalLM-style
+        # outputs.
+        out = self.llm(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
+        last = getattr(out, "last_hidden_state", None)
+        if last is not None:
+            return last
+        return out.hidden_states[-1]
+
     def forward(self, pixel_values, input_ids, attention_mask=None, labels=None):
         """Forward pass handles multi-camera inputs and action prediction."""
         visual_features = []
@@ -567,16 +648,10 @@ class FastVLAModel(PreTrainedModel):
         visual_features = self.vision_proj(visual_features.to(llm_device))
 
         fused_embeds = vision_language_cross_attention(text_embeds, visual_features)
-        outputs = self.llm(
-            inputs_embeds=fused_embeds,
-            attention_mask=attention_mask,
-            output_hidden_states=True,
-        )
+        last_hidden = self._encode_sequence(fused_embeds, attention_mask)
 
         head_device = next(self.action_head.parameters()).device
-        pooled = self._pool_hidden_states(
-            outputs.hidden_states[-1], attention_mask
-        ).to(head_device)
+        pooled = self._pool_hidden_states(last_hidden, attention_mask).to(head_device)
         action_preds = self.action_head(pooled)
 
         value_preds = None

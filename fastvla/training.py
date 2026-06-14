@@ -247,6 +247,25 @@ class FastVLATrainer:
             else self.accelerator.prepare(model)
         )
 
+        # Activation checkpointing: the model advertises support but nothing was
+        # turning it on. For a 7B backbone this trades a little recompute for a
+        # large drop in activation memory — the difference between fitting on a
+        # T4 and OOM-ing.
+        if getattr(model.config, "gradient_checkpointing", False) and not getattr(
+            model.config, "dummy", False
+        ):
+            try:
+                from .optimization import enable_gradient_checkpointing
+
+                enable_gradient_checkpointing(model)
+                # Required so gradients flow through a frozen/quantized base.
+                if hasattr(model, "llm") and hasattr(
+                    model.llm, "enable_input_require_grads"
+                ):
+                    model.llm.enable_input_require_grads()
+            except Exception as e:
+                logger.warning(f"Gradient checkpointing setup failed: {e}")
+
         if data_collator is None:
             data_collator = UnslothVLACollator(
                 tokenizer=getattr(model, "tokenizer", None),
