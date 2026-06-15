@@ -3,6 +3,22 @@ from typing import Optional
 from transformers.configuration_utils import PretrainedConfig
 
 
+def _auto_torch_compile() -> bool:
+    """Default ``use_torch_compile`` policy: on for Ada (sm_89) + Hopper (sm_90+),
+    off elsewhere. Centralised here so tests can patch one symbol.
+
+    Bitsandbytes 4-bit kernels currently regress under ``torch.compile`` on
+    Turing (sm_75) and have marginal-to-negative benefit on Ampere (sm_80);
+    Ada and Hopper are reliable wins, so the default flips on there.
+    """
+    import torch
+
+    if not torch.cuda.is_available():
+        return False
+    major, minor = torch.cuda.get_device_capability()
+    return (major, minor) >= (8, 9)
+
+
 class FastVLAConfig(PretrainedConfig):
     """Configuration class for FastVLA model."""
 
@@ -55,7 +71,7 @@ class FastVLAConfig(PretrainedConfig):
         # Memory
         gradient_checkpointing: bool = True,
         freeze_vision_encoder: bool = True,
-        use_torch_compile: bool = False,
+        use_torch_compile: Optional[bool] = None,  # None = auto-detect (Ada/Hopper)
         use_relative_delta: bool = False,
         device_map: str = "auto",
         # RL Integration
@@ -100,7 +116,9 @@ class FastVLAConfig(PretrainedConfig):
         self.lora_dropout = lora_dropout
         self.gradient_checkpointing = gradient_checkpointing
         self.freeze_vision_encoder = freeze_vision_encoder
-        self.use_torch_compile = use_torch_compile
+        self.use_torch_compile = (
+            _auto_torch_compile() if use_torch_compile is None else use_torch_compile
+        )
         self.use_relative_delta = use_relative_delta
         self.use_rl = use_rl
         self.rl_hidden_dim = rl_hidden_dim
