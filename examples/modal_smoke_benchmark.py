@@ -101,6 +101,7 @@ def _run_benchmark(gpu_label: str) -> dict:
     print(f"  Loaded in {results['model_load_s']}s")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
     if device == "cuda":
         torch.cuda.empty_cache()
         torch.cuda.synchronize()

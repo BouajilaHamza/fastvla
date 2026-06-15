@@ -149,45 +149,50 @@ def vision_language_cross_attention(
 
     # Auto-tuning block sizes based on D
     BLOCK_D = triton.next_power_of_2(D)
-    if BLOCK_D > 1024:
-        # Fallback to PyTorch for very large dimensions if Triton block size limit reached
+    # Shared-memory budget on L4 (~99KB) and T4 (~64KB) is exceeded once
+    # BLOCK_M*BLOCK_D*(2B fp16 for Q + 2*K/V) + BLOCK_M*BLOCK_D*4B (fp32 acc)
+    # grows past ~64KB. Empirically D>256 already requires fallback on T4.
+    if BLOCK_D > 256:
         return torch.nn.functional.scaled_dot_product_attention(text, visual, visual)
 
-    BLOCK_M = 32
-    BLOCK_N = 32
+    BLOCK_M = 16
+    BLOCK_N = 16
 
     grid = (B, triton.cdiv(T_q, BLOCK_M))
 
-    _cross_attention_fwd_kernel[grid](
-        text,
-        visual,
-        visual,
-        out,
-        text.stride(0),
-        text.stride(1),
-        text.stride(2),
-        visual.stride(0),
-        visual.stride(1),
-        visual.stride(2),
-        visual.stride(0),
-        visual.stride(1),
-        visual.stride(2),
-        out.stride(0),
-        out.stride(1),
-        out.stride(2),
-        B,
-        T_q,
-        T_kv,
-        D,
-        sm_scale,
-        BLOCK_M=BLOCK_M,
-        BLOCK_N=BLOCK_N,
-        BLOCK_D=BLOCK_D,
-        num_warps=4,
-        num_stages=2,
-    )
-
-    return out
+    try:
+        _cross_attention_fwd_kernel[grid](
+            text,
+            visual,
+            visual,
+            out,
+            text.stride(0),
+            text.stride(1),
+            text.stride(2),
+            visual.stride(0),
+            visual.stride(1),
+            visual.stride(2),
+            visual.stride(0),
+            visual.stride(1),
+            visual.stride(2),
+            out.stride(0),
+            out.stride(1),
+            out.stride(2),
+            B,
+            T_q,
+            T_kv,
+            D,
+            sm_scale,
+            BLOCK_M=BLOCK_M,
+            BLOCK_N=BLOCK_N,
+            BLOCK_D=BLOCK_D,
+            num_warps=4,
+            num_stages=1,
+        )
+        return out
+    except Exception as e:
+        print(f"⚠️ Triton cross-attention failed ({e}). Falling back to torch SDPA.")
+        return torch.nn.functional.scaled_dot_product_attention(text, visual, visual)
 
 
 def vision_language_fusion_forward(

@@ -205,8 +205,12 @@ class FastVLAModel(PreTrainedModel):
             self._sync_config_with_loaded_models()
 
         llm_device = next(self.llm.parameters()).device
-        v_hidden = getattr(self.vision_encoder.config, "hidden_size", config.vision_hidden_size)
-        l_hidden = getattr(self.llm.config, "hidden_size", config.llm_hidden_size)
+        v_hidden = (
+            getattr(self.vision_encoder, "embed_dim", None)
+            or getattr(getattr(self.vision_encoder, "config", None), "hidden_size", None)
+            or config.vision_hidden_size
+        )
+        l_hidden = getattr(getattr(self.llm, "config", None), "hidden_size", None) or config.llm_hidden_size
         
         self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
 
