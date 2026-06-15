@@ -1,0 +1,41 @@
+{
+  "L4_bf16": {
+    "gpu_label": "L4",
+    "device_name": "NVIDIA L4",
+    "vram_total_gb": 22.0343017578125,
+    "load_in_4bit": false,
+    "openvla_baseline": {
+      "model": "openvla-7b-baseline",
+      "load_in_4bit": false,
+      "model_load_s": 66.44,
+      "inference_avg_ms": 138.02,
+      "inference_min_ms": 134.45,
+      "inference_p95_ms": 142.86,
+      "control_hz": 7.25,
+      "vram_after_inf_gb": 14.099,
+      "error_train": "CUDA out of memory. Tried to allocate 86.00 MiB. GPU 0 has a total capacity of 22.03 GiB of which 59.12 MiB is free. Process 1 has 21.97 GiB memory in use. Of the allocated memory 21.24 GiB is allocated by PyTorch, and 500.27 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)"
+    }
+  },
+  "L4_4bit": {
+    "gpu_label": "L4",
+    "device_name": "NVIDIA L4",
+    "vram_total_gb": 22.0343017578125,
+    "load_in_4bit": true,
+    "openvla_baseline": {
+      "model": "openvla-7b-baseline",
+      "load_in_4bit": true,
+      "error_load": "`.to` is not supported for `4-bit` or `8-bit` bitsandbytes models. Please use the model as it is, since the model has already been set to the correct devices and casted to the correct `dtype`."
+    }
+  },
+  "T4_4bit": {
+    "gpu_label": "T4",
+    "device_name": "Tesla T4",
+    "vram_total_gb": 14.56317138671875,
+    "load_in_4bit": true,
+    "openvla_baseline": {
+      "model": "openvla-7b-baseline",
+      "load_in_4bit": true,
+      "error_load": "`.to` is not supported for `4-bit` or `8-bit` bitsandbytes models. Please use the model as it is, since the model has already been set to the correct devices and casted to the correct `dtype`."
+    }
+  }
+}
