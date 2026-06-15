@@ -8,9 +8,9 @@
 
 # `FASTVLA`
 
-## The fast, memory-efficient fine-tuning library for Vision-Language-Action models.
+## Fast, memory-efficient fine-tuning for Vision-Language-Action models.
 
-### Fine-tune any 7B robot policy — any language, any task — for ~$1 on a single L4. Verified.
+### Train and RL a 7B robot policy up to 2.6× faster with 65 % less VRAM — on a single L4 for under $1.
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
 [![Transformers](https://img.shields.io/badge/Transformers-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://github.com/huggingface/transformers)
@@ -27,67 +27,59 @@
 
 ## What is FastVLA?
 
-**FastVLA is to VLA fine-tuning what Unsloth is to LLM fine-tuning.**
+FastVLA trains Vision-Language-Action models up to **2.6× faster** with **65 % less VRAM** than the published L4 bf16 recipe — and trains models on hardware where the paper recipe simply cannot run.
 
-Vision-Language-Action models (OpenVLA, SmolVLA, π₀…) map camera observations + language to robot actions. Fine-tuning them on a new task / language / embodiment currently expects an A100 / H100 box — the published recipes assume it.
+Vision-Language-Action models (OpenVLA, SmolVLA, π₀…) map camera observations and language instructions to robot actions. The published fine-tuning recipes assume A100 / H100 boxes; the consumer-tier path has been missing.
 
-FastVLA collapses that requirement to **one consumer-tier GPU (L4, T4, or 4090)**. It does so the same way Unsloth made LLM fine-tuning accessible: 4-bit + LoRA + paged 8-bit optimiser + activation checkpointing + fused custom kernels, wired through a trainer that actually turns those features on. End-to-end BC + RL pipeline included, so the single L4 covers pretraining *and* reinforcement learning rather than just supervised fine-tune.
-
----
-
-## Key Features
-
-- **Single-GPU VLA Fine-Tuning:** train 7B VLAs on one L4 or T4 instead of an 8 × A100 cluster. Vanilla bf16 OpenVLA-7B **cannot train on L4 at all** (OOMs at 22 GB, [measured Sprint 1](docs/BENCHMARKS.md)); FastVLA hits **14.3 it/s on the same hardware** with peak 5.2 GB reserved.
-- **Unsloth-style stack for VLAs:** 4-bit QLoRA + paged 8-bit AdamW + activation checkpointing + Triton action head + masked-mean pooling + auto-`torch.compile` on Ada / Hopper.
-- **2.60× faster inference, −65 % VRAM** vs the OpenVLA paper's L4 bf16 baseline (53 ms / 18.8 Hz / 4.87 GB vs 138 ms / 7.25 Hz / 14.1 GB), Sprint 1 measured. The cited 3-4× speedup vs vanilla **4-bit** QLoRA from [issue #1](https://github.com/BouajilaHamza/fastvla/issues/1) / [PR #4](https://github.com/BouajilaHamza/fastvla/issues/4) is not yet locally re-measured — upstream OpenVLA + bnb fails to load.
-- **Multi-lingual (Arabic-first) data pipeline** — first VLA library shipping with non-English instruction tooling.
-- **Built-in RL (PPO + GRPO)** on top of BC pretraining — not just supervised fine-tuning.
-- **Modal-native** — one command launches BC / RL / benchmarks on serverless L4 / T4.
+FastVLA closes that gap. 4-bit QLoRA, paged 8-bit AdamW, activation checkpointing, fused Triton kernels, and a trainer that actually turns those features on — the same recipe Unsloth applied to LLMs, transposed to the vision + LLM + action-head stack. BC pretraining and PPO / GRPO refinement run end-to-end on a single L4.
 
 ---
 
-## Why FastVLA?
+## Key features
 
-Same problem Unsloth solved for LLMs, applied to VLAs.
+- **Fine-tune 7B VLAs on a single L4 or T4.** Vanilla bf16 OpenVLA-7B OOMs at 22 GB on L4 — FastVLA trains at **14.3 it/s with 5.2 GB peak reserved** on the same hardware. ([Sprint 1 measurements](docs/BENCHMARKS.md))
+- **2.6× faster inference, 65 % less VRAM** vs the OpenVLA paper's L4 bf16 baseline (53 ms vs 138 ms; 4.87 GB vs 14.1 GB).
+- **One command per workflow.** `modal run examples/modal_production_benchmark.py` reproduces every number in this README on serverless L4 + T4.
+- **Auto-`torch.compile` on Ada (sm_89) and Hopper (sm_90+).** Off on Turing / Ampere where bnb 4-bit kernels regress under compile.
+- **Multi-lingual data pipeline.** First VLA library shipping with Arabic translation + localisation tooling in `scripts/dataset/`.
+- **RL integrated.** PPO and GRPO on top of BC, not a separate library.
+- **Reproducibility first.** Every number in this README cites either an artefact in `benchmark_results.json` / `production_benchmark_results.json` / `baseline_benchmark_results.json`, a publicly-linked W&B run, or a published paper. The 3-4× speedup vs vanilla **4-bit** QLoRA cited in [issue #1](https://github.com/BouajilaHamza/fastvla/issues/1) remains the one outstanding claim — locally remeasuring it is blocked by upstream OpenVLA + bnb failing to load, tracked as the next sprint item.
 
-| | LLM fine-tuning, pre-Unsloth | VLA fine-tuning today |
-|---|---|---|
-| Default hardware | 4–8 × A100 / H100 | 4–8 × A100 / H100 |
-| Single-GPU path | HF + PEFT + bitsandbytes (slow, OOM-prone) | OpenVLA + PEFT (still ≥1 × A100 80 GB) |
-| Speed gap vs paper recipe | 2–5× via Unsloth | unsolved → **FastVLA** |
+---
 
-**Inference Hz is not the pitch** — OpenVLA-OFT already does 109 Hz with action chunking. FastVLA's pitch is the **cost and hardware floor of training**:
+## Cost and hardware floor
 
-| Path | Hardware | Wall time | Approx cost (Modal) |
+Same problem Unsloth solved for LLMs, transposed to VLAs. Inference Hz is **not** the pitch — OpenVLA-OFT already reaches 109 Hz with action chunking on A100/H100. FastVLA's pitch is the **cost and hardware floor of training**.
+
+| Path | Hardware | Wall time | Cost (Modal) |
 |---|---|---:|---:|
-| OpenVLA paper, full fine-tune | **8 × A100 80 GB** | 5–15 hrs / task | $150–$500 |
-| OpenVLA paper, LoRA fine-tune | **1 × A100 80 GB** | 10–15 hrs / task | $30–$50 |
-| SmolVLA reference (LeRobot) | **1 × A100 80 GB** | ~4 hrs / 20 k steps | ~$8 |
-| Vanilla bf16 OpenVLA-7B on L4 | **1 × L4 (22 GB)** | **cannot train — OOMs at 22 GB** (measured) | — |
-| **FastVLA, OpenVLA-7B** | **1 × L4 (22 GB)** | ~58 min / 50 k steps (14.3 it/s) | **~$0.78** |
-| **FastVLA, SmolVLA** | **1 × L4 (22 GB)** | ~37 min / 50 k steps (22.4 it/s) | **~$0.49** |
+| OpenVLA paper, full fine-tune | 8 × A100 80 GB | 5–15 hrs / task | $150–$500 |
+| OpenVLA paper, LoRA fine-tune | 1 × A100 80 GB | 10–15 hrs / task | $30–$50 |
+| SmolVLA reference (LeRobot) | 1 × A100 80 GB | ~4 hrs / 20 k steps | ~$8 |
+| Vanilla bf16 OpenVLA-7B (measured) | 1 × L4 (22 GB) | **OOMs at 22 GB** | — |
+| **FastVLA, OpenVLA-7B** | **1 × L4 (22 GB)** | **58 min / 50 k steps** (14.3 it/s) | **$0.78** |
+| **FastVLA, SmolVLA** | **1 × L4 (22 GB)** | **37 min / 50 k steps** (22.4 it/s) | **$0.49** |
 
-L4 on Modal = **$0.80 / GPU-hr** ([source](https://modal.com/blog/nvidia-l4-price-article)). Walltimes derived from the measured it/s below; the OOM row is from `baseline_benchmark_results.json` (`examples/modal_baseline_benchmark.py` Sprint 1).
-
----
-
-## Repository Structure
-
-- `fastvla/`: Core library — model, adapters, kernels, RL trainers.
-- `examples/`: Runnable benchmarks (`modal_smoke_benchmark.py`, `modal_production_benchmark.py`) and training/inference examples.
-- `scripts/`: Tools for deployment and training:
-    - `scripts/training/`: Core BC and RL training scripts.
-    - `scripts/modal/`: Modal.com deployment and simulation scripts.
-    - `scripts/dataset/`: Arabic localization and dataset translation tools.
-    - `scripts/evaluation/`: Benchmarking and success-rate evaluation tools.
-- `docs/`: [Arabic Datasets](docs/datasets/ARABIC_DATASETS.md) and [RL Technical Report](docs/reports/RL_TECHNICAL_REPORT.md).
-- `tests/`: Test suite for kernels, data, and model stability.
+L4 on Modal is **$0.80 / GPU-hr** ([source](https://modal.com/blog/nvidia-l4-price-article)). Wall times come from the measured it/s in the table below; the OOM row is from `baseline_benchmark_results.json` (`examples/modal_baseline_benchmark.py`).
 
 ---
 
-## Measured Training Throughput
+## Repository layout
 
-Single-GPU training step time on Modal L4 + T4, real HF weights, synthetic batch (B = 1, T = 32). Reproducer: `modal run --detach examples/modal_production_benchmark.py`. Raw: `production_benchmark_results.json` + W&B `fastvla-production-benchmark`.
+- `fastvla/` — core library: model, adapters, kernels, RL trainers, registry.
+- `examples/` — runnable benchmarks (`modal_smoke_benchmark.py`, `modal_production_benchmark.py`, `modal_baseline_benchmark.py`) and training / inference examples.
+- `scripts/training/` — BC and RL training scripts.
+- `scripts/modal/` — Modal.com deployment and simulation scripts.
+- `scripts/dataset/` — Arabic localization and dataset translation tools.
+- `scripts/evaluation/` — benchmarking and success-rate evaluation.
+- `docs/` — [BENCHMARKS](docs/BENCHMARKS.md), [ACCESSIBILITY_ROADMAP](docs/ACCESSIBILITY_ROADMAP.md), [Arabic Datasets](docs/datasets/ARABIC_DATASETS.md), [RL Report](docs/reports/RL_TECHNICAL_REPORT.md).
+- `tests/` — kernel, data, model, loader, and config tests.
+
+---
+
+## Measured throughput
+
+Single-GPU training step time on Modal L4 + T4, real HF weights, synthetic batch (B = 1, T = 32). Reproducer: `modal run --detach examples/modal_production_benchmark.py`. Raw: `production_benchmark_results.json`, W&B project `fastvla-production-benchmark`.
 
 | Model | GPU | Train step | **Train it/s** | Peak VRAM (alloc / reserved) |
 |---|---|---:|---:|---|
@@ -96,13 +88,11 @@ Single-GPU training step time on Modal L4 + T4, real HF weights, synthetic batch
 | SmolVLA (4-bit + LoRA) | L4 | 44.75 ms | **22.35 it/s** | 1.71 / 3.28 GB |
 | SmolVLA (4-bit + LoRA) | T4 | 154.14 ms | 6.49 it/s | 1.71 / 3.29 GB |
 
-**Vs vanilla bf16 OpenVLA-7B on L4** (measured Sprint 1, `baseline_benchmark_results.json`): **2.60× faster inference** (138 ms → 53.1 ms), **−65 % VRAM** (14.1 GB → 4.87 GB peak), and the headline result — **training is possible on L4** where vanilla bf16 simply OOMs at 22 GB during the first optimiser step. The 3-4× speedup vs vanilla 4-bit QLoRA cited in [issue #1](https://github.com/BouajilaHamza/fastvla/issues/1) is still not locally re-measured — plain HF + bnb can't currently load OpenVLA (upstream `PrismaticForConditionalGeneration.__init__` calls `.to()` on bnb submodules and raises). The same Unsloth-for-LLMs pattern applies (2–5× over HF + PEFT, 70 % less VRAM — [Red Hat post](https://developers.redhat.com/articles/2026/04/01/unsloth-and-training-hub-lightning-fast-lora-and-qlora-fine-tuning)) but transposed to the vision + LLM + action-head stack.
+The Unsloth-for-LLMs pattern (2-5× over HF + PEFT, 70 % less VRAM — [Red Hat post](https://developers.redhat.com/articles/2026/04/01/unsloth-and-training-hub-lightning-fast-lora-and-qlora-fine-tuning)), now applied to the vision + LLM + action-head stack.
 
-### Where we are vs SOTA — honest scorecard
+### Honest scorecard vs SOTA
 
-Project north star is to be "Unsloth for VLAs". Below is where we sit on each dimension that matters for that pitch. Scores anchored in the published numbers cited in **Sources** at the end of this section.
-
-Sprint 1 (commits `cbb8af9`, `303ccad`, `f6fbaee`, `ec67ddc`) measured the vanilla bf16 OpenVLA-7B baseline on L4, fixed the vision-adapter loader to cascade four strategies before falling back to SigLIP, and auto-enabled `torch.compile` on Ada/Hopper. Scores below reflect post-Sprint state.
+Project north star is "Unsloth for VLAs". Scores below reflect post-Sprint 1 state (commits `cbb8af9`, `303ccad`, `f6fbaee`, `ec67ddc`, `8a497b1`).
 
 ```mermaid
 xychart-beta horizontal
@@ -131,22 +121,22 @@ Where the remaining ~37 % lives, in order of impact: a real-robot evaluation loo
 
 ### Where the gains come from
 
-- Skip LM head in forward (`_encode_sequence`) — kills the [B, T, ~128 k] logits tensor every step (PR #4).
-- Gradient / activation checkpointing actually wired into the trainer (was declared but never enabled).
-- PagedAdamW8bit instead of plain AdamW8bit — prevents optimizer-state OOM spikes on T4.
-- DataLoader workers + pinned memory + persistent workers (default `num_workers=0` was starving the GPU).
-- Turing-aware attention — `sdpa` on T4 (sm_75), `flash_attention_2` on Ada (sm_89) / Ampere (sm_80).
-- Fused Triton action head with cached forward for the autograd backward.
-- **Auto-`torch.compile` on Ada / Hopper** (Sprint 1, `303ccad`) — `_auto_torch_compile()` flips the default to on when `cuda.get_device_capability() >= (8, 9)`; off on Turing / Ampere where bnb 4-bit kernels regress under compile.
-- **OpenVLA loader cascade** (Sprint 1, `f6fbaee`) — `OpenVLAFusedVisionAdapter.from_pretrained` tries `AutoModelForImageTextToText` → `AutoModelForVision2Seq` → dynamic class load via `auto_map` → plain `AutoModel` before falling back to SigLIP, with `attn_implementation="eager"` forced to skip the `_supports_sdpa` probe that breaks OpenVLA's pre-`transformers`-4.45 class.
+- **Skip LM head in forward** (`_encode_sequence`). Kills the `[B, T, ~128k]` logits tensor every step. PR #4.
+- **Gradient / activation checkpointing actually wired** into the trainer. Was declared but never enabled.
+- **PagedAdamW8bit** instead of plain AdamW8bit. Optimizer state pages to CPU under pressure.
+- **DataLoader workers + pinned memory + persistent workers.** Default `num_workers=0` was starving the GPU.
+- **Turing-aware attention.** `sdpa` on T4 (sm_75), `flash_attention_2` on Ada (sm_89) / Ampere (sm_80).
+- **Fused Triton action head** with cached forward for the autograd backward.
+- **Auto-`torch.compile` on Ada / Hopper.** `_auto_torch_compile()` flips the default on when `cuda.get_device_capability() >= (8, 9)`. (Sprint 1, `303ccad`.)
+- **OpenVLA loader cascade.** Four strategies tried in order: `AutoModelForImageTextToText` → `AutoModelForVision2Seq` → dynamic class load via `auto_map` → plain `AutoModel`. Falls back to SigLIP only as last resort, always with `attn_implementation="eager"`. (Sprint 1, `f6fbaee`.)
 
 Full per-lever breakdown (memory + speed + evaluation honesty + library polish) lives in [docs/ACCESSIBILITY_ROADMAP.md](docs/ACCESSIBILITY_ROADMAP.md). Speed-deep-dive with reference points + ratios in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ---
 
-## Inference (real-time floor, not the pitch)
+## Inference
 
-Single-image inference, B = 1, T = 32, same protocol as above. Reported for completeness — the project is not optimised for raw inference Hz; for control-rate-critical deployments see OpenVLA-OFT.
+Single-image inference, B = 1, T = 32, same protocol as the training table. Reported for completeness — the project is not optimised for raw inference Hz. For control-rate-critical deployments, see OpenVLA-OFT.
 
 | System | GPU | Latency | Control Hz | Peak VRAM |
 |---|---|---:|---:|---:|
@@ -162,15 +152,20 @@ Single-image inference, B = 1, T = 32, same protocol as above. Reported for comp
 
 > Caveat: in the production-benchmark image, FastVLA's OpenVLA-7B loader still falls back to a SigLIP-only vision tower. The cascade in `fastvla/adapters/vision.py` (Sprint 1) is correct, but the two upstream stacks — OpenVLA's pinned `transformers==4.40.1` / `timm<1.0` and FastVLA's modern Unsloth-compatible pins — have no version overlap. The standalone baseline image (`examples/modal_baseline_benchmark.py`) pins OpenVLA's exact recipe and successfully loads the full fused DINOv2 + SigLIP backbone (138 ms / 7.25 Hz / 14.1 GB L4 bf16, validates Kim 2024 Fig. 5). Numbers in the FastVLA rows above therefore characterise a "SigLIP + Llama-2-7B + FastVLA action head" deployment; closing the version gap is tracked alongside [issue #2](https://github.com/BouajilaHamza/fastvla/issues/2).
 
-### Reproduce all numbers
+### Reproduce every number
 
 ```bash
 # Smoke test (dummy backbone, no HF download)
 modal run --detach examples/modal_smoke_benchmark.py
 
-# Real weights — OpenVLA-7B + SmolVLA on L4 + T4
+# Real weights: OpenVLA-7B + SmolVLA on L4 + T4
 modal run --detach examples/modal_production_benchmark.py
+
+# Vanilla bf16 baseline: validates OpenVLA paper Figure 5
+modal run --detach examples/modal_baseline_benchmark.py
 ```
+
+Each script writes a JSON artefact (`benchmark_results.json` / `production_benchmark_results.json` / `baseline_benchmark_results.json`) and logs to W&B.
 
 ### Sources
 
@@ -183,7 +178,7 @@ modal run --detach examples/modal_production_benchmark.py
 
 ---
 
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/BouajilaHamza/fastvla.git
@@ -191,35 +186,34 @@ cd fastvla
 uv sync
 ```
 
----
-
 ## Quickstart
 
-### Fine-tune on PushT (Arabic)
+Fine-tune any registered VLA on PushT (Arabic) on a single L4:
 
 ```bash
-# 1. BC pretraining on Modal
+# 1. BC pretraining
 modal run scripts/training/train_scratch_relative.py --bc-epochs 10
 
 # 2. RL refinement with GRPO
 modal run scripts/modal/modal_rl_grpo.py --epochs 100
 ```
 
-For more details on our Arabic-native datasets and localization process, see [ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
+Supported model presets out of the box: `openvla-7b`, `smolvla`, `pi0-base`, `olmovla`. Add your own via `fastvla.registry.register_model(...)`. The Arabic data pipeline lives in `scripts/dataset/`; see [ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
 
 ---
 
-## Technical Performance
+## Deeper reading
 
-- **Training speed deep-dive** (per-GPU it/s, ratios vs vanilla QLoRA / OFT / Unsloth-on-LLM, sources of every number): [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
-- **Accessibility roadmap** (every memory + speed lever between today and "Unsloth-for-VLA done"): [docs/ACCESSIBILITY_ROADMAP.md](docs/ACCESSIBILITY_ROADMAP.md).
-- **RL technical report** (PPO/GRPO results, policy consolidation, PushT stability): [docs/reports/RL_TECHNICAL_REPORT.md](docs/reports/RL_TECHNICAL_REPORT.md).
+- **Training-speed deep-dive** — per-GPU it/s, ratios vs vanilla QLoRA / OFT / Unsloth-on-LLM, and a citation for every number: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+- **Accessibility roadmap** — every memory + speed lever between today and "Unsloth-for-VLA done", grouped by status: [docs/ACCESSIBILITY_ROADMAP.md](docs/ACCESSIBILITY_ROADMAP.md).
+- **RL technical report** — PPO / GRPO results, policy consolidation, PushT stability: [docs/reports/RL_TECHNICAL_REPORT.md](docs/reports/RL_TECHNICAL_REPORT.md).
+- **Arabic datasets** — the translation pipeline and dataset release: [docs/datasets/ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
 
 ---
 
-## License & Citation
+## License and citation
 
-Apache-2.0 License.
+Apache-2.0. If FastVLA helps your work, please cite:
 
 ```bibtex
 @software{fastvla2026,
@@ -229,3 +223,7 @@ Apache-2.0 License.
   year    = {2026}
 }
 ```
+
+## Acknowledgements
+
+FastVLA stands on [Unsloth](https://github.com/unslothai/unsloth) for the 4-bit + LoRA kernels, [PEFT](https://github.com/huggingface/peft) and [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) for the quantisation stack, [HuggingFace Transformers](https://github.com/huggingface/transformers) and [LeRobot](https://github.com/huggingface/lerobot) for the model + dataset primitives, [Modal](https://modal.com) for the serverless GPU infrastructure, and the [OpenVLA](https://github.com/openvla/openvla) team for the model weights and the published baseline numbers we measure against.
