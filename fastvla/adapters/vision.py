@@ -113,29 +113,73 @@ class OpenVLAFusedVisionAdapter(BaseVisionAdapter):
 
         quant_config = cls._get_bnb_config() if load_in_4bit else None
 
-        # DEFINITIVE FIX: Force AutoModel to treat it as a standard VLM or fallback to SigLIP
         try:
-            # Check if accelerate is available before passing device_map
+            import accelerate  # noqa: F401
+
+            can_use_device_map = True
+        except ImportError:
+            can_use_device_map = False
+            device_map = None if device_map == "auto" else device_map
+
+        load_kwargs = dict(
+            device_map=device_map if can_use_device_map else None,
+            quantization_config=quant_config,
+            token=hf_token,
+            trust_remote_code=True,
+            # OpenVLA's prismatic class predates `_supports_sdpa` so the new
+            # transformers sdpa-selection path raises when probing it. Force
+            # eager attention here to skip that check.
+            attn_implementation="eager",
+        )
+
+        # OpenVLA registers under `auto_map` for Vision2Seq. Try the modern
+        # AutoModelForImageTextToText (transformers >= 5.0) first, then the
+        # older AutoModelForVision2Seq (4.36-4.x), then dynamic class load
+        # via auto_map, then plain AutoModel, then SigLIP as last resort.
+        for auto_name in ("AutoModelForImageTextToText", "AutoModelForVision2Seq"):
             try:
-                import accelerate
+                import transformers as _t
 
-                can_use_device_map = True
-            except ImportError:
-                can_use_device_map = False
-                device_map = None if device_map == "auto" else device_map
+                AutoCls = getattr(_t, auto_name)
+                full_model = AutoCls.from_pretrained(model_id, **load_kwargs)
+                return cls(cls._extract_vision_encoder(full_model))
+            except (ImportError, AttributeError):
+                continue
+            except Exception as e_auto_cls:
+                logger.warning(
+                    f"{auto_name} failed for {model_id}: {e_auto_cls}. "
+                    "Trying next loader strategy..."
+                )
 
-            full_model = AutoModel.from_pretrained(
-                model_id,
-                device_map=device_map if can_use_device_map else None,
-                quantization_config=quant_config,
-                token=hf_token,
-                trust_remote_code=True,
+        try:
+            from transformers import AutoConfig
+            from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+            config = AutoConfig.from_pretrained(
+                model_id, trust_remote_code=True, token=hf_token
             )
-            vision_backbone = cls._extract_vision_encoder(full_model)
-            return cls(vision_backbone)
-        except Exception as e:
+            class_ref = config.auto_map.get("AutoModelForVision2Seq")
+            if class_ref:
+                ModelClass = get_class_from_dynamic_module(
+                    class_ref, model_id, token=hf_token
+                )
+                full_model = ModelClass.from_pretrained(
+                    model_id, config=config, **load_kwargs
+                )
+                return cls(cls._extract_vision_encoder(full_model))
+        except Exception as e_dyn:
             logger.warning(
-                f"AutoModel failed to load OpenVLA directly: {e}. Trying fallback to SigLIP..."
+                f"Dynamic class load failed for {model_id}: {e_dyn}. "
+                "Trying plain AutoModel..."
+            )
+
+        try:
+            full_model = AutoModel.from_pretrained(model_id, **load_kwargs)
+            return cls(cls._extract_vision_encoder(full_model))
+        except Exception as e_auto:
+            logger.warning(
+                f"AutoModel also failed for {model_id}: {e_auto}. "
+                "Last-resort fallback: SigLIP-so400m-patch14-384."
             )
             return SigLIPVisionAdapter.from_pretrained(
                 "google/siglip-so400m-patch14-384",

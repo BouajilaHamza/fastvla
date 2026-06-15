@@ -1,0 +1,68 @@
+{
+  "L4": {
+    "gpu_label": "L4",
+    "device_name": "NVIDIA L4",
+    "vram_total_gb": 22.0343017578125,
+    "models": {
+      "smolvla": {
+        "model": "smolvla",
+        "model_load_s": 29.46,
+        "inference_avg_ms": 24.91,
+        "inference_min_ms": 23.35,
+        "inference_p95_ms": 26.48,
+        "control_hz": 40.15,
+        "vram_after_inf_gb": 1.672,
+        "train_step_avg_ms": 46.14,
+        "train_its": 21.67,
+        "peak_vram_alloc_gb": 1.713,
+        "peak_vram_res_gb": 3.283
+      },
+      "openvla-7b": {
+        "model": "openvla-7b",
+        "model_load_s": 178.94,
+        "inference_avg_ms": 52.31,
+        "inference_min_ms": 50.89,
+        "inference_p95_ms": 54.16,
+        "control_hz": 19.12,
+        "vram_after_inf_gb": 4.667,
+        "train_step_avg_ms": 68.84,
+        "train_its": 14.53,
+        "peak_vram_alloc_gb": 4.867,
+        "peak_vram_res_gb": 5.262
+      }
+    }
+  },
+  "T4": {
+    "gpu_label": "T4",
+    "device_name": "Tesla T4",
+    "vram_total_gb": 14.56317138671875,
+    "models": {
+      "smolvla": {
+        "model": "smolvla",
+        "model_load_s": 33.23,
+        "inference_avg_ms": 72.37,
+        "inference_min_ms": 69.64,
+        "inference_p95_ms": 74.79,
+        "control_hz": 13.82,
+        "vram_after_inf_gb": 1.672,
+        "train_step_avg_ms": 147.49,
+        "train_its": 6.78,
+        "peak_vram_alloc_gb": 1.713,
+        "peak_vram_res_gb": 3.285
+      },
+      "openvla-7b": {
+        "model": "openvla-7b",
+        "model_load_s": 178.6,
+        "inference_avg_ms": 215.86,
+        "inference_min_ms": 214.01,
+        "inference_p95_ms": 217.85,
+        "control_hz": 4.63,
+        "vram_after_inf_gb": 5.253,
+        "train_step_avg_ms": 234.57,
+        "train_its": 4.26,
+        "peak_vram_alloc_gb": 5.452,
+        "peak_vram_res_gb": 5.635
+      }
+    }
+  }
+}
