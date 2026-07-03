@@ -51,6 +51,20 @@ class FastVLAConfig(PretrainedConfig):
         num_bins: int = 256,  # bins for the discrete head
         num_inference_steps: int = 10,  # ODE steps for the flow-matching head
         pooling_strategy: str = "masked_mean",  # "masked_mean", "mean", "last"
+        # Visual token budget (Roadmap Thrust A / H1). None = no reduction.
+        # When set, the visual token sequence is reduced to this many tokens
+        # before the vision->language projection, shrinking the LLM sequence
+        # length (the dominant compute term for a VLA).
+        visual_token_budget: Optional[int] = None,
+        token_reduction_strategy: str = "attention_pool",  # mean_pool|attention_pool|perceiver|token_merge
+        token_reduction_heads: int = 8,
+        # How visual tokens enter the language model:
+        #   "cross_attention" — text queries attend to visual K/V (default; the
+        #        token budget shrinks the cross-attention KV + projection cost).
+        #   "concat"          — reduced visual tokens are prepended to the LLM
+        #        input sequence (OpenVLA-style), so the token budget directly
+        #        shrinks the LLM sequence length — the dominant compute term (H1).
+        fusion_mode: str = "cross_attention",
         # Action Normalization
         norm_min: Optional[list] = None,
         norm_max: Optional[list] = None,
@@ -101,6 +115,10 @@ class FastVLAConfig(PretrainedConfig):
         self.num_bins = num_bins
         self.num_inference_steps = num_inference_steps
         self.pooling_strategy = pooling_strategy
+        self.visual_token_budget = visual_token_budget
+        self.token_reduction_strategy = token_reduction_strategy
+        self.token_reduction_heads = token_reduction_heads
+        self.fusion_mode = fusion_mode
         self.norm_min = norm_min
         self.norm_max = norm_max
         self.learning_rate = learning_rate

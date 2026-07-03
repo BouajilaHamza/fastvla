@@ -214,6 +214,28 @@ class FastVLAModel(PreTrainedModel):
         
         self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
 
+        # Visual token reducer (Roadmap Thrust A / H1). Reduces the number of
+        # image tokens fed to the LLM — the dominant sequence-length term — from
+        # its native count down to ``visual_token_budget``. Operates in the
+        # vision embedding space, before ``vision_proj``. ``None`` = disabled, so
+        # existing checkpoints and behaviour are unchanged.
+        self.token_reducer = None
+        token_budget = getattr(config, "visual_token_budget", None)
+        if token_budget:
+            from .adapters.token_reducer import get_token_reducer
+
+            self.token_reducer = get_token_reducer(
+                strategy=getattr(config, "token_reduction_strategy", "attention_pool"),
+                num_tokens=int(token_budget),
+                dim=v_hidden,
+                num_heads=getattr(config, "token_reduction_heads", 8),
+            ).to(llm_device)
+            logger.info(
+                f"Visual token reducer active: "
+                f"{getattr(config, 'token_reduction_strategy', 'attention_pool')} "
+                f"-> {token_budget} tokens."
+            )
+
         out_action_dim = config.action_dim * config.chunk_size
         head_type = getattr(config, "head_type", "mlp_continuous")
         if head_type in (None, "mlp_continuous", "triton"):
@@ -648,14 +670,43 @@ class FastVLAModel(PreTrainedModel):
         # Use optimized Cross-Attention Fusion (Text attends to Visual)
         from .kernels import vision_language_cross_attention
 
-        # Project visual to match language dimension
-        visual_features = self.vision_proj(visual_features.to(llm_device))
+        visual_features = visual_features.to(llm_device)
 
-        fused_embeds = vision_language_cross_attention(text_embeds, visual_features)
-        last_hidden = self._encode_sequence(fused_embeds, attention_mask)
+        # Reduce the visual token budget (H1) before projecting/fusing so the
+        # LLM sees fewer image tokens — the main compute lever on L4/T4.
+        if self.token_reducer is not None:
+            visual_features = self.token_reducer(visual_features)
+
+        # Project visual to match language dimension
+        visual_features = self.vision_proj(visual_features)
+
+        # Fuse vision + language. Two modes (see config.fusion_mode):
+        #  - cross_attention: text queries attend to visual K/V; LLM sees a
+        #    text-length sequence. Token budget cuts the cross-attn KV cost.
+        #  - concat: reduced visual tokens are prepended to the LLM input, so the
+        #    token budget directly shrinks the LLM sequence length (H1's headline
+        #    lever). The attention mask is extended to cover the visual prefix.
+        fusion_mode = getattr(self.config, "fusion_mode", "cross_attention")
+        if fusion_mode == "concat":
+            fused_embeds = torch.cat([visual_features, text_embeds], dim=1)
+            if attention_mask is not None:
+                vis_mask = torch.ones(
+                    visual_features.shape[0],
+                    visual_features.shape[1],
+                    device=attention_mask.device,
+                    dtype=attention_mask.dtype,
+                )
+                enc_mask = torch.cat([vis_mask, attention_mask.to(vis_mask.device)], dim=1)
+            else:
+                enc_mask = None
+        else:
+            fused_embeds = vision_language_cross_attention(text_embeds, visual_features)
+            enc_mask = attention_mask
+
+        last_hidden = self._encode_sequence(fused_embeds, enc_mask)
 
         head_device = next(self.action_head.parameters()).device
-        pooled = self._pool_hidden_states(last_hidden, attention_mask).to(head_device)
+        pooled = self._pool_hidden_states(last_hidden, enc_mask).to(head_device)
         action_preds = self.action_head(pooled)
 
         value_preds = None

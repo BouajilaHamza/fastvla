@@ -213,3 +213,30 @@ vs routing); dialect vs MSA robustness reported.
 Progress is tracked in the pinned roadmap issue. Each phase's exit criteria are the
 merge gate for that phase's work. Hypotheses are updated in-place with
 CONFIRMED / FALSIFIED / PARTIAL as evidence lands.
+
+---
+
+## Implementation Progress
+
+### Landed
+- **H1 scaffold — visual token budget** (`fastvla/adapters/token_reducer.py`):
+  four strategies (`mean_pool`, `attention_pool`, `perceiver`, `token_merge`),
+  config flags `visual_token_budget` / `token_reduction_strategy`, wired into
+  `FastVLAModel.forward`. Unit-tested (shapes, gradient flow, in-model forward).
+- **Fusion mode** (`config.fusion_mode`): the existing pipeline fuses via
+  **cross-attention** (text = query, visual = K/V), so visual tokens are *not*
+  part of the LLM sequence — reducing them cuts cross-attention KV + projection
+  cost, not the trunk. Added a `concat` mode that prepends the reduced visual
+  tokens to the LLM input, so the token budget **directly shrinks the LLM
+  sequence length** — the honest realization of H1's headline lever. Verified:
+  8→4 visual tokens takes a (8 text + 8 visual)=16 sequence down to 12.
+- **Phase 0 Arabic foundations** (`fastvla/data/arabic.py`): `tokenizer_fertility`
+  (the H5 metric), `ArabicInstructionTranslator` (dict / NLLB / lexicon backends),
+  seed MSA lexicon, and `LIBEROArabicDataset` (`libero_ar` in the dataset
+  factory) that swaps only the language conditioning to isolate the language axis.
+
+### Next
+- Benchmark H1 on real GPUs: Pareto frontier (success vs it/s vs VRAM) across
+  budgets {256,128,64,32} × strategies × fusion modes, on L4 and T4.
+- Phase 0.3 baselines B-EN / B-AR-naive on LIBERO to measure the grounding gap.
+- Bootstrap the validated LIBERO-AR corpus (NLLB → human validation → `dict`).
