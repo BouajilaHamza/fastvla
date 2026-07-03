@@ -149,6 +149,60 @@ class LIBERODataset(RoboticsDataset):
         return data
 
 
+class LIBEROArabicDataset(LIBERODataset):
+    """LIBERO with Arabic language conditioning (LIBERO-AR, Roadmap Thrust B).
+
+    Identical robot trajectories to :class:`LIBERODataset` — only the language
+    instruction is translated to Arabic (MSA or dialect) at load time. This keeps
+    the visual/action distribution fixed so any success-rate change is
+    attributable to the *language* axis (isolating Hypothesis H5).
+
+    Extra kwargs:
+        arabic_backend:  "dict" | "nllb" | "lexicon" (see ArabicInstructionTranslator)
+        arabic_register: "msa" | "dialect"
+        arabic_mapping_path: JSON of validated {en: ar} pairs (for backend="dict")
+        keep_english_instruction: if True, also store the source under
+            ``instruction_en`` for paired cross-lingual probes.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.arabic_backend = kwargs.pop("arabic_backend", "lexicon")
+        self.arabic_register = kwargs.pop("arabic_register", "msa")
+        self.arabic_mapping_path = kwargs.pop("arabic_mapping_path", None)
+        self.keep_english_instruction = kwargs.pop("keep_english_instruction", True)
+        self._translator = None
+        super().__init__(*args, **kwargs)
+        self._translate_instructions()
+
+    def _get_translator(self):
+        if self._translator is None:
+            from .arabic import ArabicInstructionTranslator
+
+            self._translator = ArabicInstructionTranslator(
+                backend=self.arabic_backend,
+                register=self.arabic_register,
+                mapping_path=self.arabic_mapping_path,
+                hf_token=self.hf_token,
+            )
+        return self._translator
+
+    def _translate_instructions(self):
+        """Replace each sample's English instruction with its Arabic rendering."""
+        translator = self._get_translator()
+        # Translate unique instructions once, then map back (cheap + cache-friendly).
+        unique = {item.get("instruction", "") for item in self.data}
+        table = {en: translator.translate(en) for en in unique}
+        for item in self.data:
+            en = item.get("instruction", "")
+            if self.keep_english_instruction:
+                item["instruction_en"] = en
+            item["instruction"] = table.get(en, en)
+        logger.info(
+            f"LIBERO-AR: translated {len(table)} unique instructions "
+            f"(backend={self.arabic_backend}, register={self.arabic_register})."
+        )
+
+
 class FrankaKitchenDataset(RoboticsDataset):
     """Franka Kitchen dataset for robotic manipulation tasks."""
 
@@ -285,6 +339,7 @@ def get_dataset(
     """Factory function to get the appropriate dataset."""
     dataset_map = {
         "libero": LIBERODataset,
+        "libero_ar": LIBEROArabicDataset,
         "franka_kitchen": FrankaKitchenDataset,
         "pusht": LeRobotDataset,
         "lerobot/pusht_image": LeRobotDataset,
