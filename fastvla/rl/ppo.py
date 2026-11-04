@@ -99,6 +99,7 @@ class PPOTrainer:
         ppo_epochs: int = 4,
         batch_size: int = 32,
         action_std: float = 0.1,  # Fixed std for continuous actions (can be learned later)
+        use_8bit_optimizer: bool = True,
         accelerator: Optional[Accelerator] = None,
     ):
         self.model = model
@@ -113,9 +114,16 @@ class PPOTrainer:
         self.action_std = action_std
 
         self.accelerator = accelerator or Accelerator()
-        self.optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+        if use_8bit_optimizer:
+            from ..optimization import get_8bit_optimizer
+            base_optimizer = get_8bit_optimizer(model, learning_rate=learning_rate)
+        else:
+            base_optimizer = torch.optim.AdamW(
+                [p for p in model.parameters() if p.requires_grad],
+                lr=learning_rate
+            )
         self.model, self.optimizer = self.accelerator.prepare(
-            self.model, self.optimizer
+            self.model, base_optimizer
         )
 
         self.buffer = PPOBuffer()

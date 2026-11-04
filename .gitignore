@@ -64,7 +64,6 @@ wandb/
 .env
 
 # Publication Cleanup
-scripts/
 notebooks/
 artifacts/
 marketing/
