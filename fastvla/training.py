@@ -247,6 +247,13 @@ class FastVLATrainer:
             else self.accelerator.prepare(model)
         )
 
+        # FIX 7: Wire ActivationOffloader as an optional VRAM pressure valve.
+        # Enabled via config.offload_activations=True (default: False).
+        from .optimization import ActivationOffloader
+        self.act_offloader = ActivationOffloader(
+            offload_enabled=getattr(model.config, "offload_activations", False)
+        )
+
         # Activation checkpointing: the model advertises support but nothing was
         # turning it on. For a 7B backbone this trades a little recompute for a
         # large drop in activation memory — the difference between fitting on a
@@ -372,6 +379,7 @@ class FastVLATrainer:
                 input_ids=batch["input_ids"],
                 attention_mask=batch.get("attention_mask"),
                 labels=batch.get("labels"),
+                states=batch.get("states"),
             )
             self.accelerator.backward(loss)
 

@@ -84,23 +84,24 @@ class RoboticsDataset(Dataset):
 
         # Process actions (with chunking support)
         if self.chunk_size > 1:
-            actions = []
-            # We assume data is organized so we can look ahead
-            # AND we assume 'episode_id' exists or indices are contiguous
+            # FIX 4: Always repeat the current-step action when lookahead goes
+            # out of bounds or crosses an episode boundary.  The old code used
+            # min(idx+i, len-1) which could pull actions from a completely
+            # different episode/task for the last episode's tail steps.
             curr_ep = item.get("episode_id", 0)
+            actions = []
             for i in range(self.chunk_size):
-                look_ahead_idx = min(idx + i, len(self.data) - 1)
-                look_ahead_item = self.data[look_ahead_idx]
-
-                # Boundary check: if we hit a new episode, repeat the last action
-                if look_ahead_item.get("episode_id", curr_ep) != curr_ep:
-                    actions.append(
-                        actions[-1]
-                        if actions
-                        else look_ahead_item.get(self.action_key, [])
-                    )
+                look_ahead_idx = idx + i
+                # Out of dataset bounds → repeat last valid action
+                if look_ahead_idx >= len(self.data):
+                    actions.append(actions[-1] if actions else item.get(self.action_key, []))
                 else:
-                    actions.append(look_ahead_item.get(self.action_key, []))
+                    look_ahead_item = self.data[look_ahead_idx]
+                    # Episode boundary → repeat last valid action
+                    if look_ahead_item.get("episode_id", curr_ep) != curr_ep:
+                        actions.append(actions[-1] if actions else item.get(self.action_key, []))
+                    else:
+                        actions.append(look_ahead_item.get(self.action_key, []))
             actions = np.array(actions)
         else:
             actions = item.get(self.action_key, [])
@@ -120,33 +121,52 @@ class LIBERODataset(RoboticsDataset):
     """LIBERO-10 dataset for robotic manipulation tasks."""
 
     def _load_data(self):
-        """Load LIBERO-10 dataset."""
-        data = []
+        """Build a lazy index — store (file_path, timestep, instruction) only.
 
-        # LIBERO-10 stores each episode in a separate HDF5 file
+        FIX 5: The old implementation read every timestep into RAM at startup,
+        which could be gigabytes for a full LIBERO dataset.  We now store only
+        lightweight index records and read the actual tensors on demand in
+        __getitem__.
+        """
+        index = []
         for root, _, files in os.walk(self.data_path):
-            for file in files:
+            for file in sorted(files):
                 if file.endswith(".hdf5"):
                     file_path = os.path.join(root, file)
                     with h5py.File(file_path, "r") as f:
-                        # Get episode length
                         ep_len = len(f["observations"])
+                        instr = f.attrs.get("language_instruction", "")
+                    for t in range(ep_len):
+                        index.append({
+                            "_file": file_path,
+                            "_t": t,
+                            "instruction": instr,
+                            "episode_id": file_path,  # unique per episode
+                        })
+        return index
 
-                        # Create an entry for each timestep
-                        for t in range(ep_len):
-                            obs = f["observations"][t]
-                            data.append(
-                                {
-                                    "rgb": obs["images"]["agentview_image"],
-                                    "state": obs["joint_positions"],
-                                    "action": f["actions"][t],
-                                    "instruction": f.attrs.get(
-                                        "language_instruction", ""
-                                    ),
-                                }
-                            )
+    def __len__(self) -> int:
+        return len(self.data)
 
-        return data
+    def __getitem__(self, idx: int):
+        """Lazy read from HDF5 — only the requested timestep is loaded."""
+        entry = self.data[idx]
+        with h5py.File(entry["_file"], "r") as f:
+            t = entry["_t"]
+            obs = {k: np.array(f["observations"][k][t]) for k in f["observations"].keys() if k != "images"}
+            if "observations/images/agentview_image" in f:
+                rgb = np.array(f["observations/images/agentview_image"][t])
+            else:
+                rgb = np.zeros((224, 224, 3), dtype=np.uint8)
+            action = np.array(f["actions"][t])
+
+        return {
+            "images": {"rgb": self._process_image(rgb)},
+            "states": torch.FloatTensor(obs.get("joint_positions", np.zeros(7))),
+            "actions": torch.FloatTensor(action),
+            "instructions": entry["instruction"],
+            "episode_id": entry["episode_id"],
+        }
 
 
 class FrankaKitchenDataset(RoboticsDataset):
@@ -232,11 +252,22 @@ class LeRobotDataset(RoboticsDataset):
             action = item.get("action", [])
 
             # 4. Extract Instruction
+            # FIX 8: Use an empty string rather than a task-specific hardcoded
+            # string — a wrong instruction string conditions the model on a task
+            # it isn't doing, corrupting training signal for all those samples.
             instruction = (
                 item.get("instruction")
                 or item.get("language_instruction")
-                or "push the block to the goal"
+                or item.get("task")
+                or ""  # empty = no instruction conditioning, safer than a wrong task string
             )
+            if not instruction:
+                if not getattr(self, "_warned_no_instruction", False):
+                    logger.warning(
+                        "Dataset has no instruction/language_instruction/task key. "
+                        "Using empty string for all samples."
+                    )
+                    self._warned_no_instruction = True
 
             # 5. Extract Episode ID (important for chunking)
             episode_id = item.get("episode_id", 0)
@@ -270,9 +301,7 @@ class LeRobotDataset(RoboticsDataset):
                         "rgb": item[img_key] if img_key else None,
                         "state": item.get("state", []),
                         "action": item.get("action", []),
-                        "instruction": item.get(
-                            "instruction", "push the block to the goal"
-                        ),
+                        "instruction": item.get("instruction", ""),
                     }
                 )
 

@@ -161,20 +161,16 @@ class ActivationOffloader:
 
 def apply_quantization_aware_training_hooks(model: nn.Module):
     """
-    Apply quantization-aware training hooks to the model.
-
-    Args:
-        model: The model to apply hooks to
+    QAT hooks for activation quantization awareness during training.
+    NOTE: This is a monitoring hook only — it does not change the computation graph.
     """
 
     def quantize_hook(module, input, output):
-        """Hook to quantize activations during forward pass."""
         if isinstance(output, torch.Tensor) and output.dtype == torch.float32:
-            # Quantize to int8 for memory efficiency
             scale = output.abs().max() / 127.0
-            quantized = (output / scale).round().clamp(-128, 127).to(torch.int8)
-            return quantized, scale
-        return output
+            # Store scale for monitoring but DO NOT modify output
+            module._last_activation_scale = scale.item()
+        return output  # Return original output unchanged
 
     # Register hooks for linear layers
     for name, module in model.named_modules():

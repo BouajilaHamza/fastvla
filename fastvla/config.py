@@ -50,7 +50,7 @@ class FastVLAConfig(PretrainedConfig):
         head_type: str = "mlp_continuous",  # "mlp_continuous", "mlp_discrete", "flow_matching"
         num_bins: int = 256,  # bins for the discrete head
         num_inference_steps: int = 10,  # ODE steps for the flow-matching head
-        pooling_strategy: str = "masked_mean",  # "masked_mean", "mean", "last"
+        pooling_strategy: str = "last",  # Changed from "masked_mean" — final token carries most action-relevant signal
         # Action Normalization
         norm_min: Optional[list] = None,
         norm_max: Optional[list] = None,
@@ -74,6 +74,10 @@ class FastVLAConfig(PretrainedConfig):
         use_torch_compile: Optional[bool] = None,  # None = auto-detect (Ada/Hopper)
         use_relative_delta: bool = False,
         device_map: str = "auto",
+        # Proprioceptive state
+        state_dim: int = 7,
+        # Memory
+        offload_activations: bool = False,
         # RL Integration
         use_rl: bool = False,
         rl_hidden_dim: int = 256,
@@ -120,5 +124,7 @@ class FastVLAConfig(PretrainedConfig):
             _auto_torch_compile() if use_torch_compile is None else use_torch_compile
         )
         self.use_relative_delta = use_relative_delta
+        self.state_dim = state_dim
+        self.offload_activations = offload_activations
         self.use_rl = use_rl
         self.rl_hidden_dim = rl_hidden_dim

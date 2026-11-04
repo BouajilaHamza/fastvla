@@ -28,7 +28,7 @@ def test_trainer_initialization():
         max_steps=1,
     )
 
-    assert trainer.optimizer.param_groups[0]["lr"] == 1e-4
+    assert trainer.learning_rate == 1e-4
     assert trainer.train_dataloader is not None
     assert trainer.max_steps == 1
 

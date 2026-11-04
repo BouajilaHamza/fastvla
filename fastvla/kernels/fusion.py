@@ -129,6 +129,14 @@ def vision_language_cross_attention(
         visual: Keys/Values [B, T_kv, D]
     Returns:
         fused: [B, T_q, D]
+
+    Note on large hidden dims (D > 256):
+        The Triton kernel requires D ≤ 256 to fit within shared-memory budgets
+        on L4/T4 GPUs.  For 7B-class models (D=4096) FastVLAModel applies a
+        learned low-rank projection bridge (attn_proj_down / attn_proj_up) that
+        reduces the working dimension to 256 before this call and projects back
+        afterwards.  The SDPA fallback branch below therefore only fires for
+        callers that bypass that bridge (e.g. direct unit tests at large D).
     """
     # 1. Shape and Device Validation
     B, T_q, D = text.shape

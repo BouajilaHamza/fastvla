@@ -214,6 +214,17 @@ class FastVLAModel(PreTrainedModel):
         
         self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
 
+        # Low-rank attention bridge: project to Triton-friendly dim (≤256) for
+        # cross-attention, then project back.  Adds ~2×D×256 params (≈2M for
+        # D=4096) and makes the Triton kernel fire on every GPU.
+        self.attn_proj_down = nn.Linear(l_hidden, 256, bias=False).to(llm_device)
+        self.attn_proj_up   = nn.Linear(256, l_hidden, bias=False).to(llm_device)
+
+        # Proprioceptive state projection: maps [B, state_dim] → [B, 1, l_hidden]
+        # so the robot's joint state can be prepended to the token sequence.
+        state_dim = getattr(config, "state_dim", 7)
+        self.state_proj = nn.Linear(state_dim, l_hidden).to(llm_device)
+
         out_action_dim = config.action_dim * config.chunk_size
         head_type = getattr(config, "head_type", "mlp_continuous")
         if head_type in (None, "mlp_continuous", "triton"):
@@ -628,22 +639,30 @@ class FastVLAModel(PreTrainedModel):
             return last
         return out.hidden_states[-1]
 
-    def forward(self, pixel_values, input_ids, attention_mask=None, labels=None):
+    def forward(self, pixel_values, input_ids, attention_mask=None, labels=None, states=None):
         """Forward pass handles multi-camera inputs and action prediction."""
-        visual_features = []
-        for cam_idx in range(pixel_values.size(1)):
-            cam_images = pixel_values[:, cam_idx]
-            # Use the adapter interface directly
-            cam_feats = self.vision_encoder(cam_images)
-            if hasattr(cam_feats, "last_hidden_state"):
-                cam_feats = cam_feats.last_hidden_state
-            visual_features.append(cam_feats)
-
-        # Concatenate multi-camera features along sequence dimension [B, num_cams * T_v, D]
-        visual_features = torch.cat(visual_features, dim=1)
+        # FIX 2: Batch all cameras into a single encoder forward pass instead of
+        # encoding them one-by-one in a Python loop (pure GPU idle time).
+        B, num_cams, C, H, W = pixel_values.shape
+        flat_imgs = pixel_values.view(B * num_cams, C, H, W)
+        cam_feats = self.vision_encoder(flat_imgs)
+        if hasattr(cam_feats, "last_hidden_state"):
+            cam_feats = cam_feats.last_hidden_state  # [B*num_cams, T_v, D_v]
+        T_v, D_v = cam_feats.shape[1], cam_feats.shape[2]
+        # Reshape back and concatenate cameras along the sequence dimension
+        visual_features = cam_feats.view(B, num_cams * T_v, D_v)  # [B, num_cams*T_v, D_v]
 
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
+
+        # FIX 3: Prepend proprioceptive state embedding to the token sequence.
+        if states is not None:
+            state_emb = self.state_proj(states.to(llm_device).float())  # [B, l_hidden]
+            state_emb = state_emb.unsqueeze(1)  # [B, 1, l_hidden]
+            text_embeds = torch.cat([state_emb, text_embeds], dim=1)  # prepend
+            if attention_mask is not None:
+                state_mask = torch.ones(B, 1, device=attention_mask.device, dtype=attention_mask.dtype)
+                attention_mask = torch.cat([state_mask, attention_mask], dim=1)
 
         # Use optimized Cross-Attention Fusion (Text attends to Visual)
         from .kernels import vision_language_cross_attention
@@ -651,7 +670,16 @@ class FastVLAModel(PreTrainedModel):
         # Project visual to match language dimension
         visual_features = self.vision_proj(visual_features.to(llm_device))
 
-        fused_embeds = vision_language_cross_attention(text_embeds, visual_features)
+        # FIX 1: Use low-rank projection bridge so the Triton kernel fires even
+        # for large hidden dims (e.g. D=4096 for 7B models).  Project text and
+        # visual down to 256 for cross-attention, then project back and add as a
+        # residual on top of the original text embeddings.
+        text_lo   = self.attn_proj_down(text_embeds)    # [B, T_q, 256]
+        visual_lo = self.attn_proj_down(visual_features) # [B, T_kv, 256]
+        fused_lo  = vision_language_cross_attention(text_lo, visual_lo)  # Triton fires
+        # Project back and residual-add with original text embeddings
+        fused_embeds = text_embeds + self.attn_proj_up(fused_lo)
+
         last_hidden = self._encode_sequence(fused_embeds, attention_mask)
 
         head_device = next(self.action_head.parameters()).device
