@@ -184,6 +184,7 @@ def get_peft_config(
     lora_dropout: float = 0.05,
     target_modules: Optional[list] = None,
     task_type=None,
+    layers_to_transform: Optional[list] = None,
 ) -> Union["LoraConfig", Any]:
     """
     Create PEFT (LoRA) configuration.
@@ -194,6 +195,7 @@ def get_peft_config(
         lora_dropout: LoRA dropout rate
         target_modules: Target modules for LoRA
         task_type: Task type for PEFT (defaults to CAUSAL_LM)
+        layers_to_transform: List of layer indices to apply LoRA (selective layer training)
 
     Returns:
         LoraConfig
@@ -224,14 +226,18 @@ def get_peft_config(
             "down_proj",
         ]
 
-    return LoraConfig(
-        r=r,
-        lora_alpha=lora_alpha,
-        target_modules=target_modules,
-        lora_dropout=lora_dropout,
-        bias="none",
-        task_type=task_type,
-    )
+    kwargs = {
+        "r": r,
+        "lora_alpha": lora_alpha,
+        "target_modules": target_modules,
+        "lora_dropout": lora_dropout,
+        "bias": "none",
+        "task_type": task_type,
+    }
+    if layers_to_transform is not None:
+        kwargs["layers_to_transform"] = layers_to_transform
+
+    return LoraConfig(**kwargs)
 
 
 def estimate_memory_usage(

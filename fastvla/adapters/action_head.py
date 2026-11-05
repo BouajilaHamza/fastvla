@@ -115,14 +115,15 @@ class DiscreteActionHead(BaseActionHead):
     ) -> torch.Tensor:
         """
         Cross-entropy over discretized bins — the principled objective for a
-        classification-style action head. Targets in [0, 1] are mapped to bin
-        indices. This trains the exact distribution used by argmax inference.
+        classification-style action head. Uses fused Triton cross-entropy when available.
         """
         logits = self._logits(hidden_states)  # [B, action_dim, num_bins]
         action_dim = logits.shape[1]
         tgt = targets[..., :action_dim].to(logits.device).clamp(0.0, 1.0)
         bin_idx = (tgt * (self.num_bins - 1)).round().long()
-        return F.cross_entropy(
+
+        from ..kernels import fused_cross_entropy_loss
+        return fused_cross_entropy_loss(
             logits.reshape(-1, self.num_bins), bin_idx.reshape(-1)
         )
 

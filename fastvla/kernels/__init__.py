@@ -130,6 +130,8 @@ def action_decode_backward(
     return action_decode_cpu(hidden.clone(), weight1, bias1, weight2, bias2)
 
 
+from .fused_loss import fused_cross_entropy_loss
+
 __all__ = [
     "action_decode_backward",
     "action_decode_forward",
@@ -140,4 +142,5 @@ __all__ = [
     "vision_language_cross_attention",
     "vision_language_fusion_backward",
     "vision_language_fusion_forward",
+    "fused_cross_entropy_loss",
 ]

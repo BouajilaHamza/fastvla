@@ -536,7 +536,21 @@ class FastVLAModel(PreTrainedModel):
         if config.use_peft:
             from peft import get_peft_model
 
-            llm = get_peft_model(llm, get_peft_config(config.lora_rank))
+            layers_to_transform = None
+            if getattr(config, "trainable_llm_layers", None) is not None:
+                # Get total hidden layers in llm backbone
+                total_layers = getattr(getattr(llm, "config", None), "num_hidden_layers", 32)
+                k = min(config.trainable_llm_layers, total_layers)
+                layers_to_transform = list(range(total_layers - k, total_layers))
+                logger.info(f"Applying selective LoRA to top {k} layers: {layers_to_transform}")
+
+            peft_cfg = get_peft_config(
+                r=config.lora_rank,
+                lora_alpha=config.lora_alpha,
+                lora_dropout=config.lora_dropout,
+                layers_to_transform=layers_to_transform,
+            )
+            llm = get_peft_model(llm, peft_cfg)
         return llm
 
     @property

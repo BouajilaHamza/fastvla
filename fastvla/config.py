@@ -68,6 +68,7 @@ class FastVLAConfig(PretrainedConfig):
         lora_rank: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
+        trainable_llm_layers: Optional[int] = None,  # Train only the top N layers with LoRA
         # Memory
         gradient_checkpointing: bool = True,
         freeze_vision_encoder: bool = True,
@@ -118,6 +119,7 @@ class FastVLAConfig(PretrainedConfig):
         self.lora_rank = lora_rank
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout
+        self.trainable_llm_layers = trainable_llm_layers
         self.gradient_checkpointing = gradient_checkpointing
         self.freeze_vision_encoder = freeze_vision_encoder
         self.use_torch_compile = (
