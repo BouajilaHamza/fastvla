@@ -67,8 +67,11 @@ class GRPOTrainer:
         
         with torch.no_grad():
             # Get policy mean (mu)
-            (action_preds, _), _ = self.model(pixel_values=obs, input_ids=input_ids)
-            mu = action_preds[0]
+            outputs = self.model(pixel_values=obs, input_ids=input_ids)
+            preds = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+            if isinstance(preds, (tuple, list)):
+                preds = preds[0]
+            mu = preds[0]
             
             # Sample action
             dist = Normal(mu, action_std)
@@ -128,8 +131,11 @@ class GRPOTrainer:
         
         # Re-run model for current log_probs
         # Use accelerator if available
-        (action_preds, _), _ = self.model(pixel_values=obs, input_ids=input_ids)
-        mu = action_preds
+        outputs = self.model(pixel_values=obs, input_ids=input_ids)
+        preds = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+        if isinstance(preds, (tuple, list)):
+            preds = preds[0]
+        mu = preds
         dist = Normal(mu, action_std)
         new_log_probs = dist.log_prob(old_actions).sum(dim=-1)
         entropy = dist.entropy().mean()
@@ -148,8 +154,11 @@ class GRPOTrainer:
         kl_penalty = torch.tensor(0.0, device=self.model.device)
         if self.beta > 0 and self.ref_model is not None:
             with torch.no_grad():
-                (ref_action_preds, _), _ = self.ref_model(pixel_values=obs, input_ids=input_ids)
-            kl_div = 0.5 * torch.sum(((mu - ref_action_preds) / action_std) ** 2, dim=-1).mean()
+                ref_outputs = self.ref_model(pixel_values=obs, input_ids=input_ids)
+                ref_preds = ref_outputs[0] if isinstance(ref_outputs, (tuple, list)) else ref_outputs
+                if isinstance(ref_preds, (tuple, list)):
+                    ref_preds = ref_preds[0]
+            kl_div = 0.5 * torch.sum(((mu - ref_preds) / action_std) ** 2, dim=-1).mean()
             kl_penalty = self.beta * kl_div
 
         # Total Loss with KL penalty

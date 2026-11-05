@@ -53,15 +53,21 @@ def _fused_cross_entropy_fwd_kernel(
     loss = log_sum_exp - target_logits
     tl.store(loss_ptr + batch_idx, loss, mask=mask)
 
-def fused_cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+def fused_cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor, ignore_index: int = -100) -> torch.Tensor:
     """
     Computes cross entropy loss: logits [N, num_bins], targets [N].
     Falls back to torch.nn.functional.cross_entropy on CPU or when Triton is unavailable.
     """
     if not logits.is_cuda:
-        return torch.nn.functional.cross_entropy(logits, targets)
+        return torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index)
 
     N, num_bins = logits.shape
+    valid_mask = targets != ignore_index
+    if not valid_mask.any():
+        return torch.tensor(0.0, device=logits.device, dtype=logits.dtype)
+
+    # Replace ignore_index with 0 temporarily for valid memory loads
+    safe_targets = torch.where(valid_mask, targets, torch.zeros_like(targets))
     loss = torch.empty(N, device=logits.device, dtype=torch.float32)
 
     BLOCK_B = 64
@@ -70,16 +76,17 @@ def fused_cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> tor
     try:
         _fused_cross_entropy_fwd_kernel[grid](
             logits,
-            targets,
+            safe_targets,
             loss,
             logits.stride(0),
             logits.stride(1),
-            targets.stride(0),
+            safe_targets.stride(0),
             N,
             num_bins=triton.next_power_of_2(num_bins),
             BLOCK_B=BLOCK_B,
         )
-        return loss.mean()
+        masked_loss = loss * valid_mask.float()
+        return masked_loss.sum() / valid_mask.float().sum().clamp(min=1.0)
     except Exception:
         # Fallback to standard PyTorch if Triton kernel execution encounters any issue
-        return torch.nn.functional.cross_entropy(logits, targets)
+        return torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index)

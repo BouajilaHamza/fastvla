@@ -1,5 +1,6 @@
 import os
-import modal
+import pytest
+modal = pytest.importorskip("modal")
 from dotenv import load_dotenv
 
 # Load local .env for HF_API_KEY if needed locally

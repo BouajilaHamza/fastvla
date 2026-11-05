@@ -7,6 +7,7 @@ from fastvla.kernels import (
     vision_language_fusion_forward,
     action_decode_forward,
 )
+from fastvla.kernels.fused_loss import fused_cross_entropy_loss
 
 # Test parameters
 BATCH_SIZE = 2
@@ -64,6 +65,26 @@ class TestActionDecodeKernel:
 
         assert actions.shape == (BATCH_SIZE, ACTION_DIM)
         assert torch.all(actions >= -1.0 - 1e-6) and torch.all(actions <= 1.0 + 1e-6)
+
+
+class TestFusedCrossEntropyLoss:
+    """Tests for fused cross entropy loss kernel and PyTorch fallback."""
+
+    def test_loss_accuracy(self):
+        logits = torch.randn(16, 256, dtype=torch.float32)
+        targets = torch.randint(0, 256, (16,))
+        loss_fused = fused_cross_entropy_loss(logits, targets)
+        loss_ref = torch.nn.functional.cross_entropy(logits, targets)
+        assert torch.allclose(loss_fused, loss_ref, atol=1e-5)
+
+    def test_loss_with_ignore_index(self):
+        logits = torch.randn(16, 256, dtype=torch.float32)
+        targets = torch.randint(0, 256, (16,))
+        targets[0] = -100
+        targets[5] = -100
+        loss_fused = fused_cross_entropy_loss(logits, targets, ignore_index=-100)
+        loss_ref = torch.nn.functional.cross_entropy(logits, targets, ignore_index=-100)
+        assert torch.allclose(loss_fused, loss_ref, atol=1e-5)
 
 
 if __name__ == "__main__":

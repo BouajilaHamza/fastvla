@@ -53,6 +53,32 @@ class TestFastVLAModel:
         assert loss is not None
         assert not torch.isnan(loss)
 
+    def test_forward_pass_with_states(self, dummy_config, dummy_batch):
+        """Test forward pass including robot joint proprioception states."""
+        model = FastVLAModel(dummy_config)
+        states = torch.randn(2, dummy_config.action_dim)
+        action_preds, loss = model(
+            pixel_values=dummy_batch["pixel_values"],
+            input_ids=dummy_batch["input_ids"],
+            attention_mask=dummy_batch["attention_mask"],
+            states=states,
+            labels=dummy_batch["labels"],
+        )
+        assert action_preds.shape == (2, dummy_config.action_dim)
+        assert loss is not None
+        assert not torch.isnan(loss)
+
+    def test_multi_camera_batched_forward(self, dummy_config, dummy_batch):
+        """Test multi-camera batching with 3 cameras."""
+        model = FastVLAModel(dummy_config)
+        cams_pixels = torch.randn(2, 3, 3, 32, 32)
+        action_preds, _ = model(
+            pixel_values=cams_pixels,
+            input_ids=dummy_batch["input_ids"],
+            attention_mask=dummy_batch["attention_mask"],
+        )
+        assert action_preds.shape == (2, dummy_config.action_dim)
+
     def test_training_step(self, dummy_config, dummy_batch):
         """Test a single training step."""
         model = FastVLAModel(dummy_config)

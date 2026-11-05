@@ -150,9 +150,12 @@ class PPOTrainer:
         """Select action and compute log_prob and value."""
         self.model.eval()
         with torch.no_grad():
-            (action_preds, value_preds), _ = self.model(
-                pixel_values=obs, input_ids=input_ids
-            )
+            outputs = self.model(pixel_values=obs, input_ids=input_ids)
+            preds = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+            if isinstance(preds, (tuple, list)):
+                action_preds, value_preds = preds[0], preds[1]
+            else:
+                action_preds, value_preds = preds, torch.zeros(preds.shape[0], 1, device=preds.device)
 
             # TODO: Handle Discrete heads
             # For now, assume continuous action head (mu)
@@ -183,9 +186,12 @@ class PPOTrainer:
         self.model.train()
         for _ in range(self.ppo_epochs):
             # Re-evaluate log_probs and values
-            (new_action_preds, new_value_preds), _ = self.model(
-                pixel_values=obs, input_ids=ids
-            )
+            outputs = self.model(pixel_values=obs, input_ids=ids)
+            preds = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+            if isinstance(preds, (tuple, list)):
+                new_action_preds, new_value_preds = preds[0], preds[1]
+            else:
+                new_action_preds, new_value_preds = preds, torch.zeros(preds.shape[0], 1, device=preds.device)
 
             # Policy Loss
             dist = Normal(new_action_preds, self.action_std)

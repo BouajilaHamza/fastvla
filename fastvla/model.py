@@ -406,6 +406,13 @@ class FastVLAModel(PreTrainedModel):
             name_lower = str(model_name).lower()
             return any(k in name_lower for k in ["openvla", "llava", "vla-7b"])
 
+    @property
+    def device(self) -> torch.device:
+        try:
+            return next(self.parameters()).device
+        except (StopIteration, Exception):
+            return torch.device("cpu")
+
     def _sync_config_with_loaded_models(self):
         """Update config attributes to match actual loaded model dimensions."""
         self.config.vision_hidden_size = self.vision_encoder.embed_dim
@@ -817,7 +824,7 @@ class FastVLAModel(PreTrainedModel):
                     name_low = str(model_name_or_path).lower()
                     do_fallback = any(
                         k in name_low for k in VLAModelRegistry.COMPOSITE_VLM_KEYWORDS
-                    )
+                    ) or kwargs.get("dummy", False)
 
                 if "llm_name" not in kwargs and do_fallback:
                     kwargs["llm_name"] = model_name_or_path

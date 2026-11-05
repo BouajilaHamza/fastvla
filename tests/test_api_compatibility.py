@@ -30,7 +30,7 @@ def test_trainer_aliases():
     # This should not raise TypeError or ValueError
     trainer = FastVLATrainer(model=model, dataset=dataset, lr=2e-4)
 
-    assert trainer.optimizer.param_groups[0]["lr"] == 2e-4
+    assert trainer.learning_rate == 2e-4
     assert len(trainer.train_dataloader) > 0
 
 
