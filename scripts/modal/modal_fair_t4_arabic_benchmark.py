@@ -42,7 +42,7 @@ image = (
         "numpy>=1.24.0",
         "triton>=2.2.0",
     )
-    .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@84442e4")
+    .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@1029d37")
 )
 
 app = modal.App("fastvla-fair-t4-arabic-benchmark", image=image)
