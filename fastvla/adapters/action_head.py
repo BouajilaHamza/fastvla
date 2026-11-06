@@ -204,10 +204,12 @@ class FlowMatchingActionHead(BaseActionHead):
         hidden_dim: int = 256,
         num_inference_steps: int = 10,
         time_embed_dim: int = 64,
+        solver: str = "euler",
     ):
         super().__init__(input_dim, action_dim)
         self.num_inference_steps = num_inference_steps
         self.time_embed_dim = time_embed_dim
+        self.solver = solver
 
         # Conditioning projection from pooled hidden states.
         self.cond_proj = nn.Linear(input_dim, hidden_dim)
@@ -248,7 +250,59 @@ class FlowMatchingActionHead(BaseActionHead):
         inp = torch.cat([x_t, cond, t_emb], dim=-1)
         return self.net(inp)
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def solve_ode(
+        self,
+        x0: torch.Tensor,
+        cond: torch.Tensor,
+        steps: int = 10,
+        solver: str = "euler",
+    ) -> torch.Tensor:
+        """
+        Integrates the continuous velocity ODE dx/dt = v_theta(x, t, cond) from t=0 to t=1.
+
+        Supported solvers:
+        - 'euler': 1st-order explicit Euler
+        - 'midpoint': 2nd-order Runge-Kutta Midpoint method (evaluates velocity at half-step)
+        - 'heun': 2nd-order Runge-Kutta Heun predictor-corrector
+        """
+        B = x0.shape[0]
+        device = x0.device
+        dtype = x0.dtype
+        x = x0.clone()
+        dt = 1.0 / steps
+
+        if solver == "euler":
+            for step in range(steps):
+                t = torch.full((B,), step * dt, device=device, dtype=dtype)
+                x = x + dt * self.velocity(x, t, cond)
+        elif solver == "midpoint":
+            for step in range(steps):
+                t_curr = torch.full((B,), step * dt, device=device, dtype=dtype)
+                t_mid = torch.full((B,), (step + 0.5) * dt, device=device, dtype=dtype)
+                v1 = self.velocity(x, t_curr, cond)
+                x_mid = x + 0.5 * dt * v1
+                v_mid = self.velocity(x_mid, t_mid, cond)
+                x = x + dt * v_mid
+        elif solver == "heun":
+            for step in range(steps):
+                t_curr = torch.full((B,), step * dt, device=device, dtype=dtype)
+                t_next = torch.full((B,), min((step + 1) * dt, 1.0), device=device, dtype=dtype)
+                v1 = self.velocity(x, t_curr, cond)
+                x_pred = x + dt * v1
+                v2 = self.velocity(x_pred, t_next, cond)
+                x = x + 0.5 * dt * (v1 + v2)
+        else:
+            raise ValueError(f"Unknown ODE solver: {solver}. Choose 'euler', 'midpoint', or 'heun'.")
+
+        return x
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        solver: str | None = None,
+        steps: int | None = None,
+        initial_noise: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         Integrate the learned ODE from noise to an action.
         Returns: [B, action_dim] in [-1, 1].
@@ -259,11 +313,15 @@ class FlowMatchingActionHead(BaseActionHead):
         B = hidden_states.shape[0]
         device = hidden_states.device
 
-        x = torch.randn(B, self.action_dim, device=device, dtype=dtype)
-        dt = 1.0 / self.num_inference_steps
-        for step in range(self.num_inference_steps):
-            t = torch.full((B,), step * dt, device=device, dtype=dtype)
-            x = x + dt * self.velocity(x, t, cond)
+        if initial_noise is not None:
+            x0 = initial_noise.to(device=device, dtype=dtype)
+        else:
+            x0 = torch.randn(B, self.action_dim, device=device, dtype=dtype)
+
+        solver = solver or self.solver
+        steps = steps or self.num_inference_steps
+
+        x = self.solve_ode(x0, cond, steps=steps, solver=solver)
         return torch.tanh(x)
 
     def compute_loss(
@@ -315,6 +373,7 @@ def get_action_head(input_dim: int, config: dict) -> BaseActionHead:
             action_dim=config.get("action_dim", 7),
             hidden_dim=config.get("hidden_dim", 256),
             num_inference_steps=config.get("num_inference_steps", 10),
+            solver=config.get("solver", "euler"),
         )
     else:
         raise ValueError(f"Unknown action head type: {head_type}")
