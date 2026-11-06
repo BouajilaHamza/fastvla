@@ -27,7 +27,7 @@ image = (
         "numpy>=1.24.0",
         "triton>=2.2.0",
     )
-    .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@4bbd1b2")
+    .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@f9ca99f")
 )
 
 app = modal.App("fastvla-apples-to-apples-benchmark", image=image)
