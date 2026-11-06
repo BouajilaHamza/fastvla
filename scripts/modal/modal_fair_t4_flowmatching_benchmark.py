@@ -45,7 +45,7 @@ image = (
         "numpy>=1.24.0",
         "triton>=2.2.0",
     )
-    .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@bad8343")
+    .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@706a714")
 )
 
 app = modal.App("fastvla-fair-t4-flowmatching", image=image)
