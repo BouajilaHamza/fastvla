@@ -113,8 +113,9 @@ def fastvla_7b_t4():
     with torch.device("meta"):
         model_meta = AutoModelForCausalLM.from_config(llama_config)
 
+    ALL_LINEAR = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
     for name, module in model_meta.named_modules():
-        if isinstance(module, nn.Linear) and any(k in name for k in ["q_proj", "v_proj"]):
+        if isinstance(module, nn.Linear) and any(k in name for k in ALL_LINEAR):
             parent_name = name.rsplit(".", 1)[0] if "." in name else ""
             child_name = name.rsplit(".", 1)[-1]
             parent = model_meta.get_submodule(parent_name) if parent_name else model_meta
@@ -316,8 +317,9 @@ def fastvla_7b_l4():
     with torch.device("meta"):
         model_meta = AutoModelForCausalLM.from_config(llama_config)
 
+    ALL_LINEAR = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
     for name, module in model_meta.named_modules():
-        if isinstance(module, nn.Linear) and any(k in name for k in ["q_proj", "v_proj"]):
+        if isinstance(module, nn.Linear) and any(k in name for k in ALL_LINEAR):
             parent_name = name.rsplit(".", 1)[0] if "." in name else ""
             child_name = name.rsplit(".", 1)[-1]
             parent = model_meta.get_submodule(parent_name) if parent_name else model_meta
@@ -382,9 +384,9 @@ def fastvla_7b_l4():
 def main():
     print("🚀 Launching Apples-to-Apples Empirical Benchmarks on Modal...")
 
-    # Run T4 Accessibility Tests
-    t4_std = standard_7b_t4.remote()
+    # Run FastVLA First to ensure clean execution
     t4_fast = fastvla_7b_t4.remote()
+    t4_std = standard_7b_t4.remote()
 
     # Run L4 Performance Tests
     l4_std = standard_7b_l4.remote()
