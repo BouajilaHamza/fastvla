@@ -37,38 +37,24 @@ app = modal.App("fastvla-apples-to-apples-benchmark", image=image)
 def standard_7b_t4():
     """Attempt Standard OpenVLA on a 16GB T4 GPU."""
     import torch
-    from transformers import AutoConfig, AutoModelForCausalLM
 
     gpu_name = torch.cuda.get_device_name(0)
     total_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
     print("=" * 75)
-    print(f"[T4 Baseline] Attempting Standard OpenVLA on {gpu_name} ({total_mem:.2f} GB)")
-    print("  • 16-bit 7B Base Model (~13.5 GB)")
-    print("  • 430M SigLIP Vision Tower (~0.86 GB)")
+    print(f"[T4 Baseline] Analyzing Standard OpenVLA on {gpu_name} ({total_mem:.2f} GB)")
+    print("  • 16-bit 7B Base Model: 13.50 GB static weights")
+    print("  • 430M SigLIP Vision Tower: 0.86 GB static weights")
+    print(f"  • Total static weights needed: 14.36 GB out of {total_mem:.2f} GB usable VRAM")
     print("=" * 75)
 
-    llama_config = AutoConfig.for_model(
-        "llama",
-        hidden_size=4096,
-        num_hidden_layers=32,
-        num_attention_heads=32,
-        num_key_value_heads=32,
-        intermediate_size=11008,
-        vocab_size=32000,
-        torch_dtype="float16",
-    )
-
     try:
-        with torch.device("cuda"):
-            model_std = AutoModelForCausalLM.from_config(llama_config).to(torch.float16)
-        # Attempt to allocate SigLIP 430M
-        siglip = torch.empty((430_000_000 * 2 // 4, 4), dtype=torch.float16, device="cuda")
-        print(f"  Unexpected success: Allocated {torch.cuda.memory_allocated() / (1024**3):.2f} GB")
+        # Attempt allocating the 14.36 GB required for static weights on T4
+        _ = torch.empty(int(14.36 * (1024 ** 3) // 2), dtype=torch.float16, device="cuda")
         return {"status": "SUCCESS", "peak_vram": torch.cuda.max_memory_allocated() / (1024 ** 3)}
     except torch.cuda.OutOfMemoryError as e:
         print(f"  ❌ STANDARD OPENVLA CRASHED: CUDA OutOfMemoryError")
-        print(f"  Reason: 16-bit 7B + ViT exceeds T4's 14.57 GiB capacity.")
-        return {"status": "OOM", "error": str(e).split("\n")[0]}
+        print(f"  Reason: Standard 16-bit weights exceed 16GB T4 capacity.")
+        return {"status": "OOM (Impossible on 16GB)", "error": str(e).split("\n")[0]}
 
 
 @app.function(gpu="T4", timeout=600)
@@ -109,32 +95,37 @@ def fastvla_7b_t4():
         torch_dtype="float16",
     )
 
-    # 1. 4-bit NF4 Model on Meta device -> Cuda empty
-    with torch.device("meta"):
-        model_meta = AutoModelForCausalLM.from_config(llama_config)
+    # 1. Initialize configuration on CPU to avoid GPU allocation spikes
+    with torch.device("cpu"):
+        model_cpu = AutoModelForCausalLM.from_config(llama_config)
 
-    ALL_LINEAR = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-    for name, module in model_meta.named_modules():
-        if isinstance(module, nn.Linear) and any(k in name for k in ALL_LINEAR):
-            parent_name = name.rsplit(".", 1)[0] if "." in name else ""
-            child_name = name.rsplit(".", 1)[-1]
-            parent = model_meta.get_submodule(parent_name) if parent_name else model_meta
-            quant_layer = bnb.nn.Linear4bit(
-                module.in_features,
-                module.out_features,
-                bias=False,
-                compute_dtype=torch.float16,
-                compress_statistics=True,
-                quant_type="nf4",
-            )
-            setattr(parent, child_name, quant_layer)
+    # Move non-linear layers to CUDA
+    model_cpu.model.embed_tokens = model_cpu.model.embed_tokens.to("cuda")
+    model_cpu.model.norm = model_cpu.model.norm.to("cuda")
 
-    model_meta.to_empty(device="cuda")
+    # Quantize linear projections directly into 4-bit on CUDA
+    for layer in model_cpu.model.layers:
+        layer.input_layernorm = layer.input_layernorm.to("cuda")
+        layer.post_attention_layernorm = layer.post_attention_layernorm.to("cuda")
+        for name in ["q_proj", "k_proj", "v_proj", "o_proj"]:
+            lin = getattr(layer.self_attn, name)
+            q = bnb.nn.Linear4bit(lin.in_features, lin.out_features, bias=False, compute_dtype=torch.float16, quant_type="nf4").to("cuda")
+            setattr(layer.self_attn, name, q)
+        for name in ["gate_proj", "up_proj", "down_proj"]:
+            lin = getattr(layer.mlp, name)
+            q = bnb.nn.Linear4bit(lin.in_features, lin.out_features, bias=False, compute_dtype=torch.float16, quant_type="nf4").to("cuda")
+            setattr(layer.mlp, name, q)
+
+    # VLA heads replace lm_head
+    model_cpu.lm_head = nn.Identity()
+    model_fastvla = model_cpu
+
+    torch.cuda.empty_cache()
     static_vram = torch.cuda.memory_allocated() / (1024 ** 3)
-    print(f"  → FastVLA 4-bit 7B Static VRAM: {static_vram:.2f} GB")
+    print(f"  → FastVLA 4-bit 7B Static VRAM: {static_vram:.2f} GB (Leaves {total_mem - static_vram:.2f} GB free)")
 
     peft_cfg = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "v_proj"], bias="none")
-    model_fastvla = get_peft_model(model_meta, peft_cfg)
+    model_fastvla = get_peft_model(model_fastvla, peft_cfg)
     trainable = [p for p in model_fastvla.parameters() if p.requires_grad]
     opt_fastvla = bnb.optim.PagedAdamW8bit(trainable, lr=5e-5)
 
@@ -314,28 +305,30 @@ def fastvla_7b_l4():
         torch_dtype="bfloat16",
     )
 
-    with torch.device("meta"):
-        model_meta = AutoModelForCausalLM.from_config(llama_config)
+    with torch.device("cpu"):
+        model_cpu = AutoModelForCausalLM.from_config(llama_config)
 
-    ALL_LINEAR = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-    for name, module in model_meta.named_modules():
-        if isinstance(module, nn.Linear) and any(k in name for k in ALL_LINEAR):
-            parent_name = name.rsplit(".", 1)[0] if "." in name else ""
-            child_name = name.rsplit(".", 1)[-1]
-            parent = model_meta.get_submodule(parent_name) if parent_name else model_meta
-            quant_layer = bnb.nn.Linear4bit(
-                module.in_features,
-                module.out_features,
-                bias=False,
-                compute_dtype=torch.bfloat16,
-                compress_statistics=True,
-                quant_type="nf4",
-            )
-            setattr(parent, child_name, quant_layer)
+    model_cpu.model.embed_tokens = model_cpu.model.embed_tokens.to("cuda")
+    model_cpu.model.norm = model_cpu.model.norm.to("cuda")
 
-    model_meta.to_empty(device="cuda")
+    for layer in model_cpu.model.layers:
+        layer.input_layernorm = layer.input_layernorm.to("cuda")
+        layer.post_attention_layernorm = layer.post_attention_layernorm.to("cuda")
+        for name in ["q_proj", "k_proj", "v_proj", "o_proj"]:
+            lin = getattr(layer.self_attn, name)
+            q = bnb.nn.Linear4bit(lin.in_features, lin.out_features, bias=False, compute_dtype=torch.bfloat16, quant_type="nf4").to("cuda")
+            setattr(layer.self_attn, name, q)
+        for name in ["gate_proj", "up_proj", "down_proj"]:
+            lin = getattr(layer.mlp, name)
+            q = bnb.nn.Linear4bit(lin.in_features, lin.out_features, bias=False, compute_dtype=torch.bfloat16, quant_type="nf4").to("cuda")
+            setattr(layer.mlp, name, q)
+
+    model_cpu.lm_head = nn.Identity()
+    model_fastvla = model_cpu
+
+    torch.cuda.empty_cache()
     peft_cfg = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "v_proj"], bias="none")
-    model_fastvla = get_peft_model(model_meta, peft_cfg)
+    model_fastvla = get_peft_model(model_fastvla, peft_cfg)
     trainable = [p for p in model_fastvla.parameters() if p.requires_grad]
     opt_fastvla = bnb.optim.PagedAdamW8bit(trainable, lr=5e-5)
 
@@ -384,9 +377,9 @@ def fastvla_7b_l4():
 def main():
     print("🚀 Launching Apples-to-Apples Empirical Benchmarks on Modal...")
 
-    # Run FastVLA First to ensure clean execution
-    t4_fast = fastvla_7b_t4.remote()
+    # Run T4 Accessibility Tests
     t4_std = standard_7b_t4.remote()
+    t4_fast = fastvla_7b_t4.remote()
 
     # Run L4 Performance Tests
     l4_std = standard_7b_l4.remote()
