@@ -6,10 +6,16 @@ from .vision import (
     SigLIPVisionAdapter,
     GenericViTVisionAdapter,
 )
+from .token_compressor import (
+    SpatialPatchMerger,
+    PerceiverTokenCompressor,
+)
 
 __all__ = [
     "get_vision_adapter",
     "OpenVLAFusedVisionAdapter",
     "SigLIPVisionAdapter",
     "GenericViTVisionAdapter",
+    "SpatialPatchMerger",
+    "PerceiverTokenCompressor",
 ]
