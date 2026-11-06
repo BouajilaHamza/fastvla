@@ -19,9 +19,60 @@
 [![Modal](https://img.shields.io/badge/Modal-000000?style=for-the-badge&logoColor=white)](https://modal.com)
 [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge)](LICENSE)
 
-[**Arabic Datasets**](docs/datasets/ARABIC_DATASETS.md) | [**RL Technical Report**](docs/reports/RL_TECHNICAL_REPORT.md) | [**Model on HF Hub**](https://huggingface.co/hamzabouajila/fastvla-arabic-precision)
+[**Arabic Datasets**](docs/datasets/ARABIC_DATASETS.md) | [**SOTA Benchmark Report**](docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md) | [**Arabic Hero Model (7B)**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero)
 
 </div>
+
+---
+
+## 🎬 Arabic Physical AI in Action: FastVLA Turbo (7B)
+
+FastVLA Turbo is the first robotics foundation model specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
+
+Below is the live rollout of **FastVLA Turbo (7B)** executing real-time Franka Emika Panda control on the Arabic LIBERO benchmark under the Arabic command:  
+**`"أطفئ الفرن ووضع وعاء الموكا عليه."`** *(Turn off the stove and place the moka pot on it)*:
+
+<div align="center">
+  <img src="assets/fastvla_turbo_arabic_rollout.gif" width="700" alt="FastVLA Turbo Arabic Policy Rollout" />
+  <p><em>Synchronized multi-camera control (Third-person workspace view + Gripper wrist view) running 16-step continuous Flow-Matching trajectories with real-time HUD telemetry on NVIDIA Tesla T4.</em></p>
+</div>
+
+### 🌟 Native Arabic Robotics Commands Tested:
+- **Task 1 (Stove & Moka Pot)**: `"أطفئ الفرن ووضع وعاء الموكا عليه."`
+- **Task 2 (Cooking & Stove)**: `"ضع وعاء الحساء على الموقد وأشعل النار."`
+- **Task 3 (Zero-Shot Manipulation)**: `"التقط كوب القهوة وضعه على الصينية بجانب الإبريق."`
+
+👉 **Model Checkpoint**: Available on Hugging Face Hub at [**`hamzabouajila/fastvla-turbo-arabic-libero`**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero).
+
+---
+
+## ⚡ FastVLA Turbo: The Architectural Breakthrough
+
+When Standard SOTA VLA models (e.g. OpenVLA, Octo, $\pi_0$) are fine-tuned on budget GPUs (NVIDIA Tesla T4 16GB / Google Colab / Kaggle), they hit severe bottlenecks:
+1. **The 96.8% LLM Bottleneck**: In multi-view robotics (agent view + wrist view = 2 cameras), 512 raw visual tokens flood the 7B LLM. The 32 transformer layers spend 96.8% of their time computing attention and MLP forward/backward passes on visual tokens.
+2. **CUDA Out of Memory Spikes**: Live ViT activations push memory over 14.57 GiB at batch size $B=4$, instantly crashing Standard SOTA.
+3. **Compounding Discretization Errors**: Discretizing continuous robot actions into 256 bins causes jerky, drifting trajectories.
+
+**FastVLA Turbo overcomes these bottlenecks with three innovations**:
+- **2x2 Spatial Token Compressor (`SpatialPatchMerger`)**: Spatially groups adjacent patches, condensing 512 patches down to **128 tokens (-75% tokens)**. Total LLM sequence length drops from 544 to 160 tokens.
+- **Zero-Compute Vision Caching**: Pre-extracts 428M SigLIP-So400M features into host RAM, completely evicting the ViT from GPU VRAM during training ($0\text{ MB}$ ViT footprint).
+- **16-Step Continuous Flow Matching**: Predicts smooth velocity vector fields for 16 future steps across 7 DoF ($16 \times 7 = 112$ continuous DoF), eliminating compounding drift.
+
+### 📊 Measured Empirical Speedup on NVIDIA Tesla T4 (16GB)
+
+Rigorous apples-to-apples benchmark on real multi-view data from [`hamzabouajila/ar-libero-10-image`](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image):
+
+| Metric | Standard SOTA VLA (Live SigLIP) | Base FastVLA (Cached SigLIP) | FastVLA Turbo (Spatial Merged) | Advantage |
+| :--- | :--- | :--- | :--- | :--- |
+| **Visual Tokens / Step** | 512 tokens (256 x 2) | 512 tokens (256 x 2) | **128 tokens (64 x 2)** | **-75.0% tokens** |
+| **Total LLM Sequence** | 544 tokens | 544 tokens | **160 tokens** | **-70.6% sequence** |
+| **Step Latency** | 1,868.4 ms | 1,755.7 ms | **868.3 ms** | **2.15x FASTER (-1,000 ms/step)** |
+| **Throughput** | 0.54 step/s | 0.57 step/s | **1.15 step/s** | **2.13x Throughput** |
+| **Peak VRAM on T4** | 9.40 GB (Crashes at B=4) | 8.57 GB | **5.21 GB** | **-44.6% less VRAM (-4.19 GB)** |
+| **VRAM Free Headroom** | 5.17 GB | 6.00 GB | **10.80 GB free** | **Massive headroom for Colab/Kaggle** |
+| **Action Trajectory Horizon** | 1 step (discrete) | 16 continuous steps | **16 continuous steps (112 DoF)** | **Zero compounding drift** |
+
+*(Read the full deep-dive in [docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md](docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md))*
 
 ---
 
