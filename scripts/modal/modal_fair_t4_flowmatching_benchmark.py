@@ -256,12 +256,13 @@ def benchmark_standard_sota_flowmatching(num_steps: int = 50, batch_size: int = 
             torch.cuda.synchronize()
             dt = time.time() - t0
             step_times.append(dt)
-            losses.append(loss.item())
-
-            del flat_imgs, vit_out, vit_tokens, txt_embed, inputs_embeds, out, last_hidden, loss
+            loss_val = loss.item()
+            losses.append(loss_val)
 
             if step % 10 == 0 or step == num_steps - 1:
-                print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss.item():.4f} | Total: {dt*1000:.1f}ms (ViT alone: {dt_vit*1000:.1f}ms)")
+                print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss_val:.4f} | Total: {dt*1000:.1f}ms (ViT alone: {dt_vit*1000:.1f}ms)")
+
+            del flat_imgs, vit_out, vit_tokens, txt_embed, inputs_embeds, out, last_hidden, loss
 
         total_time = time.time() - start_time
         peak_vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
@@ -420,12 +421,13 @@ def benchmark_fastvla_flowmatching(num_steps: int = 50, batch_size: int = 4):
             torch.cuda.synchronize()
             dt = time.time() - t0
             step_times.append(dt)
-            losses.append(loss.item())
-
-            del cached_vit_tokens, txt_embed, inputs_embeds, out, last_hidden, loss
+            loss_val = loss.item()
+            losses.append(loss_val)
 
             if step % 10 == 0 or step == num_steps - 1:
-                print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss.item():.4f} | Total: {dt*1000:.1f}ms (ViT time: 0.0ms)")
+                print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss_val:.4f} | Total: {dt*1000:.1f}ms (ViT time: 0.0ms)")
+
+            del cached_vit_tokens, txt_embed, inputs_embeds, out, last_hidden, loss
 
         total_time = time.time() - start_time
         peak_vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
