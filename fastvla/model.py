@@ -671,7 +671,7 @@ class FastVLAModel(PreTrainedModel):
             cam_feats = cam_feats.last_hidden_state  # [B*num_cams, T_v, D_v]
         T_v, D_v = cam_feats.shape[1], cam_feats.shape[2]
         # Reshape back and concatenate cameras along the sequence dimension
-        visual_features = cam_feats.view(B, num_cams * T_v, D_v)  # [B, num_cams*T_v, D_v]
+        visual_features = cam_feats.reshape(B, num_cams * T_v, D_v)  # [B, num_cams*T_v, D_v]
 
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
