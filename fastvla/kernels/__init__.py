@@ -131,6 +131,7 @@ def action_decode_backward(
 
 
 from .fused_loss import fused_cross_entropy_loss
+from .fused_action_head import FusedActionChunkHead, FusedActionHuberLossFunction
 
 __all__ = [
     "action_decode_backward",
@@ -138,6 +139,8 @@ __all__ = [
     "multi_cam_pack_backward",
     "multi_cam_pack_forward",
     "TritonActionHead",
+    "FusedActionChunkHead",
+    "FusedActionHuberLossFunction",
     "TRITON_AVAILABLE",
     "vision_language_cross_attention",
     "vision_language_fusion_backward",

@@ -8,6 +8,7 @@ from .datasets import (
     get_dataset,
 )
 from .collator import UnslothVLACollator
+from .cache import VisionTokenCache, CachedVisionDataset
 
 __all__ = [
     "RoboticsDataset",
@@ -16,4 +17,6 @@ __all__ = [
     "LeRobotDataset",
     "UnslothVLACollator",
     "get_dataset",
+    "VisionTokenCache",
+    "CachedVisionDataset",
 ]

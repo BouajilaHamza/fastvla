@@ -227,7 +227,12 @@ class FastVLAModel(PreTrainedModel):
 
         out_action_dim = config.action_dim * config.chunk_size
         head_type = getattr(config, "head_type", "mlp_continuous")
-        if head_type in (None, "mlp_continuous", "triton"):
+        if head_type == "fused_action_loss":
+            from .kernels import FusedActionChunkHead
+            self.action_head = FusedActionChunkHead(
+                l_hidden, config.action_hidden_dim, config.action_dim, chunk_size=config.chunk_size
+            ).to(llm_device)
+        elif head_type in (None, "mlp_continuous", "triton"):
             # Default: optimized fused Triton continuous head (preserves
             # checkpoint layout for existing models).
             self.action_head = TritonActionHead(
@@ -660,18 +665,26 @@ class FastVLAModel(PreTrainedModel):
             return last
         return out.hidden_states[-1]
 
-    def forward(self, pixel_values, input_ids, attention_mask=None, labels=None, states=None):
-        """Forward pass handles multi-camera inputs and action prediction."""
-        # FIX 2: Batch all cameras into a single encoder forward pass instead of
-        # encoding them one-by-one in a Python loop (pure GPU idle time).
-        B, num_cams, C, H, W = pixel_values.shape
-        flat_imgs = pixel_values.view(B * num_cams, C, H, W)
-        cam_feats = self.vision_encoder(flat_imgs)
-        if hasattr(cam_feats, "last_hidden_state"):
-            cam_feats = cam_feats.last_hidden_state  # [B*num_cams, T_v, D_v]
-        T_v, D_v = cam_feats.shape[1], cam_feats.shape[2]
-        # Reshape back and concatenate cameras along the sequence dimension
-        visual_features = cam_feats.reshape(B, num_cams * T_v, D_v)  # [B, num_cams*T_v, D_v]
+    def forward(self, pixel_values=None, input_ids=None, attention_mask=None, labels=None, states=None, visual_features=None):
+        """Forward pass handles multi-camera inputs and action prediction.
+        
+        Supports pre-computed visual_features to bypass vision encoder forward passes entirely.
+        """
+        if visual_features is None:
+            if pixel_values is None:
+                raise ValueError("Either pixel_values or visual_features must be provided to forward().")
+            # FIX 2: Batch all cameras into a single encoder forward pass instead of
+            # encoding them one-by-one in a Python loop (pure GPU idle time).
+            B, num_cams, C, H, W = pixel_values.shape
+            flat_imgs = pixel_values.view(B * num_cams, C, H, W)
+            cam_feats = self.vision_encoder(flat_imgs)
+            if hasattr(cam_feats, "last_hidden_state"):
+                cam_feats = cam_feats.last_hidden_state  # [B*num_cams, T_v, D_v]
+            T_v, D_v = cam_feats.shape[1], cam_feats.shape[2]
+            # Reshape back and concatenate cameras along the sequence dimension
+            visual_features = cam_feats.reshape(B, num_cams * T_v, D_v)  # [B, num_cams*T_v, D_v]
+        else:
+            B = visual_features.shape[0]
 
         llm_device = next(self.llm.parameters()).device
         text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
