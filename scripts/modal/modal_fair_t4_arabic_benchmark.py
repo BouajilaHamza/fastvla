@@ -86,19 +86,21 @@ def fetch_arabic_batches(num_steps: int = 50, batch_size: int = 4, device: str =
     current_actions = []
 
     for item in ds:
-        # Load agent camera and wrist camera
-        img_agent = item["image"]
-        img_wrist = item.get("wrist_image", img_agent)
-        if isinstance(img_agent, Image.Image):
+        # Load agent camera and wrist camera from LIBERO dataset format
+        img_agent = item.get("observation.images.image", item.get("image"))
+        img_wrist = item.get("observation.images.wrist_image", item.get("wrist_image", img_agent))
+        if hasattr(img_agent, "convert"):
             t_agent = transform(img_agent.convert("RGB"))
-            t_wrist = transform(img_wrist.convert("RGB")) if isinstance(img_wrist, Image.Image) else t_agent
+            t_wrist = transform(img_wrist.convert("RGB")) if hasattr(img_wrist, "convert") else t_agent
         else:
             t_agent = torch.randn(3, 224, 224)
             t_wrist = torch.randn(3, 224, 224)
 
         current_images.append(torch.stack([t_agent, t_wrist]))  # [2, 3, 224, 224]
-        current_states.append(torch.tensor(item["state"][:7], dtype=torch.float32))
-        current_actions.append(torch.tensor(item["action"][:7], dtype=torch.float32))
+        state_arr = item.get("observation.state", item.get("state", [0.0] * 7))
+        action_arr = item.get("action", [0.0] * 7)
+        current_states.append(torch.tensor(state_arr[:7], dtype=torch.float32))
+        current_actions.append(torch.tensor(action_arr[:7], dtype=torch.float32))
 
         if len(current_images) == batch_size:
             batches.append({
