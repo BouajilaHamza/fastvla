@@ -46,6 +46,7 @@ image = (
         "triton>=2.2.0",
     )
     .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@706a714")
+    .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
 )
 
 app = modal.App("fastvla-fair-t4-flowmatching", image=image)
@@ -257,6 +258,8 @@ def benchmark_standard_sota_flowmatching(num_steps: int = 50, batch_size: int = 
             step_times.append(dt)
             losses.append(loss.item())
 
+            del flat_imgs, vit_out, vit_tokens, txt_embed, inputs_embeds, out, last_hidden, loss
+
             if step % 10 == 0 or step == num_steps - 1:
                 print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss.item():.4f} | Total: {dt*1000:.1f}ms (ViT alone: {dt_vit*1000:.1f}ms)")
 
@@ -395,48 +398,58 @@ def benchmark_fastvla_flowmatching(num_steps: int = 50, batch_size: int = 4):
     step_times = []
     print(f"  → Executing 50 training steps (Zero-Compute Vision Caching + Flow Matching)...")
 
-    start_time = time.time()
-    for step, batch in enumerate(batches):
-        t0 = time.time()
-        opt_fastvla.zero_grad(set_to_none=True)
+    try:
+        start_time = time.time()
+        for step, batch in enumerate(batches):
+            t0 = time.time()
+            opt_fastvla.zero_grad(set_to_none=True)
 
-        with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-            # Stream pre-cached visual tokens (0 ViT forward runs!)
-            cached_vit_tokens = cache.get(step, device=device)
-            txt_embed = model_fastvla.get_input_embeddings()(batch["input_ids"])
-            inputs_embeds = torch.cat([cached_vit_tokens, txt_embed], dim=1)
-            out = model_fastvla(inputs_embeds=inputs_embeds)
-            last_hidden = out.logits[:, -1, :hidden_size]
+            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                # Stream pre-cached visual tokens (0 ViT forward runs!)
+                cached_vit_tokens = cache.get(step, device=device)
+                txt_embed = model_fastvla.get_input_embeddings()(batch["input_ids"])
+                inputs_embeds = torch.cat([cached_vit_tokens, txt_embed], dim=1)
+                out = model_fastvla(inputs_embeds=inputs_embeds)
+                last_hidden = out.logits[:, -1, :hidden_size]
 
-            # Flow-Matching Trajectory Loss
-            loss = flow_head.compute_loss(last_hidden, batch["trajectories"])
+                # Flow-Matching Trajectory Loss
+                loss = flow_head.compute_loss(last_hidden, batch["trajectories"])
 
-        loss.backward()
-        opt_fastvla.step()
-        torch.cuda.synchronize()
-        dt = time.time() - t0
-        step_times.append(dt)
-        losses.append(loss.item())
+            loss.backward()
+            opt_fastvla.step()
+            torch.cuda.synchronize()
+            dt = time.time() - t0
+            step_times.append(dt)
+            losses.append(loss.item())
 
-        if step % 10 == 0 or step == num_steps - 1:
-            print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss.item():.4f} | Total: {dt*1000:.1f}ms (ViT time: 0.0ms)")
+            del cached_vit_tokens, txt_embed, inputs_embeds, out, last_hidden, loss
 
-    total_time = time.time() - start_time
-    peak_vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
-    avg_latency = (sum(step_times) / len(step_times)) * 1000
+            if step % 10 == 0 or step == num_steps - 1:
+                print(f"     Step {step+1:2d}/{num_steps} | Loss: {loss.item():.4f} | Total: {dt*1000:.1f}ms (ViT time: 0.0ms)")
 
-    print(f"  ✅ FastVLA Finished: Loss: {losses[-1]:.4f} | Latency: {avg_latency:.1f}ms | Peak: {peak_vram:.2f} GB")
-    return {
-        "status": "SUCCESS",
-        "losses": losses,
-        "initial_loss": losses[0],
-        "final_loss": losses[-1],
-        "loss_reduction_pct": ((losses[0] - losses[-1]) / losses[0]) * 100,
-        "avg_latency_ms": avg_latency,
-        "throughput": 1000 / avg_latency,
-        "total_time_s": total_time,
-        "peak_vram_gb": peak_vram,
-    }
+        total_time = time.time() - start_time
+        peak_vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
+        avg_latency = (sum(step_times) / len(step_times)) * 1000
+
+        print(f"  ✅ FastVLA Finished: Loss: {losses[-1]:.4f} | Latency: {avg_latency:.1f}ms | Peak: {peak_vram:.2f} GB")
+        return {
+            "status": "SUCCESS",
+            "losses": losses,
+            "initial_loss": losses[0],
+            "final_loss": losses[-1],
+            "loss_reduction_pct": ((losses[0] - losses[-1]) / losses[0]) * 100,
+            "avg_latency_ms": avg_latency,
+            "throughput": 1000 / avg_latency,
+            "total_time_s": total_time,
+            "peak_vram_gb": peak_vram,
+        }
+    except torch.cuda.OutOfMemoryError as e:
+        print("\n  ❌ FASTVLA HIT CUDA OutOfMemoryError!")
+        return {
+            "status": "OOM",
+            "peak_vram_gb": torch.cuda.max_memory_allocated() / (1024 ** 3),
+            "error": str(e).split("\n")[0],
+        }
 
 
 @app.local_entrypoint()
@@ -448,10 +461,10 @@ def main():
     print("=" * 80)
 
     # 1. Run FastVLA First (Isolated container run)
-    res_fastvla = benchmark_fastvla_flowmatching.remote(num_steps=50, batch_size=4)
+    res_fastvla = benchmark_fastvla_flowmatching.remote(num_steps=50, batch_size=2)
 
     # 2. Run Standard SOTA
-    res_sota = benchmark_standard_sota_flowmatching.remote(num_steps=50, batch_size=4)
+    res_sota = benchmark_standard_sota_flowmatching.remote(num_steps=50, batch_size=2)
 
     print("\n" + "=" * 80)
     print("🏆 EMPIRICAL SOTA BENCHMARK VERDICT (NVIDIA T4 16GB)")
