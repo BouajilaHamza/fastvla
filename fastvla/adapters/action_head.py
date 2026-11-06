@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..utils import get_device
+from ..kernels.fused_flow_loss import fused_flow_interpolate, fused_flow_mse_loss
 
 
 class BaseActionHead(nn.Module):
@@ -268,7 +269,7 @@ class FlowMatchingActionHead(BaseActionHead):
     def compute_loss(
         self, hidden_states: torch.Tensor, targets: torch.Tensor
     ) -> torch.Tensor:
-        """Conditional flow matching loss against the linear path velocity."""
+        """Conditional flow matching loss against the linear path velocity with fused SRAM interpolation & MSE."""
         dtype = self.cond_proj.weight.dtype
         hidden_states = hidden_states.to(dtype)
         cond = self.cond_proj(hidden_states)
@@ -278,11 +279,12 @@ class FlowMatchingActionHead(BaseActionHead):
 
         x0 = torch.randn_like(target)
         t = torch.rand(B, device=target.device, dtype=dtype)
-        x_t = (1.0 - t[:, None]) * x0 + t[:, None] * target
-        target_velocity = target - x0
+        
+        # Fused SRAM interpolation of OT path and target velocity
+        x_t, target_velocity = fused_flow_interpolate(target, x0, t)
 
         pred_velocity = self.velocity(x_t, t, cond)
-        return F.mse_loss(pred_velocity, target_velocity)
+        return fused_flow_mse_loss(pred_velocity, target_velocity)
 
     def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         return F.mse_loss(predictions, targets)

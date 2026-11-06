@@ -132,6 +132,12 @@ def action_decode_backward(
 
 from .fused_loss import fused_cross_entropy_loss
 from .fused_action_head import FusedActionChunkHead, FusedActionHuberLossFunction
+from .fused_swiglu import FusedSwiGLUFunction, fused_swiglu, FusedMLP
+from .fused_flow_loss import (
+    fused_flow_interpolate,
+    fused_flow_mse_loss,
+    FusedFlowMSELossFunction,
+)
 
 __all__ = [
     "action_decode_backward",
@@ -141,6 +147,12 @@ __all__ = [
     "TritonActionHead",
     "FusedActionChunkHead",
     "FusedActionHuberLossFunction",
+    "FusedSwiGLUFunction",
+    "fused_swiglu",
+    "FusedMLP",
+    "fused_flow_interpolate",
+    "fused_flow_mse_loss",
+    "FusedFlowMSELossFunction",
     "TRITON_AVAILABLE",
     "vision_language_cross_attention",
     "vision_language_fusion_backward",
