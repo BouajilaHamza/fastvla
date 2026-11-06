@@ -17,7 +17,7 @@ import os
 import modal
 
 image = (
-    modal.Image.debian_slim()
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install("git")
     .pip_install(
         "torch>=2.2.0",
@@ -29,7 +29,8 @@ image = (
         "timm>=0.9.12",
         "datasets>=2.20.0",
         "pillow>=10.0.0",
-        "numpy>=2.0.0",
+        "pyarrow>=15.0.0",
+        "numpy>=1.24.0",
         "triton>=2.2.0",
     )
     .pip_install("fastvla @ git+https://github.com/BouajilaHamza/fastvla.git@main")
