@@ -435,6 +435,9 @@
       <p>
         Offline L2 trajectory error is an incomplete metric; true robotics viability requires continuous high-frequency physical execution under active contacts. Here are empirical measurements executed in official physics simulators (MuJoCo 2.3.7 &amp; Pymunk 6.11) on NVIDIA Tesla T4:
       </p>
+      <div style="background: var(--surface); border-left: 3px solid var(--accent); padding: 0.75rem 1rem; border-radius: 4px; margin: 1rem 0; font-size: 0.9rem; color: var(--text-muted);">
+        <strong style="color: var(--text);">Architectural Note:</strong> FastVLA is an acceleration and fine-tuning engine (analogous to Unsloth for LLMs) that enhances VLA foundation models. In these benchmarks, <em>"OpenVLA Baseline"</em> denotes standard out-of-the-box OpenVLA (discrete 256-bin spatial tokenization, uncompressed visual tokens), whereas <em>"FastVLA Continuous Flow"</em> denotes OpenVLA fine-tuned and accelerated via FastVLA's <code>SpatialPatchMerger</code> (-75% visual tokens) and 2-step Midpoint ODE continuous flow matching head.
+      </div>
 
       <h3 style="margin-top: 1.5rem; color: var(--accent);">A. Official 3D MuJoCo Physics: LIBERO (Franka Emika Panda 7-DoF on Modal T4)</h3>
       <p>

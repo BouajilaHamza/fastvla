@@ -4,7 +4,9 @@
 
 In robot manipulation, offline trajectory L2 error is an imperfect surrogate for physical task execution. A 1 cm drift at the end-effector during high-precision insertion can cause severe mechanical jamming or latch failure.
 
-This report establishes the **Closed-Loop Physical Simulation Benchmark Leaderboard** for FastVLA, executing 500-step rolling-horizon physical rollouts in the official **LIBERO MuJoCo** physical simulation benchmark across `libero_10`, `libero_spatial`, and `libero_object`.
+This report establishes the **Closed-Loop Physical Simulation Benchmark Leaderboard** for FastVLA, executing rolling-horizon physical rollouts in the official **LIBERO MuJoCo** physical simulation benchmark (`libero_spatial`) and **Gymnasium Push-T** (`gym_pusht`).
+
+> **Architectural Taxonomy Note**: FastVLA is an acceleration, compression, and fine-tuning framework (analogous to Unsloth for LLMs) that enhances VLA foundation models (e.g. OpenVLA-7B). In this report, **"OpenVLA Baseline"** refers to the standard out-of-the-box OpenVLA architecture (discrete 256-bin spatial tokenization, 512 uncompressed visual tokens, autoregressive generation), whereas **"FastVLA Continuous Flow"** refers to OpenVLA fine-tuned and executed via the FastVLA engine (`SpatialPatchMerger` with 128 visual tokens, 4-bit NF4 backbone, and 2-step Midpoint ODE continuous flow matching).
 
 The benchmark was executed on serverless **NVIDIA Tesla T4 (16GB)** hardware via [`modal_eval_closed_loop_libero.py`](../../scripts/modal/modal_eval_closed_loop_libero.py).
 
