@@ -68,6 +68,8 @@ class ActionHeadConfig:
     action_dim: int = 7  # Output action dimensions
     hidden_dim: int = 256  # Hidden layer size
     num_bins: int = 256  # For discrete action heads
+    num_inference_steps: int = 10  # For flow_matching / diffusion
+    solver: str = "euler"  # "euler", "midpoint", "heun"
     use_triton: bool = True  # Use Triton kernels when on GPU
 
     def to_dict(self) -> Dict[str, Any]:
@@ -270,6 +272,44 @@ OLMOVLA = VLAModelConfig(
     min_vram_gb=8.0,
 )
 
+GROOT_N1_7 = VLAModelConfig(
+    name="groot-n1.7-3b",
+    description="NVIDIA Isaac GR00T N1.7: Dual-System VLA with Qwen/Cosmos-2B VLM + Flow Matching Action Head",
+    vision=VisionEncoderConfig(
+        model_type="siglip",
+        model_name="google/siglip-so400m-patch14-224",
+        num_channels=3,
+        image_size=224,
+        output_dim=1152,
+        freeze=True,
+        dtype="float16",
+    ),
+    llm=LLMConfig(
+        model_type="qwen",
+        model_name="nvidia/Cosmos-Reason2-2B",
+        max_seq_length=1024,
+        use_lora=True,
+        lora_rank=16,
+        lora_alpha=32,
+    ),
+    action_head=ActionHeadConfig(
+        head_type="flow_matching",
+        action_dim=16 * 7,  # 16-step continuous action chunk
+        hidden_dim=512,
+        num_inference_steps=2,  # Optimized 2-step Midpoint solver
+        use_triton=True,
+    ),
+    projector=ProjectorConfig(
+        vision_dim=1152,
+        llm_dim=2048,  # Qwen/Cosmos-2B hidden size
+        projector_type="linear",
+    ),
+    quantization_4bit=True,
+    gradient_checkpointing=True,
+    default_batch_size=2,
+    min_vram_gb=4.0,
+)
+
 
 # ── Registry ──────────────────────────────────────────────────────────
 
@@ -279,7 +319,7 @@ class VLAModelRegistry:
 
     # Heuristic list of keywords that identify a composite VLM (model containing both vision & LLM)
     # These are used to decide whether to fallback llm_name to model_name in from_pretrained.
-    COMPOSITE_VLM_KEYWORDS = ["openvla", "llava", "vla-7b", "vla-2b", "paligemma", "pi0", "olmovla"]
+    COMPOSITE_VLM_KEYWORDS = ["openvla", "llava", "vla-7b", "vla-2b", "paligemma", "pi0", "olmovla", "groot"]
 
     _registry: Dict[str, VLAModelConfig] = {
         "openvla-7b": OPENVLA_7B,
@@ -287,6 +327,9 @@ class VLAModelRegistry:
         "smolvla": SMOLVLA,
         "pi0-base": PI0_BASE,
         "olmovla": OLMOVLA,
+        "groot-n1.7-3b": GROOT_N1_7,
+        "nvidia/GR00T-N1.7-3B": GROOT_N1_7,
+        "groot": GROOT_N1_7,
     }
 
     @classmethod
