@@ -173,7 +173,13 @@ def se3_flow_interpolate(
         target_velocity: [..., D] Target velocity field dx/dt along the geodesic.
     """
     orig_shape = target.shape
+    orig_dtype = target.dtype
     D = orig_shape[-1]
+
+    # Perform geometry math in float32 for rigorous numerical stability, avoiding float16 subnormal underflows
+    target = target.float()
+    x0 = x0.float()
+    t = t.float()
 
     # Handle chunked actions (e.g., T * 7 or T * 8)
     elem_dim = 8 if format == "8dof_quat" else 7
@@ -241,4 +247,4 @@ def se3_flow_interpolate(
         x_t = x_t.view(*orig_shape)
         target_velocity = target_velocity.view(*orig_shape)
 
-    return x_t, target_velocity
+    return x_t.to(orig_dtype), target_velocity.to(orig_dtype)
