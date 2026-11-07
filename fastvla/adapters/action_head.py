@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 from ..utils import get_device
 from ..kernels.fused_flow_loss import fused_flow_interpolate, fused_flow_mse_loss
+from ..geometry.se3 import se3_flow_interpolate
 
 
 class BaseActionHead(nn.Module):
@@ -205,11 +206,15 @@ class FlowMatchingActionHead(BaseActionHead):
         num_inference_steps: int = 10,
         time_embed_dim: int = 64,
         solver: str = "euler",
+        manifold: str = "euclidean",
+        rotation_format: str = "7dof_euler",
     ):
         super().__init__(input_dim, action_dim)
         self.num_inference_steps = num_inference_steps
         self.time_embed_dim = time_embed_dim
         self.solver = solver
+        self.manifold = manifold.lower()
+        self.rotation_format = rotation_format
 
         # Conditioning projection from pooled hidden states.
         self.cond_proj = nn.Linear(input_dim, hidden_dim)
@@ -294,6 +299,17 @@ class FlowMatchingActionHead(BaseActionHead):
         else:
             raise ValueError(f"Unknown ODE solver: {solver}. Choose 'euler', 'midpoint', or 'heun'.")
 
+        if self.manifold == "se3" and self.rotation_format == "8dof_quat":
+            # Project quaternion slice onto unit 3-sphere S^3 to prevent manifold drift
+            if self.action_dim % 8 == 0:
+                orig_shape = x.shape
+                x_reshaped = x.view(B, -1, 8)
+                q = x_reshaped[..., 3:7]
+                q_proj = q / torch.norm(q, dim=-1, keepdim=True).clamp_min(1e-8)
+                x = torch.cat(
+                    [x_reshaped[..., :3], q_proj, x_reshaped[..., 7:8]], dim=-1
+                ).view(orig_shape)
+
         return x
 
     def forward(
@@ -327,7 +343,7 @@ class FlowMatchingActionHead(BaseActionHead):
     def compute_loss(
         self, hidden_states: torch.Tensor, targets: torch.Tensor
     ) -> torch.Tensor:
-        """Conditional flow matching loss against the linear path velocity with fused SRAM interpolation & MSE."""
+        """Conditional flow matching loss with Euclidean or SE(3) Riemannian probability paths."""
         dtype = self.cond_proj.weight.dtype
         hidden_states = hidden_states.to(dtype)
         cond = self.cond_proj(hidden_states)
@@ -337,9 +353,14 @@ class FlowMatchingActionHead(BaseActionHead):
 
         x0 = torch.randn_like(target)
         t = torch.rand(B, device=target.device, dtype=dtype)
-        
-        # Fused SRAM interpolation of OT path and target velocity
-        x_t, target_velocity = fused_flow_interpolate(target, x0, t)
+
+        if self.manifold == "se3":
+            x_t, target_velocity = se3_flow_interpolate(
+                target, x0, t, format=self.rotation_format
+            )
+        else:
+            # Fused SRAM interpolation of OT path and target velocity
+            x_t, target_velocity = fused_flow_interpolate(target, x0, t)
 
         pred_velocity = self.velocity(x_t, t, cond)
         return fused_flow_mse_loss(pred_velocity, target_velocity)
@@ -374,6 +395,8 @@ def get_action_head(input_dim: int, config: dict) -> BaseActionHead:
             hidden_dim=config.get("hidden_dim", 256),
             num_inference_steps=config.get("num_inference_steps", 10),
             solver=config.get("solver", "euler"),
+            manifold=config.get("manifold", "euclidean"),
+            rotation_format=config.get("rotation_format", "7dof_euler"),
         )
     else:
         raise ValueError(f"Unknown action head type: {head_type}")

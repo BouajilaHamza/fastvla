@@ -70,6 +70,8 @@ class ActionHeadConfig:
     num_bins: int = 256  # For discrete action heads
     num_inference_steps: int = 10  # For flow_matching / diffusion
     solver: str = "euler"  # "euler", "midpoint", "heun"
+    manifold: str = "euclidean"  # "euclidean", "se3"
+    rotation_format: str = "7dof_euler"  # "7dof_euler", "8dof_quat"
     use_triton: bool = True  # Use Triton kernels when on GPU
 
     def to_dict(self) -> Dict[str, Any]:
