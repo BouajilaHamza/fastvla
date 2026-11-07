@@ -25,12 +25,21 @@
 
 ---
 
-## 🎬 Arabic Physical AI in Action: FastVLA Turbo (7B)
+## 🎬 Arabic Physical AI in Action: FastVLA Turbo (7B) & NVIDIA Isaac GR00T (3B)
 
-FastVLA Turbo is the first robotics foundation model specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
+FastVLA Turbo and its NVIDIA Isaac GR00T adaptation are the first robotics foundation models specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
 
-Below is the live rollout of **FastVLA Turbo (7B)** executing real-time Franka Emika Panda control on the Arabic LIBERO benchmark under the Arabic command:  
-**`"أطفئ الفرن ووضع وعاء الموكا عليه."`** *(Turn off the stove and place the moka pot on it)*:
+### 1. NVIDIA Isaac GR00T-3B Policy Rollout
+Below is the live rollout of **NVIDIA Isaac GR00T (3B)** running on an **NVIDIA Tesla T4 (16GB)** under the verified Modern Standard Arabic command:  
+**`"ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"`** *(Place the white mug on the left plate and place the yellow and white mug on the right plate)*:
+
+<div align="center">
+  <img src="assets/fastvla_groot_arabic_rollout.gif" width="700" alt="NVIDIA Isaac GR00T-3B Arabic Policy Rollout" />
+  <p><em>NVIDIA Isaac GR00T-3B (4-bit NF4 + 2x2 Spatial Token Compressor + SE(3) Flow Matching) executing Franka Panda tabletop manipulation on an entry-level Tesla T4 (Peak VRAM: 4.01 GB, 23.5 Hz ODE solver).</em></p>
+</div>
+
+### 2. FastVLA Turbo (7B) Rollout
+Live rollout of **FastVLA Turbo (7B)** executing real-time Franka Emika Panda control on the Arabic LIBERO benchmark:
 
 <div align="center">
   <img src="assets/fastvla_turbo_arabic_rollout.gif" width="700" alt="FastVLA Turbo Arabic Policy Rollout" />
@@ -38,11 +47,13 @@ Below is the live rollout of **FastVLA Turbo (7B)** executing real-time Franka E
 </div>
 
 ### 🌟 Native Arabic Robotics Commands Tested:
-- **Task 1 (Stove & Moka Pot)**: `"أطفئ الفرن ووضع وعاء الموكا عليه."`
-- **Task 2 (Cooking & Stove)**: `"ضع وعاء الحساء على الموقد وأشعل النار."`
-- **Task 3 (Zero-Shot Manipulation)**: `"التقط كوب القهوة وضعه على الصينية بجانب الإبريق."`
+- **Task 0 (Dual Mug Placement)**: `"ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"`
+- **Task 1 (Plate & Chocolate Pudding)**: `"ضع الكوب الأبيض على الطبق وضع حلوى الشوكولاتة على يمين الطبق"`
+- **Task 2 (Microwave Insertion)**: `"ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه"`
+- **Task 3 (Stove & Moka Pot)**: `"شغّل الموقد وضع إبريق الموكا عليه"`
 
-👉 **Model Checkpoint**: Available on Hugging Face Hub at [**`hamzabouajila/fastvla-turbo-arabic-libero`**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero).
+👉 **Model Checkpoint**: Available on Hugging Face Hub at [**`hamzabouajila/fastvla-turbo-arabic-libero`**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero)  
+👉 **Arabic Dataset Hub**: [**`hamzabouajila/ar-libero-10-image`**](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image) (All 26 chunks retagged with verified Modern Standard Arabic)
 
 ---
 
