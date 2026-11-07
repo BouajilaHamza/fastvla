@@ -138,6 +138,12 @@ from .fused_flow_loss import (
     fused_flow_mse_loss,
     FusedFlowMSELossFunction,
 )
+from .fused_lora import (
+    fused_lora_b_add,
+    FusedLoraLinear,
+    FusedLoraBAddFunction,
+    apply_fused_lora,
+)
 
 __all__ = [
     "action_decode_backward",
@@ -153,6 +159,10 @@ __all__ = [
     "fused_flow_interpolate",
     "fused_flow_mse_loss",
     "FusedFlowMSELossFunction",
+    "fused_lora_b_add",
+    "FusedLoraLinear",
+    "FusedLoraBAddFunction",
+    "apply_fused_lora",
     "TRITON_AVAILABLE",
     "vision_language_cross_attention",
     "vision_language_fusion_backward",

@@ -569,6 +569,10 @@ class FastVLAModel(PreTrainedModel):
                 layers_to_transform=layers_to_transform,
             )
             llm = get_peft_model(llm, peft_cfg)
+            if getattr(config, "use_fused_lora", False):
+                from .kernels.fused_lora import apply_fused_lora
+                num_fused = apply_fused_lora(llm)
+                logger.info(f"Fused {num_fused} LoRA modules with Triton GEMM")
         return llm
 
     @property
