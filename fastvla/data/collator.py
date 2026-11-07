@@ -191,8 +191,18 @@ class UnslothVLACollator:
             batch["labels"] = torch.stack(actions)
 
         # ── Handle text instructions ────────────────────────────────
-        if "instructions" in features[0]:
-            texts = [f["instructions"] for f in features]
+        inst_key = (
+            "instructions"
+            if "instructions" in features[0]
+            else "instruction"
+            if "instruction" in features[0]
+            else "task"
+            if "task" in features[0]
+            else None
+        )
+
+        if inst_key is not None:
+            texts = [str(f[inst_key]) for f in features]
             if self.language_perturber is not None:
                 texts = [self.language_perturber(t) for t in texts]
             batch["instructions"] = texts  # Keep raw text for trainer-side translation
