@@ -279,6 +279,12 @@ class FastVLAModel(PreTrainedModel):
             )
             config.action_dim = self.action_head.action_dim
 
+        # 9. Episodic Prompt KV Cache for Zero-Compute Online Language Attention
+        self._cached_prompt_ids = None
+        self._cached_text_embeds = None
+        self._cached_text_lo = None
+        self._cached_prompt_mask = None
+
         # 9. Handle PEFT (LoRA) for Dummies / Fallbacks
         if config.use_peft and config.dummy:
             self._apply_peft_freezing(config)
@@ -665,6 +671,27 @@ class FastVLAModel(PreTrainedModel):
             return last
         return out.hidden_states[-1]
 
+    def set_episodic_prompt(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None):
+        """Precomputes and locks the language goal embedding & low-rank cross-attention projection for the episode."""
+        llm_device = next(self.llm.parameters()).device
+        with torch.no_grad():
+            self._cached_prompt_ids = input_ids.to(llm_device)
+            self._cached_text_embeds = self.llm.get_input_embeddings()(self._cached_prompt_ids)
+            self._cached_text_lo = self.attn_proj_down(self._cached_text_embeds)
+            self._cached_prompt_mask = attention_mask.to(llm_device) if attention_mask is not None else None
+
+    def clear_episodic_prompt(self):
+        """Clears the episodic prompt cache, returning to stateless per-step execution."""
+        self._cached_prompt_ids = None
+        self._cached_text_embeds = None
+        self._cached_text_lo = None
+        self._cached_prompt_mask = None
+
+    @property
+    def has_episodic_prompt(self) -> bool:
+        """Returns True if an episodic prompt is currently cached."""
+        return self._cached_text_embeds is not None
+
     def forward(self, pixel_values=None, input_ids=None, attention_mask=None, labels=None, states=None, visual_features=None):
         """Forward pass handles multi-camera inputs and action prediction.
         
@@ -687,13 +714,25 @@ class FastVLAModel(PreTrainedModel):
             B = visual_features.shape[0]
 
         llm_device = next(self.llm.parameters()).device
-        text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
+
+        # Episodic Prompt Cache: Use precomputed embeddings & projections if available
+        if input_ids is None and self.has_episodic_prompt:
+            text_embeds = self._cached_text_embeds.clone()
+            text_lo = self._cached_text_lo.clone()
+            if attention_mask is None:
+                attention_mask = self._cached_prompt_mask
+        else:
+            if input_ids is None:
+                raise ValueError("Either input_ids or a cached episodic prompt (via set_episodic_prompt) must be provided.")
+            text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
+            text_lo = None
 
         # FIX 3: Prepend proprioceptive state embedding to the token sequence.
         if states is not None:
             state_emb = self.state_proj(states.to(llm_device).float())  # [B, l_hidden]
             state_emb = state_emb.unsqueeze(1)  # [B, 1, l_hidden]
             text_embeds = torch.cat([state_emb, text_embeds], dim=1)  # prepend
+            text_lo = None  # Recompute text_lo if state is prepended
             if attention_mask is not None:
                 state_mask = torch.ones(B, 1, device=attention_mask.device, dtype=attention_mask.dtype)
                 attention_mask = torch.cat([state_mask, attention_mask], dim=1)
@@ -708,7 +747,8 @@ class FastVLAModel(PreTrainedModel):
         # for large hidden dims (e.g. D=4096 for 7B models).  Project text and
         # visual down to 256 for cross-attention, then project back and add as a
         # residual on top of the original text embeddings.
-        text_lo   = self.attn_proj_down(text_embeds)    # [B, T_q, 256]
+        if text_lo is None:
+            text_lo = self.attn_proj_down(text_embeds)   # [B, T_q, 256]
         visual_lo = self.attn_proj_down(visual_features) # [B, T_kv, 256]
         fused_lo  = vision_language_cross_attention(text_lo, visual_lo)  # Triton fires
         # Project back and residual-add with original text embeddings
