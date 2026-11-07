@@ -433,56 +433,64 @@
     <section class="section">
       <h2>7. Closed-Loop Physical Simulation Leaderboard (LIBERO-10 &amp; Push-T)</h2>
       <p>
-        Offline L2 trajectory error is an incomplete metric; true robotics viability requires high-frequency closed-loop execution. Here are empirical measurements on NVIDIA Tesla T4:
+        Offline L2 trajectory error is an incomplete metric; true robotics viability requires continuous high-frequency physical execution under active contacts. Here are empirical measurements executed in official physics simulators (MuJoCo 2.3.7 &amp; Pymunk 6.11) on NVIDIA Tesla T4:
+      </p>
+
+      <h3 style="margin-top: 1.5rem; color: var(--accent);">A. Official 3D MuJoCo Physics: LIBERO (Franka Emika Panda 7-DoF on Modal T4)</h3>
+      <p>
+        Evaluated on the official <code>libero_spatial</code> benchmark with BDDL programmatic goal verification (<em>"pick up the black bowl between the plate and the ramekin and place it on the plate"</em>):
       </p>
       <div class="table-container">
         <table>
           <thead>
             <tr>
-              <th>Evaluation Metric</th>
-              <th>Standard SOTA (OpenVLA 7B)</th>
-              <th>FastVLA (Flow Matching)</th>
-              <th>Advantage / Gain</th>
+              <th>Policy / Configuration</th>
+              <th>Action Representation &amp; Method</th>
+              <th>Physical Success</th>
+              <th>Control Hz</th>
+              <th>Jerk Norm</th>
+              <th>Mean Steps</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>Control Loop Frequency</strong></td>
-              <td>5.68 Hz (175.0 ms / step)</td>
-              <td><strong>48.56 Hz (20.6 ms / step)</strong></td>
-              <td><strong>8.55x Faster</strong> (Real-time robotics)</td>
+              <td><strong>OpenVLA Baseline (Optimized)</strong></td>
+              <td>Discrete 256-Bin + EMA Smoothing (&alpha;=0.8)</td>
+              <td>60.0%</td>
+              <td>4.5 Hz (222 ms)</td>
+              <td>0.1066</td>
+              <td>101.8</td>
             </tr>
             <tr>
-              <td><strong>Trajectory Jerk Norm</strong></td>
-              <td>0.1269 (quantization jitter)</td>
-              <td><strong>0.0780 (continuous ODE flow)</strong></td>
-              <td><strong>38.5% Smoother</strong> (Less actuator stress)</td>
+              <td><strong>Diffusion Policy Baseline</strong></td>
+              <td>Continuous 16-Chunk + 8-Step DDIM Denoising</td>
+              <td>60.0%</td>
+              <td>14.9 Hz (67 ms)</td>
+              <td>0.1251</td>
+              <td>101.6</td>
             </tr>
             <tr>
-              <td><strong>Action Representation</strong></td>
-              <td>Discrete tokens (256 bins)</td>
-              <td><strong>Continuous 16-step Midpoint ODE</strong></td>
-              <td>Zero compounding drift</td>
-            </tr>
-            <tr>
-              <td><strong>Peak VRAM Footprint</strong></td>
-              <td>9.40 GB (Crashes at B &ge; 4)</td>
-              <td><strong>5.21 GB</strong></td>
-              <td><strong>-44.6% VRAM</strong> (10.8 GB headroom)</td>
-            </tr>
-            <tr>
-              <td><strong>Visual Sequence Length</strong></td>
-              <td>512 tokens (256 &times; 2 cams)</td>
-              <td><strong>128 tokens</strong></td>
-              <td><strong>-75% Sequence Tokens</strong></td>
+              <td><strong>FastVLA Continuous Flow</strong></td>
+              <td><strong>Continuous 16-Chunk + 2-Step Midpoint ODE</strong></td>
+              <td><strong>60.0%</strong></td>
+              <td><strong>19.2 Hz (52 ms, 4.27x faster)</strong></td>
+              <td><strong>0.1136</strong></td>
+              <td><strong>101.6</strong></td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <h3 style="margin-top: 1.5rem; color: var(--accent);">Empirical 2D Rigid-Body Physics: Gymnasium Push-T (Pymunk Engine)</h3>
+      <div style="text-align: center; margin-top: 1.5rem;">
+        <img src="assets/fastvla_libero_closed_loop_rollout.gif" alt="FastVLA LIBERO 3D MuJoCo Closed-Loop Rollout" style="max-width: 100%; max-height: 380px; border-radius: 8px; border: 1px solid var(--border);" />
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">
+          <em>Figure: FastVLA continuous flow matching rollout in official LIBERO MuJoCo physics with 7-DoF Franka Emika Panda arm placing the black bowl onto the target plate.</em>
+        </p>
+      </div>
+
+      <h3 style="margin-top: 2rem; color: var(--accent);">B. Empirical 2D Rigid-Body Physics: Gymnasium Push-T (Pymunk Engine)</h3>
       <p>
-        Evaluating policies inside true rigid-body contact dynamics (Pymunk 6.11) with polygon intersection coverage and optimized adversary baselines:
+        Evaluating non-prehensile contact manipulation in true rigid-body dynamics (Pymunk 6.11) with polygon intersection coverage:
       </p>
       <div class="table-container">
         <table>
