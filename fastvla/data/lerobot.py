@@ -526,6 +526,10 @@ class LeRobotDataset(Dataset):
         if "rgb" not in images and images:
             first_cam = next(iter(images.values()))
             images["rgb"] = first_cam
+        elif not images:
+            # Kinematic-only or video-format dataset without local mp4 decoded frames
+            target_h, target_w = self.image_size
+            images["rgb"] = torch.zeros(3, target_h, target_w, dtype=torch.float32)
 
         # 2. Robot State Extraction
         state_val = _first_not_none(

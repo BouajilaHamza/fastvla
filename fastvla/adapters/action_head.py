@@ -340,6 +340,16 @@ class FlowMatchingActionHead(BaseActionHead):
         x = self.solve_ode(x0, cond, steps=steps, solver=solver)
         return torch.tanh(x)
 
+    def predict(
+        self,
+        hidden_states: torch.Tensor,
+        solver: str | None = None,
+        steps: int | None = None,
+        initial_noise: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Alias for forward() ODE integration rollout."""
+        return self.forward(hidden_states, solver=solver, steps=steps, initial_noise=initial_noise)
+
     def compute_loss(
         self, hidden_states: torch.Tensor, targets: torch.Tensor
     ) -> torch.Tensor:

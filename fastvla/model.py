@@ -165,8 +165,13 @@ class FastVLAModel(PreTrainedModel):
         else:
             device_map = _get_target_device_map(config)
             
-            # CRITICAL: Detect if vision and LLM use the same base model (like OpenVLA)
-            is_unified = (config.vision_encoder_name == config.llm_name) or ("openvla" in str(config.llm_name).lower())
+            # CRITICAL: Detect if vision and LLM use the same base model (like OpenVLA or PaliGemma / pi0)
+            is_paligemma = any(k in str(config.llm_name).lower() for k in ["paligemma", "pi0", "openpi"])
+            is_unified = (
+                (config.vision_encoder_name == config.llm_name)
+                or ("openvla" in str(config.llm_name).lower())
+                or is_paligemma
+            )
             
             if is_unified:
                 logger.info(f"🚀 Loading Unified VLM: {config.llm_name}")
@@ -176,8 +181,16 @@ class FastVLAModel(PreTrainedModel):
                 if config.load_in_4bit:
                     kwargs["quantization_config"] = get_quantization_config(load_in_4bit=True)
                 
-                # We use AutoModel to get the backbone components
-                vlm = AutoModel.from_pretrained(config.llm_name, **kwargs)
+                # PaliGemma has specialized class in transformers
+                if is_paligemma:
+                    try:
+                        from transformers import PaliGemmaForConditionalGeneration
+                        vlm = PaliGemmaForConditionalGeneration.from_pretrained(config.llm_name, **kwargs)
+                    except Exception as e:
+                        logger.warning(f"Could not load via PaliGemmaForConditionalGeneration: {e}. Falling back to AutoModel.")
+                        vlm = AutoModel.from_pretrained(config.llm_name, **kwargs)
+                else:
+                    vlm = AutoModel.from_pretrained(config.llm_name, **kwargs)
                 
                 if hasattr(vlm, "vision_tower"):
                     self.vision_encoder = vlm.vision_tower
@@ -192,6 +205,10 @@ class FastVLAModel(PreTrainedModel):
                     self.llm = vlm.language_model
                 else:
                     self.llm = vlm
+
+                # Connect native multi-modal projector if present (retains pre-trained projection weights)
+                if hasattr(vlm, "multi_modal_projector"):
+                    self.vision_proj = vlm.multi_modal_projector
                 
                 self._tokenizer = AutoTokenizer.from_pretrained(config.llm_name, token=config.hf_token, trust_remote_code=True)
             else:
@@ -212,7 +229,8 @@ class FastVLAModel(PreTrainedModel):
         )
         l_hidden = getattr(getattr(self.llm, "config", None), "hidden_size", None) or config.llm_hidden_size
         
-        self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
+        if not hasattr(self, "vision_proj") or self.vision_proj is None:
+            self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
 
         # Low-rank attention bridge: project to Triton-friendly dim (≤256) for
         # cross-attention, then project back.  Adds ~2×D×256 params (≈2M for
@@ -285,9 +303,33 @@ class FastVLAModel(PreTrainedModel):
         self._cached_text_lo = None
         self._cached_prompt_mask = None
 
-        # 9. Handle PEFT (LoRA) for Dummies / Fallbacks
+        # 9. Handle PEFT (LoRA)
         if config.use_peft and config.dummy:
             self._apply_peft_freezing(config)
+        elif config.use_peft and not config.dummy:
+            if not hasattr(self.llm, "peft_config"):
+                try:
+                    from peft import get_peft_model
+                    from .optimization import get_peft_config
+
+                    layers_to_transform = None
+                    if getattr(config, "trainable_llm_layers", None) is not None:
+                        total_layers = getattr(getattr(self.llm, "config", None), "num_hidden_layers", 32)
+                        k = min(config.trainable_llm_layers, total_layers)
+                        layers_to_transform = list(range(total_layers - k, total_layers))
+
+                    target_modules = getattr(config, "lora_target_modules", None)
+                    peft_cfg = get_peft_config(
+                        r=config.lora_rank,
+                        lora_alpha=config.lora_alpha,
+                        lora_dropout=config.lora_dropout,
+                        target_modules=target_modules,
+                        layers_to_transform=layers_to_transform,
+                    )
+                    self.llm = get_peft_model(self.llm, peft_cfg)
+                    logger.info(f"Wrapped LLM in LoRA (rank={config.lora_rank}, alpha={config.lora_alpha})")
+                except Exception as e:
+                    logger.warning(f"Could not apply PEFT to LLM: {e}")
 
         # 10. Freeze the vision encoder (standard for VLA fine-tuning). Removes
         # its parameters from the optimizer state and its backward pass — a
