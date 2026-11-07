@@ -13,6 +13,15 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
+from .safety import (
+    SafetyFilter,
+    RobotSafetyConfig,
+    SO_100_SAFETY_CONFIG,
+    KOCH_SAFETY_CONFIG,
+    ALOHA_BIMANUAL_SAFETY_CONFIG,
+    UNITREE_G1_SAFETY_CONFIG,
+)
+
 try:
     from torchvision import transforms
     HAS_TORCHVISION = True
@@ -177,6 +186,8 @@ class FastVLAPolicyRunner:
         image_size: Tuple[int, int] = (224, 224),
         ode_solver: str = "midpoint",
         ode_steps: int = 2,
+        safety_config: Optional[Union[str, RobotSafetyConfig]] = None,
+        enable_safety: bool = True,
     ):
         self.device = device
         self.dtype = dtype
@@ -188,6 +199,30 @@ class FastVLAPolicyRunner:
 
         self.buffer = ActionChunkBuffer(chunk_size=chunk_size, action_dim=action_dim)
         self.telemetry = EdgeTelemetryHUD()
+
+        # Initialize Kinematic Safety Filter & Watchdog
+        if enable_safety:
+            if isinstance(safety_config, RobotSafetyConfig):
+                self.safety_filter = SafetyFilter(config=safety_config)
+            elif isinstance(safety_config, str):
+                presets = {
+                    "so_100": SO_100_SAFETY_CONFIG,
+                    "koch": KOCH_SAFETY_CONFIG,
+                    "aloha": ALOHA_BIMANUAL_SAFETY_CONFIG,
+                    "unitree_g1": UNITREE_G1_SAFETY_CONFIG,
+                }
+                default_preset = ALOHA_BIMANUAL_SAFETY_CONFIG if action_dim == 14 else SO_100_SAFETY_CONFIG
+                cfg = presets.get(safety_config.lower(), default_preset)
+                self.safety_filter = SafetyFilter(config=cfg)
+            else:
+                if action_dim == 14:
+                    self.safety_filter = SafetyFilter(config=ALOHA_BIMANUAL_SAFETY_CONFIG)
+                elif action_dim == 6:
+                    self.safety_filter = SafetyFilter(config=SO_100_SAFETY_CONFIG)
+                else:
+                    self.safety_filter = SafetyFilter(action_dim=action_dim)
+        else:
+            self.safety_filter = None
 
         if model is not None:
             self.model = model
@@ -214,10 +249,8 @@ class FastVLAPolicyRunner:
         else:
             self.transform = None
 
-    def preprocess_image(self, image: Union[Image.Image, np.ndarray, torch.Tensor]) -> torch.Tensor:
-        """
-        Converts input image to [1, 1, 3, H, W] normalized tensor on target device.
-        """
+    def _preprocess_single_view(self, image: Union[Image.Image, np.ndarray, torch.Tensor]) -> torch.Tensor:
+        """Helper to preprocess a single camera view into [1, 1, 3, H, W]."""
         if isinstance(image, np.ndarray):
             if image.dtype == np.uint8:
                 image = Image.fromarray(image)
@@ -243,16 +276,35 @@ class FastVLAPolicyRunner:
 
         return tensor.to(device=self.device, dtype=self.dtype)
 
+    def preprocess_image(
+        self, image: Union[Image.Image, np.ndarray, torch.Tensor, Dict[str, Any], List[Any]]
+    ) -> torch.Tensor:
+        """
+        Converts input image(s) to [1, num_views, 3, H, W] normalized tensor on target device.
+        Supports single image, list/tuple of images, or dictionary of named camera streams.
+        """
+        if isinstance(image, dict):
+            # Sort keys for deterministic view order (e.g. cam_high, cam_left_wrist, cam_right_wrist)
+            views = [image[k] for k in sorted(image.keys())]
+            return torch.cat([self._preprocess_single_view(v) for v in views], dim=1)
+        elif isinstance(image, (list, tuple)):
+            return torch.cat([self._preprocess_single_view(v) for v in image], dim=1)
+        else:
+            return self._preprocess_single_view(image)
+
     @torch.inference_mode()
     def predict_action_chunk(
         self,
-        image: Union[Image.Image, np.ndarray, torch.Tensor],
+        image: Union[Image.Image, np.ndarray, torch.Tensor, Dict[str, Any], List[Any]],
         instruction: str = "perform task",
     ) -> np.ndarray:
         """
         Performs policy forward pass and ODE integration to generate continuous 16-step action chunk.
         """
         start_time = time.perf_counter()
+        if self.safety_filter is not None:
+            self.safety_filter.heartbeat()
+
         pixel_values = self.preprocess_image(image)
 
         if self.model is None:
@@ -335,15 +387,23 @@ class FastVLAPolicyRunner:
 
         return x_t.detach().cpu().float().numpy()
 
+    def reset(self, initial_position: Optional[np.ndarray] = None):
+        """Resets action chunk buffer and kinematic safety filter."""
+        self.buffer.clear()
+        if self.safety_filter is not None:
+            self.safety_filter.reset(initial_position=initial_position)
+
     def step(
         self,
-        image: Union[Image.Image, np.ndarray, torch.Tensor],
+        image: Union[Image.Image, np.ndarray, torch.Tensor, Dict[str, Any], List[Any]],
         instruction: str = "perform task",
         replan_threshold: int = 4,
-    ) -> np.ndarray:
+        return_safety_info: bool = False,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, Dict[str, Any]]]:
         """
-        Rolling-horizon step method. Returns a single action [action_dim] for the robot.
+        Rolling-horizon step method. Returns a single safe action [action_dim] for the robot.
         Triggers policy inference asynchronously or when buffer drops below threshold.
+        Applies Kinematic Safety Filter (clamping, velocity limit, jerk limit, watchdog).
         """
         step_start = time.perf_counter()
 
@@ -352,11 +412,21 @@ class FastVLAPolicyRunner:
             chunk = self.predict_action_chunk(image, instruction)
             self.buffer.add_chunk(chunk)
 
-        action = self.buffer.pop_action()
-        if action is None:
+        raw_action = self.buffer.pop_action()
+        if raw_action is None:
             # Buffer empty fallback
-            action = np.zeros(self.action_dim, dtype=np.float32)
+            raw_action = np.zeros(self.action_dim, dtype=np.float32)
+
+        # Apply Safety Filter
+        if self.safety_filter is not None:
+            safe_action, safety_status = self.safety_filter.filter_action(raw_action)
+        else:
+            safe_action = raw_action
+            safety_status = {"safe": True}
 
         step_latency = (time.perf_counter() - step_start) * 1000.0
-        self.telemetry.record_step(step_latency, action)
-        return action
+        self.telemetry.record_step(step_latency, safe_action)
+
+        if return_safety_info:
+            return safe_action, safety_status
+        return safe_action

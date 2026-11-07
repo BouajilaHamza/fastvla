@@ -70,6 +70,15 @@ Live rollout of **FastVLA Turbo (3B)** executing 16-step continuous 2D trajector
   <p><em>Continuous 16-step Flow-Matching trajectory prediction overlaid on 2D Push-T arena (Peak VRAM: 3.98 GB on T4, 2-Step Midpoint ODE solver, Mean L2 Trajectory Error: 0.9283).</em></p>
 </div>
 
+### 4. FastVLA 14-DoF Bimanual & Humanoid Policy (ALOHA / Unitree G1)
+Live rollout of **FastVLA Turbo (14-DoF)** executing coordinated dual-arm container lifting and platform transfer under the command:  
+**`"رفع الصندوق بالذراعين وتثبيته على المنصة"`** *(Lift container with both arms and transfer to platform)*:
+
+<div align="center">
+  <img src="assets/fastvla_bimanual_humanoid_rollout.gif" width="700" alt="FastVLA Bimanual Humanoid Policy Rollout" />
+  <p><em>Coordinated 14-DoF dual-arm manipulation on $\mathrm{SE}(3) \times \mathrm{SE}(3)$ Riemannian product manifold with active Kinematic Safety Filter (50.0 Hz real-time control rate, multi-camera views, 500ms watchdog emergency stop).</em></p>
+</div>
+
 ### 🌟 Native Arabic Robotics Commands Tested:
 - **Task 0 (Dual Mug Placement)**: `"ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"`
 - **Task 1 (Plate & Chocolate Pudding)**: `"ضع الكوب الأبيض على الطبق وضع حلوى الشوكولاتة على يمين الطبق"`

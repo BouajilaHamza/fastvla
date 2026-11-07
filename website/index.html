@@ -399,8 +399,25 @@
       </div>
     </section>
 
+    <section class="section">
+      <h2>5. 14-DoF Bimanual & Humanoid Policy (ALOHA / Unitree G1)</h2>
+      <p>
+        FastVLA scales to bimanual manipulation on $\mathrm{SE}(3) \times \mathrm{SE}(3)$ Riemannian product manifolds with active kinematic safety filtering:
+      </p>
+      <div style="text-align: center; margin: 20px 0;">
+        <img src="https://raw.githubusercontent.com/BouajilaHamza/fastvla/main/assets/fastvla_bimanual_humanoid_rollout.gif" alt="FastVLA Bimanual Humanoid Rollout" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border);" />
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+          <em>Coordinated 14-DoF dual-arm manipulation (SE(3) geodesic SLERP, multi-camera views, 50.0 Hz control rate, 500ms watchdog emergency stop).</em>
+        </p>
+      </div>
+      <ul>
+        <li><strong>Dual-Arm SE(3) Product Manifolds:</strong> Decouples left and right arms into independent $\mathrm{SO}(3)$ geodesic paths, maintaining zero angular acceleration jerk.</li>
+        <li><strong>Kinematic Safety Barrier:</strong> Real-time joint hard stops, slew-rate velocity limits, and a 500ms sensor stall watchdog fail-safe for physical sim-to-real transfer.</li>
+      </ul>
+    </section>
+
     <section class="section" id="reproduce">
-      <h2>5. Quickstart & Reproduction</h2>
+      <h2>6. Quickstart & Reproduction</h2>
       <pre><code># 1. Clone repository
 git clone https://github.com/BouajilaHamza/fastvla.git
 cd fastvla

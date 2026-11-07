@@ -309,6 +309,25 @@ class FlowMatchingActionHead(BaseActionHead):
                 x = torch.cat(
                     [x_reshaped[..., :3], q_proj, x_reshaped[..., 7:8]], dim=-1
                 ).view(orig_shape)
+        elif self.manifold == "se3" and self.rotation_format == "16dof_bimanual_quat":
+            # Project both left and right quaternion slices onto S^3
+            if self.action_dim % 16 == 0:
+                orig_shape = x.shape
+                x_reshaped = x.view(B, -1, 16)
+                q_l = x_reshaped[..., 3:7]
+                q_l_proj = q_l / torch.norm(q_l, dim=-1, keepdim=True).clamp_min(1e-8)
+                q_r = x_reshaped[..., 11:15]
+                q_r_proj = q_r / torch.norm(q_r, dim=-1, keepdim=True).clamp_min(1e-8)
+                x = torch.cat(
+                    [
+                        x_reshaped[..., :3],
+                        q_l_proj,
+                        x_reshaped[..., 7:11],
+                        q_r_proj,
+                        x_reshaped[..., 15:16],
+                    ],
+                    dim=-1,
+                ).view(orig_shape)
 
         return x
 

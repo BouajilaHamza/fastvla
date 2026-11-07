@@ -152,71 +152,37 @@ def quaternion_angular_velocity(q: torch.Tensor, q_dot: torch.Tensor) -> torch.T
     return torch.stack([wx, wy, wz], dim=-1)
 
 
-def se3_flow_interpolate(
-    target: torch.Tensor,
-    x0: torch.Tensor,
-    t: torch.Tensor,
+def _interpolate_single_arm_se3(
+    target_arm: torch.Tensor,
+    x0_arm: torch.Tensor,
+    t_expand: torch.Tensor,
     format: str = "7dof_euler",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Computes SE(3) Riemannian probability path and target velocity field:
-        SE(3) ~ R^3 (translation) x SO(3) (rotation) x R (gripper).
-
-    Args:
-        target: [..., D] Target ground truth action (e.g. D=7 or D=8, or chunked D=T*7).
-        x0:     [..., D] Source noise action sample from prior.
-        t:      [...] or [..., 1] Time scalar in [0, 1].
-        format: '7dof_euler' (3 transl, 3 euler, 1 grip) or '8dof_quat' (3 transl, 4 quat, 1 grip).
-
-    Returns:
-        x_t:             [..., D] Interpolated action on SE(3) manifold at time t.
-        target_velocity: [..., D] Target velocity field dx/dt along the geodesic.
+    Interpolate single 7-DoF or 8-DoF arm actions on SE(3) manifold.
     """
-    orig_shape = target.shape
-    orig_dtype = target.dtype
-    D = orig_shape[-1]
-
-    # Perform geometry math in float32 for rigorous numerical stability, avoiding float16 subnormal underflows
-    target = target.float()
-    x0 = x0.float()
-    t = t.float()
-
-    # Handle chunked actions (e.g., T * 7 or T * 8)
-    elem_dim = 8 if format == "8dof_quat" else 7
-    is_chunked = (D != elem_dim) and (D % elem_dim == 0)
-
-    if is_chunked:
-        target = target.view(*orig_shape[:-1], -1, elem_dim)
-        x0 = x0.view(*orig_shape[:-1], -1, elem_dim)
-
-    # Ensure t has compatible shape for broadcasting: [..., 1] or [..., 1, 1]
-    if t.ndim < target.ndim:
-        t_expand = t.view(*t.shape, *([1] * (target.ndim - t.ndim)))
-    else:
-        t_expand = t
-
     # 1. Translation: Linear optimal transport path in R^3
-    p0 = x0[..., :3]
-    p1 = target[..., :3]
+    p0 = x0_arm[..., :3]
+    p1 = target_arm[..., :3]
     p_t = (1.0 - t_expand) * p0 + t_expand * p1
     v_p = p1 - p0
 
     # 2. Gripper: Linear optimal transport path in R^1
-    g0 = x0[..., -1:]
-    g1 = target[..., -1:]
+    g0 = x0_arm[..., -1:]
+    g1 = target_arm[..., -1:]
     g_t = (1.0 - t_expand) * g0 + t_expand * g1
     v_g = g1 - g0
 
     # 3. Rotation: Geodesic SLERP on SO(3) / S^3
     if format == "8dof_quat":
-        q0 = x0[..., 3:7]
-        q1 = target[..., 3:7]
+        q0 = x0_arm[..., 3:7]
+        q1 = target_arm[..., 3:7]
         q_t, v_q = quaternion_slerp(q0, q1, t_expand)
         r_t = q_t
         v_r = v_q
     else:  # '7dof_euler'
-        r0 = x0[..., 3:6]
-        r1 = target[..., 3:6]
+        r0 = x0_arm[..., 3:6]
+        r1 = target_arm[..., 3:6]
         q0 = euler_to_quaternion(r0)
         q1 = euler_to_quaternion(r1)
 
@@ -242,6 +208,99 @@ def se3_flow_interpolate(
 
     x_t = torch.cat([p_t, r_t, g_t], dim=-1)
     target_velocity = torch.cat([v_p, v_r, v_g], dim=-1)
+    return x_t, target_velocity
+
+
+def se3_flow_interpolate(
+    target: torch.Tensor,
+    x0: torch.Tensor,
+    t: torch.Tensor,
+    format: str = "7dof_euler",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes SE(3) Riemannian probability path and target velocity field:
+        - Single arm: SE(3) ~ R^3 (transl) x SO(3) (rot) x R (gripper).
+        - Bimanual / Humanoid: SE(3)_left x R_left x SE(3)_right x R_right.
+
+    Args:
+        target: [..., D] Target ground truth action (e.g. D=7, 8, 14, 16, or chunked D=T*elem_dim).
+        x0:     [..., D] Source noise action sample from prior.
+        t:      [...] or [..., 1] Time scalar in [0, 1].
+        format:
+            - '7dof_euler': Single arm (3 transl, 3 euler, 1 grip) -> D=7
+            - '8dof_quat': Single arm (3 transl, 4 quat, 1 grip) -> D=8
+            - '14dof_bimanual_euler': Dual arm (Left: 3 transl, 3 euler, 1 grip; Right: 3 transl, 3 euler, 1 grip) -> D=14
+            - '16dof_bimanual_quat': Dual arm (Left: 3 transl, 4 quat, 1 grip; Right: 3 transl, 4 quat, 1 grip) -> D=16
+            - '14dof_joint': Dual arm joint positions (ALOHA / Unitree G1 joints) -> D=14
+
+    Returns:
+        x_t:             [..., D] Interpolated action on SE(3) manifold at time t.
+        target_velocity: [..., D] Target velocity field dx/dt along the geodesic.
+    """
+    orig_shape = target.shape
+    orig_dtype = target.dtype
+    D = orig_shape[-1]
+
+    # Perform geometry math in float32 for rigorous numerical stability, avoiding float16 subnormal underflows
+    target = target.float()
+    x0 = x0.float()
+    t = t.float()
+
+    format_dims = {
+        "7dof_euler": 7,
+        "8dof_quat": 8,
+        "14dof_bimanual_euler": 14,
+        "16dof_bimanual_quat": 16,
+        "14dof_joint": 14,
+    }
+    elem_dim = format_dims.get(format, 7)
+
+    # Handle chunked actions (e.g., T * elem_dim)
+    is_chunked = (D != elem_dim) and (D % elem_dim == 0)
+
+    if is_chunked:
+        target = target.view(*orig_shape[:-1], -1, elem_dim)
+        x0 = x0.view(*orig_shape[:-1], -1, elem_dim)
+
+    # Ensure t has compatible shape for broadcasting: [..., 1] or [..., 1, 1]
+    if t.ndim < target.ndim:
+        t_expand = t.view(*t.shape, *([1] * (target.ndim - t.ndim)))
+    else:
+        t_expand = t
+
+    if format == "14dof_bimanual_euler":
+        # Left arm: [..., :7], Right arm: [..., 7:14]
+        target_left, target_right = target[..., :7], target[..., 7:14]
+        x0_left, x0_right = x0[..., :7], x0[..., 7:14]
+
+        x_t_l, v_t_l = _interpolate_single_arm_se3(target_left, x0_left, t_expand, format="7dof_euler")
+        x_t_r, v_t_r = _interpolate_single_arm_se3(target_right, x0_right, t_expand, format="7dof_euler")
+
+        x_t = torch.cat([x_t_l, x_t_r], dim=-1)
+        target_velocity = torch.cat([v_t_l, v_t_r], dim=-1)
+
+    elif format == "16dof_bimanual_quat":
+        # Left arm: [..., :8], Right arm: [..., 8:16]
+        target_left, target_right = target[..., :8], target[..., 8:16]
+        x0_left, x0_right = x0[..., :8], x0[..., 8:16]
+
+        x_t_l, v_t_l = _interpolate_single_arm_se3(target_left, x0_left, t_expand, format="8dof_quat")
+        x_t_r, v_t_r = _interpolate_single_arm_se3(target_right, x0_right, t_expand, format="8dof_quat")
+
+        x_t = torch.cat([x_t_l, x_t_r], dim=-1)
+        target_velocity = torch.cat([v_t_l, v_t_r], dim=-1)
+
+    elif format == "14dof_joint":
+        # Dual-arm joint coordinates with linear OT path
+        x_t = (1.0 - t_expand) * x0 + t_expand * target
+        target_velocity = target - x0
+
+    elif format in ("7dof_euler", "8dof_quat"):
+        x_t, target_velocity = _interpolate_single_arm_se3(target, x0, t_expand, format=format)
+    else:
+        # Fallback to standard linear flow matching
+        x_t = (1.0 - t_expand) * x0 + t_expand * target
+        target_velocity = target - x0
 
     if is_chunked:
         x_t = x_t.view(*orig_shape)

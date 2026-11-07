@@ -22,25 +22,37 @@ from fastvla.inference import FastVLAPolicyRunner, EdgeTelemetryHUD
 def run_mock_loop(runner: FastVLAPolicyRunner, target_hz: float, duration_sec: float, prompt: str):
     """Executes a simulated hardware-in-the-loop control loop."""
     print(f"\n[FastVLA Edge] Starting Mock Robot Control Loop at {target_hz:.1f} Hz...")
-    print(f"[FastVLA Edge] Instruction: '{prompt}' | Run Duration: {duration_sec:.1f}s\n")
+    print(f"[FastVLA Edge] Instruction: '{prompt}' | Run Duration: {duration_sec:.1f}s")
+    if runner.safety_filter:
+        print(f"[FastVLA Safety] Guard Active: {runner.safety_filter.config.name} (watchdog: {runner.safety_filter.config.watchdog_timeout_sec*1000:.0f}ms)\n")
+    else:
+        print("[FastVLA Safety] Warning: Kinematic safety filter disabled.\n")
 
     period_sec = 1.0 / target_hz
     start_total = time.perf_counter()
     step = 0
 
-    # Synthetic camera feed
-    dummy_img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))
+    # Synthetic camera feed (supports multi-camera if 14-DoF bimanual)
+    if runner.action_dim == 14:
+        dummy_img = {
+            "cam_high": Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)),
+            "cam_left_wrist": Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)),
+            "cam_right_wrist": Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)),
+        }
+    else:
+        dummy_img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))
 
     while (time.perf_counter() - start_total) < duration_sec:
         loop_start = time.perf_counter()
 
-        # Step the policy
-        action = runner.step(dummy_img, instruction=prompt)
+        # Step the policy with safety filter
+        action, safety_info = runner.step(dummy_img, instruction=prompt, return_safety_info=True)
         step += 1
 
         # Print telemetry HUD every 20 steps
         if step % max(1, int(target_hz)) == 0:
-            print(runner.telemetry.render_hud() + f" | a_0: {action[0]:+.3f}")
+            guard_tag = " [OK]" if safety_info.get("safe", True) else " [TRIP!]"
+            print(runner.telemetry.render_hud() + f" | a_0: {action[0]:+.3f}{guard_tag}")
 
         # Precise rate limiter
         elapsed = time.perf_counter() - loop_start
@@ -59,6 +71,10 @@ def run_mock_loop(runner: FastVLAPolicyRunner, target_hz: float, duration_sec: f
     print(f"Mean Chunk Inference:   {metrics['mean_chunk_inference_ms']:.1f} ms")
     print(f"Total Steps Executed:   {metrics['total_steps']}")
     print(f"Actuator Saturation:    {metrics['saturation_rate']*100:.1f}%")
+    if runner.safety_filter:
+        print(f"Safety Clamps:          {runner.safety_filter.clamped_violations_count}")
+        print(f"Rate/Vel Limits Active: {runner.safety_filter.velocity_limited_count}")
+        print(f"Watchdog Status:        {'TRIPPED' if runner.safety_filter.is_tripped else 'CLEAN'}")
     print("=" * 60)
 
 
@@ -69,11 +85,22 @@ def main():
     parser.add_argument("--duration", type=float, default=5.0, help="Run duration in seconds")
     parser.add_argument("--model-path", type=str, default=None, help="Path or HF ID of trained FastVLA model")
     parser.add_argument("--prompt", type=str, default="ضع الكوب على الطبق", help="Task prompt")
-    parser.add_argument("--action-dim", type=int, default=7, help="Action dimensions")
+    parser.add_argument("--action-dim", type=int, default=7, help="Action dimensions (e.g. 6, 7, or 14 for bimanual)")
     parser.add_argument("--chunk-size", type=int, default=16, help="Action chunk prediction horizon")
     parser.add_argument("--ode-solver", type=str, choices=["midpoint", "euler"], default="midpoint")
+    parser.add_argument(
+        "--safety-preset",
+        type=str,
+        choices=["none", "auto", "so_100", "koch", "aloha", "unitree_g1"],
+        default="auto",
+        help="Kinematic safety shield preset",
+    )
+    parser.add_argument("--watchdog-timeout", type=float, default=0.5, help="Watchdog emergency stop timeout in seconds")
 
     args = parser.parse_args()
+
+    safety_config = None if args.safety_preset == "none" else (args.safety_preset if args.safety_preset != "auto" else None)
+    enable_safety = args.safety_preset != "none"
 
     runner = FastVLAPolicyRunner(
         model=None,
@@ -81,6 +108,8 @@ def main():
         action_dim=args.action_dim,
         chunk_size=args.chunk_size,
         ode_solver=args.ode_solver,
+        safety_config=safety_config,
+        enable_safety=enable_safety,
     )
 
     if args.mode == "mock":

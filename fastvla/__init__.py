@@ -27,6 +27,14 @@ _import_structure = {
     "data.collator": ["UnslothVLACollator"],
     "optimization": ["get_quantization_config", "get_8bit_optimizer"],
     "inference": ["FastVLAPolicyRunner", "ActionChunkBuffer", "EdgeTelemetryHUD"],
+    "safety": [
+        "SafetyFilter",
+        "RobotSafetyConfig",
+        "SO_100_SAFETY_CONFIG",
+        "KOCH_SAFETY_CONFIG",
+        "ALOHA_BIMANUAL_SAFETY_CONFIG",
+        "UNITREE_G1_SAFETY_CONFIG",
+    ],
 }
 
 _submodule_objects = {}
