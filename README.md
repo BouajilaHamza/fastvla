@@ -29,13 +29,24 @@
 
 FastVLA Turbo and its NVIDIA Isaac GR00T adaptation are the first robotics foundation models specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
 
-### 1. NVIDIA Isaac GR00T-3B Policy Rollout
-Below is the live rollout of **NVIDIA Isaac GR00T (3B)** running on an **NVIDIA Tesla T4 (16GB)** under the verified Modern Standard Arabic command:  
+### 1. NVIDIA Isaac GR00T-3B Policy Rollouts (Arabic Physical AI)
+
+#### Test Case 1: Dual Mug Placement
+Live rollout of **NVIDIA Isaac GR00T (3B)** running on an **NVIDIA Tesla T4 (16GB)** under the command:  
 **`"ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"`** *(Place the white mug on the left plate and place the yellow and white mug on the right plate)*:
 
 <div align="center">
-  <img src="assets/fastvla_groot_arabic_rollout.gif" width="700" alt="NVIDIA Isaac GR00T-3B Arabic Policy Rollout" />
-  <p><em>NVIDIA Isaac GR00T-3B (4-bit NF4 + 2x2 Spatial Token Compressor + SE(3) Flow Matching) executing Franka Panda tabletop manipulation on an entry-level Tesla T4 (Peak VRAM: 4.01 GB, 23.5 Hz ODE solver).</em></p>
+  <img src="assets/fastvla_groot_arabic_rollout.gif" width="700" alt="NVIDIA Isaac GR00T-3B Arabic Policy Rollout - Dual Mug" />
+  <p><em>Test Case 1: Dual Mug Tabletop Placement (Peak VRAM: 4.01 GB, 23.5 Hz ODE solver, L2 Trajectory Error: 1.1059).</em></p>
+</div>
+
+#### Test Case 2: Contact Articulation & Moka Pot Placement
+Live rollout under the multi-stage contact manipulation command:  
+**`"شغّل الموقد وضع إبريق الموكا عليه"`** *(Turn on the stove and place the moka pot on it)*:
+
+<div align="center">
+  <img src="assets/fastvla_groot_arabic_rollout_stove.gif" width="700" alt="NVIDIA Isaac GR00T-3B Arabic Policy Rollout - Stove & Moka Pot" />
+  <p><em>Test Case 2: Stove Dial Rotation & Moka Pot Placement (Peak VRAM: 4.01 GB, 23.5 Hz ODE solver, L2 Trajectory Error: 1.2232).</em></p>
 </div>
 
 ### 2. FastVLA Turbo (7B) Rollout

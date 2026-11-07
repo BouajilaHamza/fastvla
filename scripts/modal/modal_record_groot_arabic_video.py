@@ -55,7 +55,7 @@ secrets = [modal.Secret.from_dict({"HF_TOKEN": _hf_token})]
 
 
 @app.function(gpu="T4", timeout=1200, secrets=secrets)
-def record_groot_policy_video(max_frames: int = 120):
+def record_groot_policy_video(max_frames: int = 120, target_task_index: int = 3, target_episode: int = -1):
     import gc
     import subprocess
     import cv2
@@ -78,6 +78,7 @@ def record_groot_policy_video(max_frames: int = 120):
 
     print("=" * 80)
     print(f"🎬 VALIDATING & RECORDING NVIDIA ISAAC GR00T-3B PHYSICAL POLICY ON {gpu_name}")
+    print(f"   Target Task Index: {target_task_index} | Max Frames: {max_frames}")
     print("   Architecture: 4-Bit NF4 3B VLM + 2x2 Spatial Token Compressor + SE(3) Flow Matching")
     print("=" * 80)
 
@@ -143,7 +144,7 @@ def record_groot_policy_video(max_frames: int = 120):
     print("  ✅ GR00T-3B model initialized on T4.")
 
     # 2. Fetch Demonstration Episode Frames from newly retagged ar-libero-10-image
-    print("\n[Phase 2] Fetching consecutive episode frames from hamzabouajila/ar-libero-10-image...")
+    print(f"\n[Phase 2] Fetching consecutive episode frames for Task {target_task_index} from hamzabouajila/ar-libero-10-image...")
     ds = load_dataset("hamzabouajila/ar-libero-10-image", split="train", streaming=True)
 
     transform = T.Compose([
@@ -153,35 +154,41 @@ def record_groot_policy_video(max_frames: int = 120):
     ])
 
     episode_frames = []
-    arabic_instruction = "ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"
+    arabic_instruction = "شغّل الموقد وضع إبريق الموكا عليه"
+    chosen_episode = target_episode
 
     for item in ds:
-        ep_idx = item.get("episode_index", 0)
-        if ep_idx == 0:
-            raw_agent = item.get("observation.images.image", item.get("image"))
-            raw_wrist = item.get("observation.images.wrist_image", item.get("wrist_image", raw_agent))
-            arabic_instruction = item.get("instruction", arabic_instruction)
+        t_idx = item.get("task_index")
+        if t_idx is not None and int(t_idx) == target_task_index:
+            ep_idx = item.get("episode_index", 0)
+            if chosen_episode == -1:
+                chosen_episode = ep_idx
+            
+            if ep_idx == chosen_episode:
+                raw_agent = item.get("observation.images.image", item.get("image"))
+                raw_wrist = item.get("observation.images.wrist_image", item.get("wrist_image", raw_agent))
+                arabic_instruction = item.get("instruction", arabic_instruction)
 
-            if hasattr(raw_agent, "convert"):
-                pil_agent = raw_agent.convert("RGB").resize((256, 256))
-                pil_wrist = raw_wrist.convert("RGB").resize((256, 256))
-            else:
-                pil_agent = Image.new("RGB", (256, 256), color=(40, 40, 40))
-                pil_wrist = Image.new("RGB", (256, 256), color=(40, 40, 40))
+                if hasattr(raw_agent, "convert"):
+                    pil_agent = raw_agent.convert("RGB").resize((256, 256))
+                    pil_wrist = raw_wrist.convert("RGB").resize((256, 256))
+                else:
+                    pil_agent = Image.new("RGB", (256, 256), color=(40, 40, 40))
+                    pil_wrist = Image.new("RGB", (256, 256), color=(40, 40, 40))
 
-            episode_frames.append({
-                "pil_agent": pil_agent,
-                "pil_wrist": pil_wrist,
-                "tensor_agent": transform(pil_agent),
-                "tensor_wrist": transform(pil_wrist),
-                "gt_action": item.get("action", [0.0] * 7)[:7],
-            })
-            if len(episode_frames) >= max_frames:
+                episode_frames.append({
+                    "pil_agent": pil_agent,
+                    "pil_wrist": pil_wrist,
+                    "tensor_agent": transform(pil_agent),
+                    "tensor_wrist": transform(pil_wrist),
+                    "gt_action": item.get("action", [0.0] * 7)[:7],
+                })
+                if len(episode_frames) >= max_frames:
+                    break
+            elif len(episode_frames) > 0:
                 break
-        elif len(episode_frames) > 0:
-            break
 
-    print(f"  ✅ Collected {len(episode_frames)} continuous frames. Task: '{arabic_instruction}'")
+    print(f"  ✅ Collected {len(episode_frames)} continuous frames for Episode {chosen_episode}. Task: '{arabic_instruction}'")
 
     # 3. Policy Execution & Video Rendering Loop
     print("\n[Phase 3] Generating GR00T 16-step continuous trajectories (2-step Midpoint) & rendering HUD...")
@@ -340,9 +347,9 @@ def record_groot_policy_video(max_frames: int = 120):
 
 
 @app.local_entrypoint()
-def main():
-    print("🎬 Requesting GR00T validation and video rollout from Modal T4...")
-    result = record_groot_policy_video.remote(max_frames=100)
+def main(task_idx: int = 3, max_frames: int = 100):
+    print(f"🎬 Requesting GR00T validation and video rollout for Task {task_idx} from Modal T4...")
+    result = record_groot_policy_video.remote(max_frames=max_frames, target_task_index=task_idx)
     print("\n✅ GR00T Policy Validation Summary:")
     print(f"   Task:                  {result['task']}")
     print(f"   Frames Rendered:       {result['num_frames']}")
@@ -352,13 +359,24 @@ def main():
 
     local_assets = Path("/home/hamza/Documents/BouajilaHamza/fastvla/assets")
     local_assets.mkdir(parents=True, exist_ok=True)
-    mp4_file = local_assets / "fastvla_groot_arabic_rollout.mp4"
-    gif_file = local_assets / "fastvla_groot_arabic_rollout.gif"
+    
+    # Save standard task-specific files
+    mp4_file = local_assets / f"fastvla_groot_arabic_rollout_task{task_idx}.mp4"
+    gif_file = local_assets / f"fastvla_groot_arabic_rollout_task{task_idx}.gif"
 
     with open(mp4_file, "wb") as f:
         f.write(result["mp4_bytes"])
     with open(gif_file, "wb") as f:
         f.write(result["gif_bytes"])
+
+    # If task 3 (stove & moka pot), also alias to semantic name
+    if task_idx == 3:
+        stove_mp4 = local_assets / "fastvla_groot_arabic_rollout_stove.mp4"
+        stove_gif = local_assets / "fastvla_groot_arabic_rollout_stove.gif"
+        with open(stove_mp4, "wb") as f:
+            f.write(result["mp4_bytes"])
+        with open(stove_gif, "wb") as f:
+            f.write(result["gif_bytes"])
 
     print(f"\n📁 Saved local MP4 video to: {mp4_file}")
     print(f"📁 Saved local GIF to:       {gif_file}")
