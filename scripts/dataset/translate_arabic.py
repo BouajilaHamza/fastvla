@@ -38,9 +38,54 @@ LIBERO_10_ARABIC_LEXICON = {
     "pick up the book and place it in the back compartment of the caddy": "التقط الكتاب وضعه في الحجرة الخلفية لحامل الأدوات",
 }
 
+# Official, verified ground-truth translations for LIBERO-Spatial suite
+LIBERO_SPATIAL_LEXICON = {
+    "pick up the black bowl between the plate and the ramekin and place it on the plate": "التقط الوعاء الأسود الموجود بين الطبق وقالب الخَبز وضعه على الطبق",
+    "pick up the black bowl from table center and place it on the plate": "التقط الوعاء الأسود من وسط الطاولة وضعه على الطبق",
+    "pick up the black bowl next to the ramekin and place it on the plate": "التقط الوعاء الأسود المجاور لقالب الخَبز وضعه على الطبق",
+    "pick up the black bowl on the cookie sheet and place it on the plate": "التقط الوعاء الأسود من على صينية البسكويت وضعه على الطبق",
+    "pick up the black bowl on the ramekin and place it on the plate": "التقط الوعاء الأسود الموضوع فوق قالب الخَبز وضعه على الطبق",
+    "pick up the black bowl on the stove and place it on the plate": "التقط الوعاء الأسود من على الموقد وضعه على الطبق",
+    "pick up the ramen at the top of the table and place it on the plate": "التقط علبة الرامن من أعلى الطاولة وضعها على الطبق",
+    "pick up the ramen on the left of the table and place it on the plate": "التقط علبة الرامن من يسار الطاولة وضعها على الطبق",
+    "pick up the ramen on the right of the table and place it on the plate": "التقط علبة الرامن من يمين الطاولة وضعها على الطبق",
+    "pick up the salad dressing next to the ramekin and place it on the plate": "التقط تتبيلة السلطة المجاورة لقالب الخَبز وضعها على الطبق",
+}
+
+# Official, verified ground-truth translations for LIBERO-Object suite
+LIBERO_OBJECT_LEXICON = {
+    "pick up the alphabet soup and place it in the basket": "التقط حساء الحروف وضعه في السلة",
+    "pick up the cream cheese and place it in the basket": "التقط علبة الجبن الكريمي وضعها في السلة",
+    "pick up the salad dressing and place it in the basket": "التقط تتبيلة السلطة وضعها في السلة",
+    "pick up the bbq sauce and place it in the basket": "التقط صلصة الشواء وضعها في السلة",
+    "pick up the ketchup and place it in the basket": "التقط الكاتشب وضعه في السلة",
+    "pick up the tomato sauce and place it in the basket": "التقط صلصة الطماطم وضعها في السلة",
+    "pick up the butter and place it in the basket": "التقط الزبدة وضعها في السلة",
+    "pick up the milk and place it in the basket": "التقط الحليب وضعه في السلة",
+    "pick up the orange juice and place it in the basket": "التقط عصير البرتقال وضعه في السلة",
+    "pick up the chocolate pudding and place it in the basket": "التقط حلوى الشوكولاتة وضعها في السلة",
+}
+
+# Official, verified ground-truth translations for LIBERO-Goal suite
+LIBERO_GOAL_LEXICON = {
+    "open the middle drawer of the cabinet": "افتح الدرج الأوسط من الخزانة",
+    "open the top drawer of the cabinet": "افتح الدرج العلوي من الخزانة",
+    "put the bowl on the stove": "ضع الوعاء على الموقد",
+    "turn on the stove": "شغّل الموقد",
+    "put the wine bottle on the wine rack": "ضع زجاجة العصير على حامل الزجاجات",
+    "put the bowl on top of the cabinet": "ضع الوعاء فوق سطح الخزانة",
+    "push the plate to the front of the stove": "ادفع الطبق إلى مقدمة الموقد",
+    "put the bowl in the cabinet": "ضع الوعاء داخل الخزانة",
+    "turn off the stove": "أطفئ الموقد",
+    "close the top drawer of the cabinet": "أغلق الدرج العلوي من الخزانة",
+}
+
 # Standard robotics domain translations for spatial & manipulation primitives
 STANDARD_ARABIC_ROBOTICS_LEXICON = {
     **LIBERO_10_ARABIC_LEXICON,
+    **LIBERO_SPATIAL_LEXICON,
+    **LIBERO_OBJECT_LEXICON,
+    **LIBERO_GOAL_LEXICON,
     "push the block to the goal": "ادفع الكتلة إلى الهدف",
     "push the t-block into the target goal": "ادفع القطعة التائية إلى منطقة الهدف",
     "align the t-block with the goal": "حرّك الكتلة التائية نحو الهدف وطابقها معه",
