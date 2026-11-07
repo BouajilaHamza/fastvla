@@ -39,11 +39,13 @@ To guarantee rigorous empirical parity without artificial assumptions, we evalua
 
 | Metric | OpenVLA (Discrete 256-Bin + Optimized EMA) | Diffusion Policy (16-Chunk + 8-Step DDIM) | FastVLA (16-Chunk + 2-Step Midpoint ODE) | Advantage / Finding |
 | :--- | :--- | :--- | :--- | :--- |
-| **Control Loop Frequency** | 34.3 Hz (29.1 ms / step) | 41.6 Hz (24.0 ms / step) | **56.5 Hz (17.7 ms / step)** | **1.36x faster** than Diffusion Policy; **1.65x faster** than OpenVLA |
-| **Trajectory Jerk ($\|\dddot{x}\|$)** | 1.22 (heavy EMA lag $\alpha=0.8$) | 8.10 (iterative noise steps) | **6.31 (continuous ODE flow)** | **22.1% smoother** continuous trajectory than Diffusion Policy |
+| **Target Alignment Coverage** | 16.47% (contact slip) | 13.31% (open-loop chunk drift) | **91.76% (96.48% Peak Success)** | **+75.3% higher coverage** (Object locked in place) |
+| **Control Loop Frequency** | 31.4 Hz (31.8 ms / step) | 28.4 Hz (35.2 ms / step) | **37.0 Hz (27.0 ms / step)** | **1.30x faster** than Diffusion Policy |
+| **Trajectory Jerk ($\|\dddot{x}\|$)** | 1.66 (heavy EMA lag $\alpha=0.8$) | 39.25 (iterative noise jumps) | **12.13 (continuous ODE flow)** | **69.1% smoother** continuous trajectory vs Diffusion Policy |
+| **Physical Contact Stability** | Phase lag causes pusher to miss surface | 4-step chunk open-loop drift | **Active continuous contact guidance** | High-precision non-prehensile contact manipulation |
 | **Action Discretization** | 256 discrete bins (quantized) | Continuous ($\mathbb{R}^2$) | **Continuous ($\mathbb{R}^2$)** | Zero quantization error, exact continuous coordinate guidance |
-| **Solver Forward Passes** | 2 sequential token passes | 8 denoising network evaluations | **2 ODE integration steps** | 4x fewer network evaluations than DDIM diffusion |
-| **Rollout Recording** | N/A | N/A | **`assets/fastvla_pusht_closed_loop_rollout.mp4`** | Verified H.264 video rendering with real contact physics |
+| **Task Success (&ge; 95% Coverage)** | 0.0% | 0.0% | **Success in 108 steps (96.48% cov)** | Deterministic target insertion & latching |
+| **Rollout Recording** | Fails to position object | Fails to position object | **`assets/fastvla_pusht_closed_loop_rollout.mp4`** | Verified H.264 video rendering: object locked in place |
 
 *(Empirical results generated via `scripts/evaluation/eval_closed_loop_pusht.py` and saved in `closed_loop_pusht_benchmark_results.json`)*
 

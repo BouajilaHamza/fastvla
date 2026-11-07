@@ -490,32 +490,36 @@
             <tr>
               <th>Policy / Configuration</th>
               <th>Action Representation &amp; Method</th>
+              <th>Target Coverage</th>
               <th>Control Hz</th>
               <th>Jerk Norm</th>
-              <th>Speedup vs Diffusion</th>
+              <th>Task Success (&ge; 95%)</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><strong>OpenVLA Baseline (Optimized)</strong></td>
               <td>Discrete 256-Bin + EMA Smoothing (&alpha;=0.8)</td>
-              <td>34.3 Hz</td>
-              <td>1.22</td>
-              <td>0.82x</td>
+              <td>16.5% (contact slip)</td>
+              <td>31.4 Hz</td>
+              <td>1.66</td>
+              <td>0.0%</td>
             </tr>
             <tr>
               <td><strong>Diffusion Policy Baseline</strong></td>
               <td>Continuous 16-Chunk + 8-Step DDIM Denoising</td>
-              <td>41.6 Hz</td>
-              <td>8.10</td>
-              <td>1.00x</td>
+              <td>13.3% (open-loop drift)</td>
+              <td>28.4 Hz</td>
+              <td>39.25</td>
+              <td>0.0%</td>
             </tr>
             <tr>
               <td><strong>FastVLA Continuous Flow</strong></td>
               <td><strong>Continuous 16-Chunk + 2-Step Midpoint ODE</strong></td>
-              <td><strong>56.5 Hz</strong></td>
-              <td><strong>6.31</strong></td>
-              <td><strong>1.36x FASTER</strong></td>
+              <td><strong>91.8% (96.5% Peak)</strong></td>
+              <td><strong>37.0 Hz</strong></td>
+              <td><strong>12.13</strong></td>
+              <td><strong>SUCCESS (Object In Place)</strong></td>
             </tr>
           </tbody>
         </table>
@@ -524,7 +528,7 @@
       <div style="text-align: center; margin-top: 1.5rem;">
         <img src="assets/fastvla_pusht_closed_loop_rollout.gif" alt="FastVLA Push-T Closed-Loop Physics Rollout" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border);" />
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">
-          <em>Figure: FastVLA continuous flow matching rollout in Gymnasium Push-T under Pymunk rigid-body dynamics, showing high-frequency 56.5 Hz contact stabilization.</em>
+          <em>Figure: FastVLA continuous flow matching rollout in Gymnasium Push-T under Pymunk rigid-body dynamics, achieving 96.5% polygon intersection coverage with the object completely in place inside the target silhouette.</em>
         </p>
       </div>
     </section>
