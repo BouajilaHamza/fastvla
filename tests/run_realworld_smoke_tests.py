@@ -67,7 +67,7 @@ def run_smoke_tests():
             attention_mask=attention_mask,
             labels=discrete_labels,
         )
-    assert preds.shape == (B, 7, 256), f"Expected discrete logits [B, 7, 256], got {preds.shape}"
+    assert preds.shape == (B, 7), f"Expected discrete decoded actions [B, 7], got {preds.shape}"
     assert loss is not None and not torch.isnan(loss)
     print(f"  ✓ OpenVLA forward pass successful! Loss: {loss.item():.4f}")
 
@@ -88,7 +88,7 @@ def run_smoke_tests():
         dummy=True,
         llm_name="google/paligemma-3b-pt-224",
         vision_encoder_name="google/paligemma-3b-pt-224",
-        action_dim=total_continuous_dim,
+        action_dim=action_dof,
         chunk_size=chunk_horizon,
         head_type="flow_matching",
         action_type="continuous",
@@ -186,7 +186,7 @@ def run_smoke_tests():
 
     # Store group rollout
     rewards = [0.2, 0.8, 0.4, 0.9]
-    grpo_trainer.store_group_rollout(
+    grpo_trainer.store_group(
         obs=pixel_values[0],
         input_ids=input_ids[0],
         actions=group_actions,
@@ -196,8 +196,8 @@ def run_smoke_tests():
 
     # Train cycle with group advantages
     grpo_metrics = grpo_trainer.update()
-    assert "loss" in grpo_metrics and "advantage_mean" in grpo_metrics
-    print(f"  ✓ GRPO continuous trajectory step verified! Loss: {grpo_metrics['loss']:.4f}, Mean Advantage: {grpo_metrics['advantage_mean']:.4f}")
+    assert "total_loss" in grpo_metrics and "policy_loss" in grpo_metrics
+    print(f"  ✓ GRPO continuous trajectory step verified! Total Loss: {grpo_metrics['total_loss']:.4f}, Policy Loss: {grpo_metrics['policy_loss']:.4f}")
 
     elapsed = time.time() - start_time
     print_banner(f"ALL 6 REAL-WORLD USE CASES PASSED CLEANLY IN {elapsed:.2f}s!")
