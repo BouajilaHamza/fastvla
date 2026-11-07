@@ -1,4 +1,4 @@
-"""Data loading and processing for FastVLA."""
+"""Data loading, processing, and multi-modal augmentation for FastVLA."""
 
 from .datasets import (
     RoboticsDataset,
@@ -9,6 +9,7 @@ from .datasets import (
 )
 from .collator import UnslothVLACollator
 from .cache import VisionTokenCache, CachedVisionDataset
+from .augmentations import RobustRoboticsVisionAugmentor, ArabicLanguagePerturber
 
 __all__ = [
     "RoboticsDataset",
@@ -19,4 +20,6 @@ __all__ = [
     "get_dataset",
     "VisionTokenCache",
     "CachedVisionDataset",
+    "RobustRoboticsVisionAugmentor",
+    "ArabicLanguagePerturber",
 ]

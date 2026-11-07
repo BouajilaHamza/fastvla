@@ -590,7 +590,7 @@ wheels = [
 
 [[package]]
 name = "fastvla"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
@@ -642,7 +642,7 @@ requires-dist = [
     { name = "fastvla", extras = ["gpu", "lora", "logging"], marker = "extra == 'all'" },
     { name = "h5py", specifier = ">=3.10.0" },
     { name = "huggingface-hub", specifier = ">=0.26.0" },
-    { name = "numpy", specifier = ">=1.24.0,<2.0.0" },
+    { name = "numpy", specifier = ">=1.24.0" },
     { name = "opencv-python", specifier = ">=4.7.0" },
     { name = "pandas", specifier = ">=1.5.0" },
     { name = "peft", marker = "extra == 'lora'", specifier = ">=0.9.0" },

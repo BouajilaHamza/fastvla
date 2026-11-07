@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union, Any
 import torch
 from transformers import PreTrainedTokenizerBase
 
@@ -9,6 +9,7 @@ class UnslothVLACollator:
     """
     Data collator for FastVLA that handles:
     - Multi-camera image batching (stacks into [B, num_cams, C, H, W])
+    - Multi-modal visual and linguistic data augmentation
     - Variable-length sequences
     - Mixed data types (images, states, actions, text)
     """
@@ -23,6 +24,8 @@ class UnslothVLACollator:
     norm_min: torch.Tensor = None
     norm_max: torch.Tensor = None
     use_relative_delta: bool = False
+    vision_augmentor: Optional[Any] = None
+    language_perturber: Optional[Any] = None
 
     def __call__(self, features: List[Dict[str, any]]) -> Dict[str, torch.Tensor]:
         """
@@ -96,6 +99,10 @@ class UnslothVLACollator:
                     cam_images.append(torch.stack(imgs[:max_cams], dim=0))
 
             batch["pixel_values"] = torch.stack(cam_images, dim=0)
+
+        # Apply multi-camera vision augmentation if configured
+        if self.vision_augmentor is not None and "pixel_values" in batch:
+            batch["pixel_values"] = self.vision_augmentor(batch["pixel_values"])
 
         # ── Handle states ────────────────────────────────────────────
         # ── Handle states (for relative deltas or observation history) ──
@@ -186,6 +193,8 @@ class UnslothVLACollator:
         # ── Handle text instructions ────────────────────────────────
         if "instructions" in features[0]:
             texts = [f["instructions"] for f in features]
+            if self.language_perturber is not None:
+                texts = [self.language_perturber(t) for t in texts]
             batch["instructions"] = texts  # Keep raw text for trainer-side translation
             text_inputs = self.tokenizer(
                 texts,
