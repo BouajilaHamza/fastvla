@@ -15,9 +15,12 @@ This is an Arabic-localized version of the standard `lerobot/pusht_image` datase
 - **Format:** LeRobot-compatible Parquet
 - **Resolution:** 96x96 (Top-down view)
 
-### Sample Instruction
-- **English:** "push the block to the goal"
-- **Arabic:** "إدفع الكتلة إلى الهدف"
+### Sample Instructions & Paraphrasing Variations
+- **Canonical Command:** "ادفع الكتلة إلى الهدف" *(Push the block to the goal)*
+- **Geometric Precision:** "ادفع القطعة التائية إلى منطقة الهدف" *(Push the T-piece into the target area)*
+- **Orientation & Alignment:** "حرّك الكتلة التائية نحو الهدف وطابقها معه" *(Move the T-block toward the goal and align it)*
+- **Placement Precision:** "وجّه القطعة التائية وضعها بدقة داخل الهدف" *(Guide the T-piece and place it precisely in the goal)*
+- **Concise Imperative:** "ادفع الكتلة التائية إلى الموضع المحدد" *(Push the T-block into the designated position)*
 
 ### Data Structure
 | Feature | Type | Description |

@@ -41,7 +41,9 @@ LIBERO_10_ARABIC_LEXICON = {
 # Standard robotics domain translations for spatial & manipulation primitives
 STANDARD_ARABIC_ROBOTICS_LEXICON = {
     **LIBERO_10_ARABIC_LEXICON,
-    "push the block to the goal": "ادفع المكعب إلى الهدف",
+    "push the block to the goal": "ادفع الكتلة إلى الهدف",
+    "push the t-block into the target goal": "ادفع القطعة التائية إلى منطقة الهدف",
+    "align the t-block with the goal": "حرّك الكتلة التائية نحو الهدف وطابقها معه",
     "pick up the red cup": "التقط الكوب الأحمر",
     "place the cup on the plate": "ضع الكوب على الطبق",
     "open the microwave": "افتح الميكروويف",
