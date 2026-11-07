@@ -288,6 +288,18 @@ class FastVLATrainer:
                 else None,
             )
 
+        if train_dataset is not None and len(train_dataset) > 0:
+            try:
+                sample0 = train_dataset[0]
+                act_k = "action" if "action" in sample0 else "actions" if "actions" in sample0 else None
+                if act_k:
+                    act_val = torch.as_tensor(sample0[act_k])
+                    ds_dim = act_val.shape[-1] if act_val.dim() > 0 else 1
+                    if hasattr(data_collator, "action_dim") and data_collator.action_dim != ds_dim:
+                        data_collator.action_dim = ds_dim
+            except Exception:
+                pass
+
         loader_kwargs = {
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,

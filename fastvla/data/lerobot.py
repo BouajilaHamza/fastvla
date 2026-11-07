@@ -458,19 +458,25 @@ class LeRobotDataset(Dataset):
         if self.norm_mode == "min_max" and self.metadata.action_min is not None and self.metadata.action_max is not None:
             n_min = self.metadata.action_min.to(action.device, dtype=action.dtype)
             n_max = self.metadata.action_max.to(action.device, dtype=action.dtype)
-            normalized = 2.0 * (action - n_min) / torch.clamp(n_max - n_min, min=eps) - 1.0
-            return torch.clamp(normalized, -1.0, 1.0)
+            if action.shape[-1] == n_min.shape[-1]:
+                normalized = 2.0 * (action - n_min) / torch.clamp(n_max - n_min, min=eps) - 1.0
+                return torch.clamp(normalized, -1.0, 1.0)
+            return action
 
         elif self.norm_mode == "mean_std" and self.metadata.action_mean is not None and self.metadata.action_std is not None:
             mean = self.metadata.action_mean.to(action.device, dtype=action.dtype)
             std = self.metadata.action_std.to(action.device, dtype=action.dtype)
-            return (action - mean) / torch.clamp(std, min=eps)
+            if action.shape[-1] == mean.shape[-1]:
+                return (action - mean) / torch.clamp(std, min=eps)
+            return action
 
         elif self.norm_mode == "quantile" and self.metadata.action_q01 is not None and self.metadata.action_q99 is not None:
             q01 = self.metadata.action_q01.to(action.device, dtype=action.dtype)
             q99 = self.metadata.action_q99.to(action.device, dtype=action.dtype)
-            normalized = 2.0 * (action - q01) / torch.clamp(q99 - q01, min=eps) - 1.0
-            return torch.clamp(normalized, -1.0, 1.0)
+            if action.shape[-1] == q01.shape[-1]:
+                normalized = 2.0 * (action - q01) / torch.clamp(q99 - q01, min=eps) - 1.0
+                return torch.clamp(normalized, -1.0, 1.0)
+            return action
 
         return action
 
@@ -482,17 +488,23 @@ class LeRobotDataset(Dataset):
         if self.norm_mode == "min_max" and self.metadata.action_min is not None and self.metadata.action_max is not None:
             n_min = self.metadata.action_min.to(action.device, dtype=action.dtype)
             n_max = self.metadata.action_max.to(action.device, dtype=action.dtype)
-            return (action + 1.0) * 0.5 * torch.clamp(n_max - n_min, min=eps) + n_min
+            if action.shape[-1] == n_min.shape[-1]:
+                return (action + 1.0) * 0.5 * torch.clamp(n_max - n_min, min=eps) + n_min
+            return action
 
         elif self.norm_mode == "mean_std" and self.metadata.action_mean is not None and self.metadata.action_std is not None:
             mean = self.metadata.action_mean.to(action.device, dtype=action.dtype)
             std = self.metadata.action_std.to(action.device, dtype=action.dtype)
-            return action * torch.clamp(std, min=eps) + mean
+            if action.shape[-1] == mean.shape[-1]:
+                return action * torch.clamp(std, min=eps) + mean
+            return action
 
         elif self.norm_mode == "quantile" and self.metadata.action_q01 is not None and self.metadata.action_q99 is not None:
             q01 = self.metadata.action_q01.to(action.device, dtype=action.dtype)
             q99 = self.metadata.action_q99.to(action.device, dtype=action.dtype)
-            return (action + 1.0) * 0.5 * torch.clamp(q99 - q01, min=eps) + q01
+            if action.shape[-1] == q01.shape[-1]:
+                return (action + 1.0) * 0.5 * torch.clamp(q99 - q01, min=eps) + q01
+            return action
 
         return action
 

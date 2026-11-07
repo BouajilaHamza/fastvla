@@ -221,13 +221,25 @@ class FastVLAModel(PreTrainedModel):
         if not config.dummy:
             self._sync_config_with_loaded_models()
 
-        llm_device = next(self.llm.parameters()).device
-        v_hidden = (
+        try:
+            llm_param = next(self.llm.parameters(), None)
+            llm_device = (
+                llm_param.device
+                if (llm_param is not None and hasattr(llm_param, "device") and isinstance(llm_param.device, (torch.device, str)))
+                else get_device()
+            )
+        except Exception:
+            llm_device = get_device()
+
+        v_hidden_raw = (
             getattr(self.vision_encoder, "embed_dim", None)
             or getattr(getattr(self.vision_encoder, "config", None), "hidden_size", None)
             or config.vision_hidden_size
         )
-        l_hidden = getattr(getattr(self.llm, "config", None), "hidden_size", None) or config.llm_hidden_size
+        v_hidden = int(v_hidden_raw) if isinstance(v_hidden_raw, (int, float)) else int(config.vision_hidden_size)
+
+        l_hidden_raw = getattr(getattr(self.llm, "config", None), "hidden_size", None) or config.llm_hidden_size
+        l_hidden = int(l_hidden_raw) if isinstance(l_hidden_raw, (int, float)) else int(config.llm_hidden_size)
         
         if not hasattr(self, "vision_proj") or self.vision_proj is None:
             self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
