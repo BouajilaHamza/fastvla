@@ -150,5 +150,34 @@ Scenario                       | Instruction (Arabic)                           
 - **Physical Boundedness**: Actions are squashed via continuous velocity integration to valid $[-1, 1]$ physical bounds with zero divergence or exploding values.
 - **Gripper Dynamics**: Gripper state smoothly transitions across the trajectory window (e.g. initial `0.22` $\to$ final `-0.50`), indicating coherent grasp-and-release actions.
 
+---
+
+## 8. End-to-End Robotics System Benchmark: FastVLA Turbo vs OpenVLA & OpenVLA-OFT
+
+To evaluate true end-to-end robotics deployment on commodity hardware, the full vision-to-action pipeline (dual camera streams @ 224x224 &rarr; SigLIP ViT &rarr; LLM Trunk &rarr; Action Prediction) was benchmarked on an **NVIDIA Tesla T4 (16GB)** under identical 4-bit NF4 quantization via [`scripts/modal/modal_end_to_end_sota_comparison.py`](file:///home/hamza/Documents/BouajilaHamza/fastvla/scripts/modal/modal_end_to_end_sota_comparison.py):
+
+```
+============================================================================================
+🏆 OBJECTIVE SOTA SCORECARD: FAIR APPLES-TO-APPLES VERDICT (NVIDIA T4)
+============================================================================================
+Metric                         | OpenVLA / LeRobot  | OpenVLA-OFT        | FastVLA Turbo (Ours)
+--------------------------------------------------------------------------------------------
+Visual Tokens in LLM           | 512 tokens         | 512 tokens         | 128 tokens (-75%)   
+Inference Policy Query         | 208.93 ms          | 208.58 ms          |  67.43 ms           
+Effective Step Latency         | 208.93 ms          |  13.04 ms          |   4.21 ms           
+Sustained Control Rate         |   4.79 Hz          |  76.71 Hz          | 237.29 Hz           
+Speedup vs OpenVLA             | 1.0x (Baseline)    |  16.0x             |  49.6x              
+Speedup vs OpenVLA-OFT         | -                  | 1.0x (Baseline)    |  3.09x              
+Real-Time Margin (vs 20Hz)     |  0.2x (Fails)      |  3.8x              | 11.9x               
+Peak Working VRAM              | 6414.1 MB          | 6414.1 MB          | 6383.8 MB           
+============================================================================================
+```
+
+### Key Technical Insights:
+1. **The 4-bit Baseline is Universal**: Anyone can load OpenVLA or LeRobot in 4-bit NF4 with LoRA and Paged 8-bit AdamW. That is standard tooling, not a proprietary advantage.
+2. **The OpenVLA-OFT Bottleneck**: OpenVLA-OFT parallelized action chunks, boosting the control rate from 4.79 Hz to 76.71 Hz. However, it still passes 512 uncompressed visual tokens through the transformer, keeping policy query latency at ~208 ms.
+3. **The FastVLA Turbo Advantage**: By combining $2\times 2$ Spatial Patch Compression ($512 \to 128$ tokens) with Fused SwiGLU and a 2-step Midpoint ODE Flow Solver, FastVLA Turbo reduces chunk query latency from 208.58 ms to 67.43 ms (**3.09x faster**), sustaining **237.29 Hz** effective control throughput on an NVIDIA Tesla T4.
+
+
 
 

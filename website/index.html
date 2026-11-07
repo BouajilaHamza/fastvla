@@ -173,6 +173,7 @@
       </p>
       <div class="links">
         <a class="btn btn-primary" href="https://github.com/BouajilaHamza/fastvla" target="_blank">GitHub Repository</a>
+        <a class="btn" href="https://colab.research.google.com/github/BouajilaHamza/fastvla/blob/main/notebooks/FastVLA_FineTune_Colab.ipynb" target="_blank">Open in Colab (Free T4)</a>
         <a class="btn" href="https://huggingface.co/datasets/hamzabouajila/ar-pusht-image" target="_blank">Push-T Arabic Dataset</a>
         <a class="btn" href="https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image" target="_blank">LIBERO-10 Arabic Dataset</a>
         <a class="btn" href="#reproduce">Quickstart</a>
@@ -248,6 +249,53 @@
               <td>-246.7 ms (-44%)</td>
               <td>+79% Faster</td>
               <td>Parity</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3. End-to-End Robotics System Benchmark vs OpenVLA &amp; OpenVLA-OFT</h2>
+      <p>
+        Full multi-camera vision-to-action inference benchmark (2 cameras @ 224x224 &rarr; SigLIP ViT &rarr; LLM Trunk &rarr; Action Decode) on NVIDIA Tesla T4:
+      </p>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Robotics Policy Recipe</th>
+              <th>Action Decode Scheme</th>
+              <th>Chunk Query Time</th>
+              <th>Effective Step Latency</th>
+              <th>Sustained Control Rate</th>
+              <th>Margin vs 20 Hz Arm</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Standard OpenVLA / LeRobot</strong></td>
+              <td>Single-step autoregressive</td>
+              <td>208.93 ms</td>
+              <td>208.93 ms</td>
+              <td>4.79 Hz</td>
+              <td>0.2x (Fails real-time)</td>
+            </tr>
+            <tr>
+              <td><strong>OpenVLA-OFT (Kim et al.)</strong></td>
+              <td>16-step parallel chunk</td>
+              <td>208.58 ms</td>
+              <td>13.04 ms</td>
+              <td>76.71 Hz</td>
+              <td>3.8x margin</td>
+            </tr>
+            <tr style="color: var(--success); font-weight: 600;">
+              <td><strong>FastVLA Turbo (Ours)</strong></td>
+              <td>16-step Midpoint ODE Flow</td>
+              <td>67.43 ms (-68%)</td>
+              <td>4.21 ms</td>
+              <td>237.29 Hz</td>
+              <td>11.9x margin (49.6x vs OpenVLA)</td>
             </tr>
           </tbody>
         </table>
