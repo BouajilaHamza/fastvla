@@ -57,14 +57,25 @@ Live rollout of **FastVLA Turbo (7B)** executing real-time Franka Emika Panda co
   <p><em>Synchronized multi-camera control (Third-person workspace view + Gripper wrist view) running 16-step continuous Flow-Matching trajectories with real-time HUD telemetry on NVIDIA Tesla T4.</em></p>
 </div>
 
+### 3. FastVLA Turbo (3B) Continuous Flow-Matching on Arabic Push-T
+Live rollout of **FastVLA Turbo (3B)** executing 16-step continuous 2D trajectory generation on the newly retagged Arabic Push-T benchmark under the command:  
+**`"ادفع الكتلة إلى الهدف"`** *(Push the block to the goal)*:
+
+<div align="center">
+  <img src="assets/fastvla_pusht_arabic_rollout.gif" width="700" alt="FastVLA Turbo Arabic Push-T Policy Rollout" />
+  <p><em>Continuous 16-step Flow-Matching trajectory prediction overlaid on 2D Push-T arena (Peak VRAM: 3.98 GB on T4, 2-Step Midpoint ODE solver, Mean L2 Trajectory Error: 0.9283).</em></p>
+</div>
+
 ### 🌟 Native Arabic Robotics Commands Tested:
 - **Task 0 (Dual Mug Placement)**: `"ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"`
 - **Task 1 (Plate & Chocolate Pudding)**: `"ضع الكوب الأبيض على الطبق وضع حلوى الشوكولاتة على يمين الطبق"`
 - **Task 2 (Microwave Insertion)**: `"ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه"`
 - **Task 3 (Stove & Moka Pot)**: `"شغّل الموقد وضع إبريق الموكا عليه"`
+- **Push-T (Block Alignment)**: `"ادفع الكتلة إلى الهدف"` / `"حرّك الكتلة التائية نحو الهدف وطابقها معه"`
 
 👉 **Model Checkpoint**: Available on Hugging Face Hub at [**`hamzabouajila/fastvla-turbo-arabic-libero`**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero)  
-👉 **Arabic Dataset Hub**: [**`hamzabouajila/ar-libero-10-image`**](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image) (All 26 chunks retagged with verified Modern Standard Arabic)
+👉 **Arabic LIBERO Hub**: [**`hamzabouajila/ar-libero-10-image`**](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image) (All 26 chunks retagged with verified Modern Standard Arabic)  
+👉 **Arabic Push-T Hub**: [**`hamzabouajila/ar-pusht-image`**](https://huggingface.co/datasets/hamzabouajila/ar-pusht-image) (48,336 frames across 206 episodes retagged with 5 verified Modern Standard Arabic variations)
 
 ---
 
