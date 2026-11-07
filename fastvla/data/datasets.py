@@ -196,121 +196,12 @@ class FrankaKitchenDataset(RoboticsDataset):
         return data
 
 
-class LeRobotDataset(RoboticsDataset):
-    """Dataset wrapper for LeRobot format datasets on HuggingFace."""
-
-    def _load_data(self):
-        """Load dataset from HuggingFace."""
-        from datasets import load_dataset
-
-        print(f"📥 Loading dataset {self.data_path} from HuggingFace...")
-
-        # Load the dataset (usually 'train' split)
-        hf_ds = load_dataset(self.data_path, split="train", token=self.hf_token)
-
-        def get_nested(d, path, default=None):
-            if path in d:
-                return d[path]
-            keys = path.split(".")
-            curr = d
-            for k in keys:
-                try:
-                    if isinstance(curr, dict) and k in curr:
-                        curr = curr[k]
-                    elif hasattr(curr, k):
-                        curr = getattr(curr, k)
-                    else:
-                        return default
-                except (TypeError, KeyError, AttributeError):
-                    return default
-            return curr
-
-        data = []
-        # LeRobot format mapping with deep key search
-        for item in hf_ds:
-            # Ensure we have a dict-like object
-            if not hasattr(item, "get") and hasattr(item, "keys"):
-                item = dict(item)
-
-            # 1. Extract Images (handle nested or flat)
-            img = None
-            for k in [
-                "observation.image",
-                "observation.images.laptop",
-                "observation.images.agentview",
-                "image",
-            ]:
-                val = get_nested(item, k) if "." in k else item.get(k)
-                if val is not None:
-                    img = val
-                    break
-
-            # 2. Extract State
-            state = get_nested(item, "observation.state") or item.get("state", [])
-
-            # 3. Extract Action
-            action = item.get("action", [])
-
-            # 4. Extract Instruction
-            # FIX 8: Use an empty string rather than a task-specific hardcoded
-            # string — a wrong instruction string conditions the model on a task
-            # it isn't doing, corrupting training signal for all those samples.
-            instruction = (
-                item.get("instruction")
-                or item.get("language_instruction")
-                or item.get("task")
-                or ""  # empty = no instruction conditioning, safer than a wrong task string
-            )
-            if not instruction:
-                if not getattr(self, "_warned_no_instruction", False):
-                    logger.warning(
-                        "Dataset has no instruction/language_instruction/task key. "
-                        "Using empty string for all samples."
-                    )
-                    self._warned_no_instruction = True
-
-            # 5. Extract Episode ID (important for chunking)
-            episode_id = item.get("episode_id", 0)
-
-            if img is not None:
-                data.append(
-                    {
-                        "rgb": img,
-                        "state": state,
-                        "action": action,
-                        "instruction": instruction,
-                        "episode_id": episode_id,
-                    }
-                )
-
-        if not data:
-            logger.warning(
-                f"⚠️ No valid data found in {self.data_path}. Fallback to raw keys."
-            )
-            sample = hf_ds[0]
-            print(f"DEBUG: Dataset Sample Keys: {list(sample.keys())}")
-            # Just take the first image and state we find
-            img_key = next(
-                (k for k in sample.keys() if "image" in k or "rgb" in k), None
-            )
-            if img_key:
-                print(f"DEBUG: Selected fallback img_key: {img_key}")
-            for item in hf_ds:
-                data.append(
-                    {
-                        "rgb": item[img_key] if img_key else None,
-                        "state": item.get("state", []),
-                        "action": item.get("action", []),
-                        "instruction": item.get("instruction", ""),
-                    }
-                )
-
-        return data
+from .lerobot import LeRobotDataset, LeRobotMetadata, load_lerobot_metadata
 
 
 def get_dataset(
     dataset_name: str, data_path: Optional[str] = None, **kwargs
-) -> RoboticsDataset:
+) -> Dataset:
     """Factory function to get the appropriate dataset."""
     dataset_map = {
         "libero": LIBERODataset,
