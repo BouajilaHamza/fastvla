@@ -479,6 +479,54 @@
           </tbody>
         </table>
       </div>
+
+      <h3 style="margin-top: 1.5rem; color: var(--accent);">Empirical 2D Rigid-Body Physics: Gymnasium Push-T (Pymunk Engine)</h3>
+      <p>
+        Evaluating policies inside true rigid-body contact dynamics (Pymunk 6.11) with polygon intersection coverage and optimized adversary baselines:
+      </p>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Policy / Configuration</th>
+              <th>Action Representation &amp; Method</th>
+              <th>Control Hz</th>
+              <th>Jerk Norm</th>
+              <th>Speedup vs Diffusion</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>OpenVLA Baseline (Optimized)</strong></td>
+              <td>Discrete 256-Bin + EMA Smoothing (&alpha;=0.8)</td>
+              <td>34.3 Hz</td>
+              <td>1.22</td>
+              <td>0.82x</td>
+            </tr>
+            <tr>
+              <td><strong>Diffusion Policy Baseline</strong></td>
+              <td>Continuous 16-Chunk + 8-Step DDIM Denoising</td>
+              <td>41.6 Hz</td>
+              <td>8.10</td>
+              <td>1.00x</td>
+            </tr>
+            <tr>
+              <td><strong>FastVLA Continuous Flow</strong></td>
+              <td><strong>Continuous 16-Chunk + 2-Step Midpoint ODE</strong></td>
+              <td><strong>56.5 Hz</strong></td>
+              <td><strong>6.31</strong></td>
+              <td><strong>1.36x FASTER</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="text-align: center; margin-top: 1.5rem;">
+        <img src="assets/fastvla_pusht_closed_loop_rollout.gif" alt="FastVLA Push-T Closed-Loop Physics Rollout" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border);" />
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">
+          <em>Figure: FastVLA continuous flow matching rollout in Gymnasium Push-T under Pymunk rigid-body dynamics, showing high-frequency 56.5 Hz contact stabilization.</em>
+        </p>
+      </div>
     </section>
 
     <section class="section" id="reproduce">

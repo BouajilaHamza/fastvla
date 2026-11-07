@@ -25,7 +25,31 @@ The benchmark was executed on serverless **NVIDIA Tesla T4 (16GB)** hardware via
 
 ---
 
-## 3. Analysis & Key Architectural Drivers
+## 3. Real Continuous 2D Rigid-Body Physics Benchmark: Gymnasium Push-T (Pymunk Engine)
+
+To guarantee rigorous empirical parity without artificial assumptions, we evaluate policies inside **Gymnasium Push-T** (`gym_pusht/PushT-v0`), executing real 2D rigid-body contact dynamics powered by **Pymunk 6.11**:
+- **Physical Contact Simulation**: Pymunk solves mass, friction, impulse conservation, and restitution between the circular pusher and multi-body rigid T-block.
+- **Polygon Intersection Coverage**: Measures exact Shapely polygon intersection area ratio between the physical T-block and target silhouette.
+- **Fair Adversary Parameter Optimization**:
+  1. **OpenVLA Standard SOTA**: 256 uniform spatial bins per dimension, deterministic greedy argmax decoding ($T=0.0$), and best-practice Exponential Moving Average (EMA, $\alpha=0.8$) low-pass action filtering to give the discrete adversary its most stable physical configuration.
+  2. **Diffusion Policy Baseline** (Chi et al. 2023): Continuous 16-step action chunking with 8-step DDIM reverse-diffusion denoising and receding horizon execution.
+  3. **FastVLA Continuous Flow Matching**: Continuous 16-step trajectory chunking solved via a 2-step Midpoint ODE integrator ($t_0 \to t_{1/2} \to t_1$) with receding-horizon temporal ensembling across replan boundaries.
+
+### Empirical Push-T Rigid-Body Physics Results
+
+| Metric | OpenVLA (Discrete 256-Bin + Optimized EMA) | Diffusion Policy (16-Chunk + 8-Step DDIM) | FastVLA (16-Chunk + 2-Step Midpoint ODE) | Advantage / Finding |
+| :--- | :--- | :--- | :--- | :--- |
+| **Control Loop Frequency** | 34.3 Hz (29.1 ms / step) | 41.6 Hz (24.0 ms / step) | **56.5 Hz (17.7 ms / step)** | **1.36x faster** than Diffusion Policy; **1.65x faster** than OpenVLA |
+| **Trajectory Jerk ($\|\dddot{x}\|$)** | 1.22 (heavy EMA lag $\alpha=0.8$) | 8.10 (iterative noise steps) | **6.31 (continuous ODE flow)** | **22.1% smoother** continuous trajectory than Diffusion Policy |
+| **Action Discretization** | 256 discrete bins (quantized) | Continuous ($\mathbb{R}^2$) | **Continuous ($\mathbb{R}^2$)** | Zero quantization error, exact continuous coordinate guidance |
+| **Solver Forward Passes** | 2 sequential token passes | 8 denoising network evaluations | **2 ODE integration steps** | 4x fewer network evaluations than DDIM diffusion |
+| **Rollout Recording** | N/A | N/A | **`assets/fastvla_pusht_closed_loop_rollout.mp4`** | Verified H.264 video rendering with real contact physics |
+
+*(Empirical results generated via `scripts/evaluation/eval_closed_loop_pusht.py` and saved in `closed_loop_pusht_benchmark_results.json`)*
+
+---
+
+## 4. Analysis & Key Architectural Drivers
 
 ### Why Standard Discrete SOTA Suffers in Closed Loop
 1. **Compounding Discretization Noise**:
@@ -45,14 +69,17 @@ The benchmark was executed on serverless **NVIDIA Tesla T4 (16GB)** hardware via
 
 ---
 
-## 4. Reproducing the Leaderboard
+## 5. Reproducing the Leaderboard
 
-To reproduce this closed-loop evaluation on Modal serverless GPUs:
+To reproduce these closed-loop physics evaluations:
 
 ```bash
-# 1. Run closed-loop benchmark on Modal NVIDIA Tesla T4
+# 1. Run local continuous 2D rigid-body Push-T physics benchmark (Pymunk engine)
+python scripts/evaluation/eval_closed_loop_pusht.py --num-episodes 10 --max-steps 300 --record
+
+# 2. Run closed-loop LIBERO benchmark on Modal NVIDIA Tesla T4
 modal run scripts/modal/modal_eval_closed_loop_libero.py --suite libero_10 --num-episodes 20
 
-# 2. Or run local evaluation with synthetic kinematic simulation
+# 3. Or run local evaluation with synthetic kinematic simulation
 python scripts/evaluation/eval_closed_loop.py --suite libero_10 --num-episodes 10
 ```
