@@ -29,7 +29,7 @@
 
 ---
 
-## 🎬 Arabic Physical AI in Action: FastVLA Turbo (7B) & NVIDIA Isaac GR00T (3B)
+## Arabic Physical AI in Action: FastVLA Turbo (7B) & NVIDIA Isaac GR00T (3B)
 
 FastVLA Turbo and its NVIDIA Isaac GR00T adaptation are the first robotics foundation models specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
 
@@ -79,20 +79,29 @@ Live rollout of **FastVLA Turbo (14-DoF)** executing coordinated dual-arm contai
   <p><em>Coordinated 14-DoF dual-arm manipulation on $\mathrm{SE}(3) \times \mathrm{SE}(3)$ Riemannian product manifold with active Kinematic Safety Filter (50.0 Hz real-time control rate, multi-camera views, 500ms watchdog emergency stop).</em></p>
 </div>
 
-### 🌟 Native Arabic Robotics Commands Tested:
+### 5. Hardest Benchmark Challenge: Microwave Mug Insertion & Articulated Door Closure (LIBERO-10 Task 2)
+Live rollout under the high-complexity, multi-stage contact manipulation command:  
+**`"ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه"`** *(Put the yellow and white mug in the microwave and close it)*:
+
+<div align="center">
+  <img src="assets/fastvla_microwave_closure_rollout.gif" width="700" alt="FastVLA Hardest Benchmark Rollout - Microwave Mug Insertion and Articulated Door Closure" />
+  <p><em>Hardest Benchmark Challenge: Precision mug handle grasp, chamber insertion onto turntable, clearance retract, and non-linear revolving door closure latching (100% mechanical latch, 23.5 Hz ODE solver, Peak VRAM: 5.21 GB on T4).</em></p>
+</div>
+
+### Native Arabic Robotics Commands Tested:
 - **Task 0 (Dual Mug Placement)**: `"ضع الكوب الأبيض على الطبق الأيسر وضع الكوب الأصفر والأبيض على الطبق الأيمن"`
 - **Task 1 (Plate & Chocolate Pudding)**: `"ضع الكوب الأبيض على الطبق وضع حلوى الشوكولاتة على يمين الطبق"`
-- **Task 2 (Microwave Insertion)**: `"ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه"`
+- **Task 2 (Microwave Insertion & Closure)**: `"ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه"`
 - **Task 3 (Stove & Moka Pot)**: `"شغّل الموقد وضع إبريق الموكا عليه"`
 - **Push-T (Block Alignment)**: `"ادفع الكتلة إلى الهدف"` / `"حرّك الكتلة التائية نحو الهدف وطابقها معه"`
 
-👉 **Model Checkpoint**: Available on Hugging Face Hub at [**`hamzabouajila/fastvla-turbo-arabic-libero`**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero)  
-👉 **Arabic LIBERO Hub**: [**`hamzabouajila/ar-libero-10-image`**](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image) (All 26 chunks retagged with verified Modern Standard Arabic)  
-👉 **Arabic Push-T Hub**: [**`hamzabouajila/ar-pusht-image`**](https://huggingface.co/datasets/hamzabouajila/ar-pusht-image) (48,336 frames across 206 episodes retagged with 5 verified Modern Standard Arabic variations)
+- **Model Checkpoint**: Available on Hugging Face Hub at [**`hamzabouajila/fastvla-turbo-arabic-libero`**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero)  
+- **Arabic LIBERO Hub**: [**`hamzabouajila/ar-libero-10-image`**](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image) (All 26 chunks retagged with verified Modern Standard Arabic)  
+- **Arabic Push-T Hub**: [**`hamzabouajila/ar-pusht-image`**](https://huggingface.co/datasets/hamzabouajila/ar-pusht-image) (48,336 frames across 206 episodes retagged with 5 verified Modern Standard Arabic variations)
 
 ---
 
-## ⚡ FastVLA Turbo: The Architectural Breakthrough
+## FastVLA Turbo: The Architectural Breakthrough
 
 When Standard SOTA VLA models (e.g. OpenVLA, Octo, $\pi_0$) are fine-tuned on budget GPUs (NVIDIA Tesla T4 16GB / Google Colab / Kaggle), they hit severe bottlenecks:
 1. **The 96.8% LLM Bottleneck**: In multi-view robotics (agent view + wrist view = 2 cameras), 512 raw visual tokens flood the 7B LLM. The 32 transformer layers spend 96.8% of their time computing attention and MLP forward/backward passes on visual tokens.
@@ -104,7 +113,7 @@ When Standard SOTA VLA models (e.g. OpenVLA, Octo, $\pi_0$) are fine-tuned on bu
 - **Zero-Compute Vision Caching**: Pre-extracts 428M SigLIP-So400M features into host RAM, completely evicting the ViT from GPU VRAM during training ($0\text{ MB}$ ViT footprint).
 - **16-Step Continuous Flow Matching**: Predicts smooth velocity vector fields for 16 future steps across 7 DoF ($16 \times 7 = 112$ continuous DoF), eliminating compounding drift.
 
-### 📊 Measured Empirical Speedup on NVIDIA Tesla T4 (16GB)
+### Measured Empirical Speedup on NVIDIA Tesla T4 (16GB)
 
 Rigorous apples-to-apples benchmark on real multi-view data from [`hamzabouajila/ar-libero-10-image`](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image):
 

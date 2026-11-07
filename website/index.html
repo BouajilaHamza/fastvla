@@ -416,8 +416,22 @@
       </ul>
     </section>
 
+    <section class="section">
+      <h2>6. Hardest Benchmark Challenge: Microwave Mug Insertion & Articulated Door Closure</h2>
+      <p>
+        Full multi-stage contact manipulation rollout under the command:
+        <strong>&ldquo;ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه&rdquo;</strong> (<em>Put the yellow and white mug in the microwave and close it</em> - LIBERO-10 Task 2):
+      </p>
+      <div style="text-align: center; margin: 20px 0;">
+        <img src="https://raw.githubusercontent.com/BouajilaHamza/fastvla/main/assets/fastvla_microwave_closure_rollout.gif" alt="FastVLA Hardest Benchmark Rollout - Microwave Mug Insertion and Articulated Door Closure" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border);" />
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+          <em>Multi-stage execution: Precision mug handle grasp, chamber insertion onto turntable, clearance retract, and non-linear revolving door closure latching (100% mechanical latch, 23.5 Hz ODE solver, Peak VRAM: 5.21 GB on T4).</em>
+        </p>
+      </div>
+    </section>
+
     <section class="section" id="reproduce">
-      <h2>6. Quickstart & Reproduction</h2>
+      <h2>7. Quickstart & Reproduction</h2>
       <pre><code># 1. Clone repository
 git clone https://github.com/BouajilaHamza/fastvla.git
 cd fastvla
