@@ -66,6 +66,7 @@ class FastVLAConfig(PretrainedConfig):
         # PEFT / LoRA
         use_peft: bool = False,
         use_fused_lora: bool = False,
+        use_fused_swiglu: bool = False,
         lora_rank: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
@@ -118,6 +119,7 @@ class FastVLAConfig(PretrainedConfig):
         self.bnb_4bit_compute_dtype = bnb_4bit_compute_dtype
         self.use_peft = use_peft
         self.use_fused_lora = use_fused_lora
+        self.use_fused_swiglu = use_fused_swiglu
         self.lora_rank = lora_rank
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout

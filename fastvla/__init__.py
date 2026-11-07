@@ -26,6 +26,7 @@ _import_structure = {
     ],
     "data.collator": ["UnslothVLACollator"],
     "optimization": ["get_quantization_config", "get_8bit_optimizer"],
+    "inference": ["FastVLAPolicyRunner", "ActionChunkBuffer", "EdgeTelemetryHUD"],
 }
 
 _submodule_objects = {}

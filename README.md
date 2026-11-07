@@ -19,7 +19,11 @@
 [![Modal](https://img.shields.io/badge/Modal-000000?style=for-the-badge&logoColor=white)](https://modal.com)
 [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge)](LICENSE)
 
-[**Arabic Datasets**](docs/datasets/ARABIC_DATASETS.md) | [**SOTA Benchmark Report**](docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md) | [**Arabic Hero Model (7B)**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero)
+<br/>
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/BouajilaHamza/fastvla/blob/main/notebooks/FastVLA_FineTune_Colab.ipynb)
+
+[**Arabic Datasets**](docs/datasets/ARABIC_DATASETS.md) | [**SOTA Benchmark Report**](docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md) | [**Arabic Hero Model (7B)**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero) | [**Interactive Colab Quickstart**](https://colab.research.google.com/github/BouajilaHamza/fastvla/blob/main/notebooks/FastVLA_FineTune_Colab.ipynb)
 
 </div>
 

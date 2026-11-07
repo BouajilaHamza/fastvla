@@ -280,3 +280,28 @@ def estimate_memory_usage(
         "activation_memory_gb": activation_memory_gb,
         "total_memory_gb": param_memory_gb + activation_memory_gb,
     }
+
+
+def apply_fused_primitives(model: nn.Module) -> Dict[str, int]:
+    """
+    Applies Liger-style and Triton-fused primitives (SwiGLU, LoRA) to the model
+    to reduce peak activation memory during LLM trunk backward passes.
+
+    Returns:
+        Dictionary reporting the number of modules replaced for each primitive.
+    """
+    results = {}
+    try:
+        from .kernels.fused_swiglu import apply_fused_swiglu
+        results["fused_swiglu"] = apply_fused_swiglu(model)
+    except Exception:
+        results["fused_swiglu"] = 0
+
+    try:
+        from .kernels.fused_lora import apply_fused_lora
+        results["fused_lora"] = apply_fused_lora(model)
+    except Exception:
+        results["fused_lora"] = 0
+
+    return results
+

@@ -64,7 +64,7 @@ wandb/
 .env
 
 # Publication Cleanup
-notebooks/
+.ipynb_checkpoints/
 artifacts/
 marketing/
 readme_references/

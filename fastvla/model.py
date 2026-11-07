@@ -615,6 +615,10 @@ class FastVLAModel(PreTrainedModel):
                 from .kernels.fused_lora import apply_fused_lora
                 num_fused = apply_fused_lora(llm)
                 logger.info(f"Fused {num_fused} LoRA modules with Triton GEMM")
+        if getattr(config, "use_fused_swiglu", False):
+            from .kernels.fused_swiglu import apply_fused_swiglu
+            num_fused_swiglu = apply_fused_swiglu(llm)
+            logger.info(f"Fused {num_fused_swiglu} MLP SwiGLU modules in LLM backbone")
         return llm
 
     @property

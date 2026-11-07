@@ -46,8 +46,19 @@ lora = [
 logging = [
     "wandb>=0.16.0",
 ]
+deploy = [
+    "pyzmq>=25.0.0",
+]
+simulation = [
+    "gymnasium>=0.29.0",
+]
+colab = [
+    "peft>=0.9.0",
+    "bitsandbytes>=0.42.0",
+    "accelerate>=0.28.0",
+]
 all = [
-    "fastvla[gpu,lora,logging]",
+    "fastvla[gpu,lora,logging,deploy,simulation,colab]",
 ]
 
 [project.urls]
@@ -58,6 +69,7 @@ Documentation = "https://github.com/BouajilaHamza/FastVLA#readme"
 [project.scripts]
 fastvla-benchmark = "fastvla.benchmarking:main"
 fastvla-train = "scripts.finetune_pusht:main"
+fastvla-deploy = "scripts.deploy.run_robot:main"
 
 [build-system]
 requires = ["hatchling"]

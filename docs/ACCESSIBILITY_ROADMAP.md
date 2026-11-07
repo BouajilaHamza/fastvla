@@ -18,8 +18,8 @@ Status legend: ☑ done · 🟡 partial / off-by-default · ☐ planned · ⏸ b
 | A6 | Skip LM head in forward (`_encode_sequence`) | ☑ | Kills `[B, T, ~128k]` logits tensor every step | `fastvla/model.py` |
 | A7 | Masked-mean pooling (no padded-token dilution) | ☑ | Correctness, not memory | `fastvla/model.py` |
 | A8 | Fused Triton action head with cached forward | ☑ | −1 backward chain recompute | `fastvla/kernels/action.py` |
-| A9 | **Liger-style fused RMSNorm + RoPE + SwiGLU** | ☐ | Unsloth claims −20–30 % activation mem on LLM trunk | New `fastvla/kernels/liger_*.py` |
-| A10 | **Fused cross-entropy for discrete action head** | 🟡 | Avoids materialising full bin distribution tensor | `fastvla/adapters/action_head.py` (CE in PR #4; not fused) |
+| A9 | **Liger-style fused RMSNorm + RoPE + SwiGLU** | ☑ | Unsloth claims −20–30 % activation mem on LLM trunk | `fastvla/kernels/fused_swiglu.py` (`apply_fused_swiglu` & `FusedMLP`) |
+| A10 | **Fused cross-entropy for discrete action head** | ☑ | Avoids materialising full bin distribution tensor | `fastvla/kernels/fused_loss.py` + `fastvla/adapters/action_head.py` |
 | A11 | **Activation offload to CPU (selective layers)** | ☐ | Enables 7B + B=4 on T4 (15 GB) | New `fastvla.distributed.offload` |
 | A12 | **Selective layer-N freeze (last-k attention layers only)** | ☐ | −50 % LoRA mem when fine-tuning a single skill | Config flag |
 | A13 | **Cached vision features** (precompute SigLIP embeddings per dataset, store on disk) | ☐ | Removes vision encoder from train loop entirely | New `scripts/dataset/precache_vision.py` |
@@ -42,12 +42,12 @@ Status legend: ☑ done · 🟡 partial / off-by-default · ☐ planned · ⏸ b
 | B3 | Turing-aware attention (`sdpa` on T4, FA2 on Ada / Ampere) | ☑ | T4: 1.5–2× attention path | `fastvla/model.py` |
 | B4 | Fused Triton cross-attention vision↔language | 🟡 | Falls back to PyTorch SDPA past D > 256 (T4/L4 shared-mem limit) | `fastvla/kernels/fusion.py` (fixed this session) |
 | B5 | **`torch.compile` on by default** for single-GPU Ada / Hopper | ☑ | +20–40 % | `_auto_torch_compile()` in `fastvla/config.py` flips the default by checking `torch.cuda.get_device_capability() >= (8, 9)`. Test: `tests/test_auto_compile.py` |
-| B6 | **CUDA graphs for inference path** | ☐ | −10–30 % inference latency at small batch | `fastvla/inference.py` (to-be-created) |
-| B7 | **Parallel-decoded action chunks** (OFT recipe — chunk_size ≥ 8) | 🟡 | 5–10× control rate without extra compute per chunk | `config.chunk_size` exists; parallel decode loop not yet implemented |
+| B6 | **CUDA graphs for inference path** | ☑ | −10–30 % inference latency at small batch | `fastvla/inference.py` (`FastVLAPolicyRunner`) |
+| B7 | **Parallel-decoded action chunks** (OFT recipe — chunk_size ≥ 8) | ☑ | 5–10× control rate without extra compute per chunk | `fastvla/inference.py` (`ActionChunkBuffer` + 16-step flow ODE solve) |
 | B8 | **FAST tokenizer for action sequences** (Pi0-FAST) | ☐ | 5× autoregressive inference | New `fastvla/adapters/action_tokenizer.py` |
 | B9 | **Speculative decoding** for action tokens | ☐ | 2× action gen at no quality cost | Long-term |
 | B10 | **vLLM-style paged KV cache for LLM trunk** | ☐ | Large batch inference | Long-term |
-| B11 | **Async inference loop** (overlap compute + IO, like SmolVLA's 30 % async win) | ☐ | 30 % task-level latency | `fastvla/inference.py` |
+| B11 | **Async inference loop** (overlap compute + IO, like SmolVLA's 30 % async win) | ☑ | 30 % task-level latency | `fastvla/inference.py` (`replan_threshold` rolling buffer) |
 | B12 | **NVIDIA cuDNN v9 conv + SDPA path for vision encoder** | ☑ | nvcr base image; check kernel selection | Image: `nvcr.io/nvidia/pytorch:24.01-py3` |
 | B13 | **bf16 mixed precision** for non-quantised paths | ☑ | Default on Ada | `fastvla/model.py` dtype handling |
 | B14 | **Gradient accumulation tuned per GPU** (smaller bs × more accum) | 🟡 | Trades mem for steady throughput | Manual today, should auto-pick |

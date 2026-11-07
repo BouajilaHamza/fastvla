@@ -169,3 +169,36 @@ class FusedMLP(nn.Module):
         gate = self.gate_proj(x)
         up = self.up_proj(x)
         return self.down_proj(fused_swiglu(gate, up))
+
+
+def apply_fused_swiglu(model: nn.Module) -> int:
+    """
+    Recursively scans the model and replaces standard transformer MLP blocks
+    (e.g., LLaMA, Mistral, Qwen with gate_proj, up_proj, down_proj)
+    with FusedMLP to eliminate intermediate activation memory.
+
+    Args:
+        model: PyTorch model or LLM backbone.
+
+    Returns:
+        Number of MLP blocks successfully converted to FusedMLP.
+    """
+    num_fused = 0
+    for name, module in list(model.named_modules()):
+        has_projections = (
+            hasattr(module, "gate_proj")
+            and hasattr(module, "up_proj")
+            and hasattr(module, "down_proj")
+        )
+        if has_projections and not isinstance(module, FusedMLP):
+            parts = name.split(".")
+            parent = model
+            for part in parts[:-1]:
+                parent = getattr(parent, part)
+
+            fused_mlp = FusedMLP(module.gate_proj, module.up_proj, module.down_proj)
+            setattr(parent, parts[-1], fused_mlp)
+            num_fused += 1
+
+    return num_fused
+

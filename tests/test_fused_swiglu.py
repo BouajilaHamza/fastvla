@@ -11,6 +11,7 @@ from fastvla.kernels.fused_swiglu import (
     FusedSwiGLUFunction,
     fused_swiglu,
     FusedMLP,
+    apply_fused_swiglu,
     HAS_TRITON,
 )
 
@@ -111,3 +112,39 @@ def test_triton_cuda_kernel():
 
     assert gate_cuda.grad is not None
     assert up_cuda.grad is not None
+
+
+def test_apply_fused_swiglu_module_patching():
+    """Verify that apply_fused_swiglu correctly identifies and patches MLP blocks."""
+    class DummyMLP(nn.Module):
+        def __init__(self, d_in, d_hidden):
+            super().__init__()
+            self.gate_proj = nn.Linear(d_in, d_hidden, bias=False)
+            self.up_proj = nn.Linear(d_in, d_hidden, bias=False)
+            self.down_proj = nn.Linear(d_hidden, d_in, bias=False)
+
+        def forward(self, x):
+            return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
+
+    class DummyTransformerLayer(nn.Module):
+        def __init__(self, d):
+            super().__init__()
+            self.mlp = DummyMLP(d, d * 2)
+
+    class DummyModel(nn.Module):
+        def __init__(self, num_layers=4, d=32):
+            super().__init__()
+            self.layers = nn.ModuleList([DummyTransformerLayer(d) for _ in range(num_layers)])
+
+    model = DummyModel()
+    assert all(isinstance(layer.mlp, DummyMLP) for layer in model.layers)
+
+    num_patched = apply_fused_swiglu(model)
+    assert num_patched == 4
+    assert all(isinstance(layer.mlp, FusedMLP) for layer in model.layers)
+
+    # Test forward pass after patching
+    x = torch.randn(2, 8, 32)
+    out = model.layers[0].mlp(x)
+    assert out.shape == (2, 8, 32)
+

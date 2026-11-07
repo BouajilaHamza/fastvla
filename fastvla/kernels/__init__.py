@@ -132,7 +132,7 @@ def action_decode_backward(
 
 from .fused_loss import fused_cross_entropy_loss
 from .fused_action_head import FusedActionChunkHead, FusedActionHuberLossFunction
-from .fused_swiglu import FusedSwiGLUFunction, fused_swiglu, FusedMLP
+from .fused_swiglu import FusedSwiGLUFunction, fused_swiglu, FusedMLP, apply_fused_swiglu
 from .fused_flow_loss import (
     fused_flow_interpolate,
     fused_flow_mse_loss,
@@ -156,6 +156,7 @@ __all__ = [
     "FusedSwiGLUFunction",
     "fused_swiglu",
     "FusedMLP",
+    "apply_fused_swiglu",
     "fused_flow_interpolate",
     "fused_flow_mse_loss",
     "FusedFlowMSELossFunction",
