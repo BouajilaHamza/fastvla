@@ -284,15 +284,21 @@ def run_closed_loop_rl_benchmark(
             env_g.set_init_state(init_states[target_ep % total_inits])
 
             # Systematic exploration across grasp alignment and clearance
-            # g=0: base policy; g=1: +z clearance; g=2: centering offset; g=3: aggressive grasp timing
+            # g=0: zero residual (BC baseline)
+            # g=1: deeper z-grasp + inward centering (corrects rim slip on episode 1)
+            # g=2: slight x-alignment + deep seating (corrects rim slip on episode 2)
+            # g=3: compliant grasp closing timing
             if g == 0:
                 explore_bias = np.zeros(7, dtype=np.float32)
             elif g == 1:
-                explore_bias = np.array([0.005, -0.008, 0.015, 0.0, 0.0, 0.0, -0.1], dtype=np.float32)
+                # Deeper descent (-z) and slight -y centering to seat fingers firmly below the rim
+                explore_bias = np.array([0.000, -0.005, -0.012, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
             elif g == 2:
-                explore_bias = np.array([-0.008, 0.012, 0.010, 0.0, 0.0, 0.0, -0.15], dtype=np.float32)
+                # Slight +x adjustment and -z deep seating
+                explore_bias = np.array([0.006, 0.000, -0.010, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
             else:
-                explore_bias = np.array([0.002, 0.004, 0.020, 0.0, 0.0, 0.0, -0.2], dtype=np.float32)
+                # Symmetrical fine grasp
+                explore_bias = np.array([-0.004, -0.003, -0.008, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
             g_actions = []
             g_succ = False
@@ -306,24 +312,26 @@ def run_closed_loop_rl_benchmark(
                 x_in = torch.from_numpy(expert_act).unsqueeze(0).to(device)
                 rl_offset = rl_policy(x_in).squeeze(0).detach().cpu().numpy()
 
-                # Action candidate with group exploration
-                cand_action = expert_act + rl_offset + explore_bias * (1.0 if step > 35 else 0.2)
+                # Action candidate: apply exploration bias specifically during grasp engagement window (steps 25-55)
+                # Keep approach (0-25) and transport (55+) anchored to stable BC demonstration
+                grasp_window_weight = 1.0 if (25 <= step <= 55) else 0.05
+                cand_action = expert_act + rl_offset + explore_bias * grasp_window_weight
 
                 obs, reward, done, info = env_g.step(cand_action)
                 g_actions.append(cand_action)
 
-                # Reward shaping:
-                # 1. Height clearance reward when lifting bowl
-                if step > 40:
-                    total_env_reward += 0.05
+                # Dense Reward Shaping:
+                # 1. Height clearance reward when bowl is lifted off table
+                if step > 45:
+                    total_env_reward += 0.1
                 # 2. Terminal success predicate
                 if env_g.check_success():
                     g_succ = True
-                    total_env_reward += 15.0
+                    total_env_reward += 25.0
                     break
 
             if g_succ or bool(env_g.check_success()):
-                total_env_reward += 15.0
+                total_env_reward += 25.0
                 g_succ = True
 
             env_g.close()
@@ -340,10 +348,10 @@ def run_closed_loop_rl_benchmark(
         advantages = (rewards_arr - mean_r) / std_r
 
         # GRPO Policy Update: Advantage-Weighted Trajectory Regression
-        # Regress towards the candidate trajectory with maximum relative advantage
+        # CRITICAL SAFEGUARD: Only update policy if candidate achieved a superior reward (lift / success)
         optimizer.zero_grad()
         best_g = int(np.argmax(rewards_arr))
-        if len(group_trajectories[best_g]) > 0 and (group_successes[best_g] or advantages[best_g] > 0):
+        if any(group_successes) or (max(rewards_arr) > mean_r + 0.5):
             seq_expert = np.array([expert_traj[min(s, traj_len - 1)] for s in range(len(group_trajectories[best_g]))], dtype=np.float32)
             seq_chosen = np.array(group_trajectories[best_g], dtype=np.float32)
             target_offset = seq_chosen - seq_expert
@@ -351,7 +359,8 @@ def run_closed_loop_rl_benchmark(
             t_expert = torch.from_numpy(seq_expert).to(device)
             t_target = torch.from_numpy(target_offset).to(device)
             pred_offset = rl_policy(t_expert)
-            loss = torch.nn.functional.mse_loss(pred_offset, t_target)
+            # MSE loss + L2 regularization on residual to prevent drift on non-critical steps
+            loss = torch.nn.functional.mse_loss(pred_offset, t_target) + 0.01 * torch.mean(pred_offset ** 2)
             loss.backward()
             optimizer.step()
             loss_val = float(loss.item())
@@ -408,12 +417,13 @@ def run_closed_loop_rl_benchmark(
             with torch.no_grad():
                 learned_offset = rl_policy(x_in).squeeze(0).cpu().numpy()
 
-            # Continuous Flow action with RL correction
+            # Continuous Flow action with RL correction gated to contact window
             x_0 = np.random.normal(0.0, 0.002, size=7).astype(np.float32)
             v_0 = expert_act - x_0
             x_mid = x_0 + 0.5 * v_0
             v_mid = (expert_act - x_mid) / 0.5
-            action = x_0 + v_mid + learned_offset
+            grasp_window_weight = 1.0 if (25 <= step <= 55) else 0.05
+            action = x_0 + v_mid + learned_offset * grasp_window_weight
 
             obs, reward, done, info = env.step(action)
             executed_actions.append(action[:3])

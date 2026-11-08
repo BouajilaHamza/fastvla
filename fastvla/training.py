@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import logging
@@ -184,7 +185,6 @@ class FastVLATrainer:
         self.use_wandb = use_wandb
         if self.use_wandb:
             import wandb
-            import os
 
             wandb.init(
                 project=wandb_project,
