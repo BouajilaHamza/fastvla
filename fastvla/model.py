@@ -231,6 +231,12 @@ class FastVLAModel(PreTrainedModel):
         except Exception:
             llm_device = get_device()
 
+        llm_dtype = (
+            llm_param.dtype
+            if (llm_param is not None and hasattr(llm_param, "dtype") and llm_param.is_floating_point())
+            else torch.float32
+        )
+
         v_hidden_raw = (
             getattr(self.vision_encoder, "embed_dim", None)
             or getattr(getattr(self.vision_encoder, "config", None), "hidden_size", None)
@@ -242,18 +248,18 @@ class FastVLAModel(PreTrainedModel):
         l_hidden = int(l_hidden_raw) if isinstance(l_hidden_raw, (int, float)) else int(config.llm_hidden_size)
         
         if not hasattr(self, "vision_proj") or self.vision_proj is None:
-            self.vision_proj = nn.Linear(v_hidden, l_hidden).to(llm_device)
+            self.vision_proj = nn.Linear(v_hidden, l_hidden).to(device=llm_device, dtype=llm_dtype)
 
         # Low-rank attention bridge: project to Triton-friendly dim (≤256) for
         # cross-attention, then project back.  Adds ~2×D×256 params (≈2M for
         # D=4096) and makes the Triton kernel fire on every GPU.
-        self.attn_proj_down = nn.Linear(l_hidden, 256, bias=False).to(llm_device)
-        self.attn_proj_up   = nn.Linear(256, l_hidden, bias=False).to(llm_device)
+        self.attn_proj_down = nn.Linear(l_hidden, 256, bias=False).to(device=llm_device, dtype=llm_dtype)
+        self.attn_proj_up   = nn.Linear(256, l_hidden, bias=False).to(device=llm_device, dtype=llm_dtype)
 
         # Proprioceptive state projection: maps [B, state_dim] → [B, 1, l_hidden]
         # so the robot's joint state can be prepended to the token sequence.
         state_dim = getattr(config, "state_dim", None) or getattr(config, "action_dim", 7)
-        self.state_proj = nn.Linear(state_dim, l_hidden).to(llm_device)
+        self.state_proj = nn.Linear(state_dim, l_hidden).to(device=llm_device, dtype=llm_dtype)
 
         out_action_dim = config.action_dim * config.chunk_size
         head_type = getattr(config, "head_type", "mlp_continuous")
@@ -477,6 +483,14 @@ class FastVLAModel(PreTrainedModel):
             return next(self.parameters()).device
         except (StopIteration, Exception):
             return torch.device("cpu")
+
+    @property
+    def dtype(self) -> torch.dtype:
+        try:
+            param = next(self.parameters())
+            return param.dtype if param.is_floating_point() else torch.float32
+        except (StopIteration, Exception):
+            return torch.float32
 
     def _sync_config_with_loaded_models(self):
         """Update config attributes to match actual loaded model dimensions."""
@@ -810,23 +824,29 @@ class FastVLAModel(PreTrainedModel):
         from .kernels import vision_language_cross_attention
 
         # Project visual to match language dimension
-        visual_features = self.vision_proj(visual_features.to(llm_device))
+        v_proj_dtype = next(self.vision_proj.parameters()).dtype if (hasattr(self, "vision_proj") and list(self.vision_proj.parameters())) else visual_features.dtype
+        visual_features = self.vision_proj(visual_features.to(device=llm_device, dtype=v_proj_dtype))
 
         # FIX 1: Use low-rank projection bridge so the Triton kernel fires even
         # for large hidden dims (e.g. D=4096 for 7B models).  Project text and
         # visual down to 256 for cross-attention, then project back and add as a
         # residual on top of the original text embeddings.
+        bridge_dtype = self.attn_proj_down.weight.dtype if hasattr(self, "attn_proj_down") else text_embeds.dtype
         if text_lo is None:
-            text_lo = self.attn_proj_down(text_embeds)   # [B, T_q, 256]
-        visual_lo = self.attn_proj_down(visual_features) # [B, T_kv, 256]
+            text_lo = self.attn_proj_down(text_embeds.to(dtype=bridge_dtype))   # [B, T_q, 256]
+        visual_lo = self.attn_proj_down(visual_features.to(dtype=bridge_dtype)) # [B, T_kv, 256]
         fused_lo  = vision_language_cross_attention(text_lo, visual_lo)  # Triton fires
         # Project back and residual-add with original text embeddings
-        fused_embeds = text_embeds + self.attn_proj_up(fused_lo)
+        up_dtype = self.attn_proj_up.weight.dtype if hasattr(self, "attn_proj_up") else fused_lo.dtype
+        fused_delta = self.attn_proj_up(fused_lo.to(dtype=up_dtype))
+        fused_embeds = text_embeds + fused_delta.to(dtype=text_embeds.dtype)
 
         last_hidden = self._encode_sequence(fused_embeds, attention_mask)
 
-        head_device = next(self.action_head.parameters()).device
-        pooled = self._pool_hidden_states(last_hidden, attention_mask).to(head_device)
+        head_param = next(self.action_head.parameters(), None)
+        head_device = head_param.device if head_param is not None else llm_device
+        head_dtype = head_param.dtype if (head_param is not None and head_param.is_floating_point()) else torch.float32
+        pooled = self._pool_hidden_states(last_hidden, attention_mask).to(device=head_device, dtype=head_dtype)
         action_preds = self.action_head(pooled)
 
         value_preds = None
