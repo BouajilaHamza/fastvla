@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FastVLA Turbo: High-Throughput Arabic-Instructable Vision-Language-Action Models</title>
-  <meta name="description" content="FastVLA Turbo: 4-bit NF4 quantized VLA acceleration framework with 2x2 Spatial Token Merging and Continuous Flow Matching on consumer edge GPUs.">
+  <title>FastVLA: High-Throughput Arabic-Instructable Vision-Language-Action Models</title>
+  <meta name="description" content="FastVLA: 4-bit NF4 quantized VLA acceleration framework with 2x2 Spatial Token Merging and Continuous Flow Matching on consumer edge GPUs.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
   <style>
     :root {
       --bg: #ffffff;
@@ -480,7 +482,7 @@
         <span class="badge">Arabic Physical AI</span>
         <span class="badge">Apache-2.0</span>
       </div>
-      <h1>FastVLA Turbo</h1>
+      <h1>FastVLA</h1>
       <p class="subtitle">
         Towards Consumer-Hardware Physical Intelligence: High-Throughput Arabic-Instructable Vision-Language-Action Models via Spatial Token Merging and Continuous Flow Matching.
       </p>
@@ -543,12 +545,12 @@
     <section class="section">
       <h2>1. The Core Engineering Innovations</h2>
       <p>
-        Modern Vision-Language-Action (VLA) models suffer from prohibitive compute and memory footprints, routing hundreds of raw image patches through multi-billion parameter backbones. <strong>FastVLA Turbo</strong> eliminates these bottlenecks through three principled contributions:
+        Modern Vision-Language-Action (VLA) models suffer from prohibitive compute and memory footprints, routing hundreds of raw image patches through multi-billion parameter backbones. <strong>FastVLA</strong> eliminates these bottlenecks through three principled contributions:
       </p>
       <ul>
         <li><strong>2&times;2 Spatial Patch Merging:</strong> Compresses 256 SigLIP visual patches down to 64 tokens prior to LLM injection, cutting self-attention complexity by <strong>4&times;</strong> with negligible precision trade-off (&lt;3%).</li>
         <li><strong>4-Bit NormalFloat (NF4) with Paged 8-Bit AdamW:</strong> Enables end-to-end multi-camera policy fine-tuning on a single 16GB Tesla T4 GPU without memory exhaustion.</li>
-        <li><strong>Continuous $\mathrm{SE}(3)$ Flow Matching Action Head:</strong> Replaces discrete action bin classification with continuous ODE-based trajectory regression solved via high-order Midpoint numerical integration in only 2 steps.</li>
+        <li><strong>Continuous SE(3) Flow Matching Action Head:</strong> Replaces discrete action bin classification with continuous ODE-based trajectory regression solved via high-order Midpoint numerical integration in only 2 steps.</li>
       </ul>
     </section>
 
@@ -556,7 +558,7 @@
     <section class="section">
       <h2>2. Rigorous 4-Bit Apples-to-Apples Push-T Benchmark</h2>
       <p>
-        Measured on an identical cloud NVIDIA Tesla T4 instance (16GB VRAM) under identical batch size, LoRA rank ($r=16, \alpha=32$), and optimizer configurations:
+        Measured on an identical cloud NVIDIA Tesla T4 instance (16GB VRAM) under identical batch size, LoRA rank (<i>r</i>=16, &alpha;=32), and optimizer configurations:
       </p>
       <div class="table-container">
         <table>
@@ -578,7 +580,7 @@
               <td>6.02 GB</td>
             </tr>
             <tr>
-              <td><strong>FastVLA Turbo (2&times;2 Patch Merger)</strong></td>
+              <td><strong>FastVLA (2&times;2 Patch Merger)</strong></td>
               <td><strong>64 tokens</strong></td>
               <td><strong>312.3 ms</strong></td>
               <td><strong>3.20 steps/s</strong></td>
@@ -632,7 +634,7 @@
               <td>3.8&times; margin</td>
             </tr>
             <tr class="highlight-row">
-              <td><strong>FastVLA Turbo (Ours)</strong></td>
+              <td><strong>FastVLA Continuous Flow (Ours)</strong></td>
               <td>16-step Midpoint ODE Flow</td>
               <td><strong>67.43 ms (-68%)</strong></td>
               <td><strong>4.21 ms</strong></td>
@@ -648,7 +650,7 @@
     <section class="section" id="closed-loop-leaderboard">
       <h2>4. Closed-Loop Physical Simulation Leaderboards</h2>
       <p>
-        Offline $L_2$ trajectory loss fails to capture compounding drift and contact instabilities. Robotics viability demands true closed-loop physics execution under active contacts. The following benchmarks are executed in official simulators (MuJoCo 2.3.7 &amp; Pymunk 6.11) on NVIDIA Tesla T4:
+        Offline <i>L</i><sub>2</sub> trajectory loss fails to capture compounding drift and contact instabilities. Robotics viability demands true closed-loop physics execution under active contacts. The following benchmarks are executed in official simulators (MuJoCo 2.3.7 &amp; Pymunk 6.11) on NVIDIA Tesla T4:
       </p>
 
       <h3>A. Official 3D MuJoCo Physics: LIBERO (Franka Emika Panda 7-DoF on Modal T4)</h3>
@@ -771,7 +773,7 @@
         <div class="media-card">
           <img src="assets/fastvla_bimanual_humanoid_rollout.gif" alt="FastVLA Bimanual Humanoid Rollout" style="max-height: 280px;" />
           <div class="figure-caption">
-            <strong>Figure 4: Coordinated 14-DoF Dual-Arm Manipulation.</strong> Product manifold $\mathrm{SE}(3) \times \mathrm{SE}(3)$ geodesic interpolation with active kinematic safety barrier and 500ms watchdog emergency stop.
+            <strong>Figure 4: Coordinated 14-DoF Dual-Arm Manipulation.</strong> Product manifold SE(3) &times; SE(3) geodesic interpolation with active kinematic safety barrier and 500ms watchdog emergency stop.
           </div>
         </div>
       </div>
@@ -781,7 +783,7 @@
     <section class="section">
       <h2>6. Multi-Modal Robustness Under Real-World Stress</h2>
       <p>
-        To prevent tabletop memorization, FastVLA Turbo was tested across 4 stress regimes combining visual distortions with dialectal Arabic shifts:
+        To prevent tabletop memorization, FastVLA was tested across 4 stress regimes combining visual distortions with dialectal Arabic shifts:
       </p>
       <div class="table-container">
         <table>
@@ -790,7 +792,7 @@
               <th>Regime Condition</th>
               <th>Visual Condition</th>
               <th>Linguistic Phrasing</th>
-              <th>Action $L_2$ Error</th>
+              <th>Action <i>L</i><sub>2</sub> Error</th>
               <th>Degradation</th>
             </tr>
           </thead>
@@ -841,7 +843,7 @@
               <th>Evaluation Probe</th>
               <th>Suite Source</th>
               <th>Arabic Instruction</th>
-              <th>Action $L_2$</th>
+              <th>Action <i>L</i><sub>2</sub></th>
               <th>OOD Gap</th>
               <th>Control Hz</th>
             </tr>
@@ -895,7 +897,7 @@
     <section class="section">
       <h2>9. Citation</h2>
       <pre><code>@article{bouajila2026fastvla,
-  title   = {FastVLA Turbo: High-Throughput Arabic-Instructable Vision-Language-Action Models via Spatial Token Merging and Continuous Flow Matching},
+  title   = {FastVLA: High-Throughput Arabic-Instructable Vision-Language-Action Models via Spatial Token Merging and Continuous Flow Matching},
   author  = {Bouajila, Hamza},
   journal = {GitHub Preprint},
   year    = {2026},
