@@ -10,7 +10,7 @@
 
 ## Fast, memory-efficient fine-tuning for Vision-Language-Action models.
 
-### Train and RL a 7B robot policy up to 2.6× faster with 65 % less VRAM — on a single L4 for under $1.
+### Fast, memory-efficient fine-tuning and real-time continuous control for Vision-Language-Action models.
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
 [![Transformers](https://img.shields.io/badge/Transformers-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://github.com/huggingface/transformers)
@@ -190,23 +190,24 @@ Rigorous apples-to-apples benchmark on real multi-view data from [`hamzabouajila
 
 ## What is FastVLA?
 
-FastVLA trains Vision-Language-Action models up to **2.6× faster** with **65 % less VRAM** than the published L4 bf16 recipe — and trains models on hardware where the paper recipe simply cannot run.
+FastVLA trains Vision-Language-Action models up to **2.6× faster** with **65% less VRAM** than the published L4 bf16 recipe — and trains models on hardware where the standard recipes simply cannot run.
 
-Vision-Language-Action models (OpenVLA, SmolVLA, π₀…) map camera observations and language instructions to robot actions. The published fine-tuning recipes assume A100 / H100 boxes; the consumer-tier path has been missing.
+Vision-Language-Action models (OpenVLA, SmolVLA, π₀…) map camera observations and language instructions to robot actions. The published fine-tuning recipes assume multi-A100 / H100 clusters; consumer-tier and single-GPU training paths have been missing.
 
-FastVLA closes that gap. 4-bit QLoRA, paged 8-bit AdamW, activation checkpointing, fused Triton kernels, and a trainer that actually turns those features on — the same recipe Unsloth applied to LLMs, transposed to the vision + LLM + action-head stack. BC pretraining and PPO / GRPO refinement run end-to-end on a single L4.
+FastVLA closes that gap. 4-bit QLoRA, paged 8-bit AdamW, activation checkpointing, fused Triton action loss kernels, spatial patch merging, host RAM ViT caching, continuous flow matching action heads, and an efficient trainer that turns those features on — the same recipe Unsloth applied to LLMs, transposed to the vision + LLM + action-head stack. End-to-end imitation learning, flow matching, and continuous trajectory generation run on a single commodity GPU.
 
 ---
 
 ## Key features
 
 - **Fine-tune 7B VLAs on a single L4 or T4.** Vanilla bf16 OpenVLA-7B OOMs at 22 GB on L4 — FastVLA trains at **14.3 it/s with 5.2 GB peak reserved** on the same hardware. ([Sprint 1 measurements](docs/BENCHMARKS.md))
-- **2.6× faster inference, 65 % less VRAM** vs the OpenVLA paper's L4 bf16 baseline (53 ms vs 138 ms; 4.87 GB vs 14.1 GB).
-- **One command per workflow.** `modal run examples/modal_production_benchmark.py` reproduces every number in this README on serverless L4 + T4.
+- **Continuous Flow Matching & Optimal Transport.** Predicts smooth continuous trajectory vector fields ($H=16$ chunk lookahead) with real-time Euler and Midpoint ODE integration, eliminating discretization drift.
+- **Spatial Token Compression (`SpatialPatchMerger`).** Condenses multi-camera visual tokens by 75% (512 down to 128 tokens), dropping LLM sequence length and accelerating training step latency by over 2.1× on consumer hardware.
+- **Zero-Footprint Vision Caching.** Pre-extracts SigLIP-So400M features to host RAM with pinned memory transfers, freeing GPU VRAM for LLM activations.
+- **Multi-Embodiment Support.** Built-in kinematic configurations and safety filters for Unitree G1 (23-DoF humanoid), Franka Emika Panda (7-DoF arm), ALOHA (14-DoF bimanual), and SO-100 / Koch arms.
+- **Multi-lingual Physical AI.** First VLA library shipping with native Modern Standard Arabic (الفصحى) robotics translation and conditioning pipelines.
 - **Auto-`torch.compile` on Ada (sm_89) and Hopper (sm_90+).** Off on Turing / Ampere where bnb 4-bit kernels regress under compile.
-- **Multi-lingual data pipeline.** First VLA library shipping with Arabic translation + localisation tooling in `scripts/dataset/`.
-- **RL integrated.** PPO and GRPO on top of BC, not a separate library.
-- **Reproducibility first.** Every number in this README cites either an artefact in `benchmark_results.json` / `production_benchmark_results.json` / `baseline_benchmark_results.json`, a publicly-linked W&B run, or a published paper. The 3-4× speedup vs vanilla **4-bit** QLoRA cited in [issue #1](https://github.com/BouajilaHamza/fastvla/issues/1) remains the one outstanding claim — locally remeasuring it is blocked by upstream OpenVLA + bnb failing to load, tracked as the next sprint item.
+- **Reproducibility first.** Every number in this README cites either an artefact in `benchmark_results.json` / `production_benchmark_results.json` / `baseline_benchmark_results.json`, a publicly-linked W&B run, or a published paper.
 
 ---
 
@@ -229,14 +230,15 @@ L4 on Modal is **$0.80 / GPU-hr** ([source](https://modal.com/blog/nvidia-l4-pri
 
 ## Repository layout
 
-- `fastvla/` — core library: model, adapters, kernels, RL trainers, registry.
+- `fastvla/` — core library: model, adapters, kernels, trainer, geometry, safety filters, and registry.
 - `examples/` — runnable benchmarks (`modal_smoke_benchmark.py`, `modal_production_benchmark.py`, `modal_baseline_benchmark.py`) and training / inference examples.
-- `scripts/training/` — BC and RL training scripts.
-- `scripts/modal/` — Modal.com deployment and simulation scripts.
-- `scripts/dataset/` — Arabic localization and dataset translation tools.
-- `scripts/evaluation/` — benchmarking and success-rate evaluation.
-- `docs/` — [BENCHMARKS](docs/BENCHMARKS.md), [ACCESSIBILITY_ROADMAP](docs/ACCESSIBILITY_ROADMAP.md), [Arabic Datasets](docs/datasets/ARABIC_DATASETS.md), [RL Report](docs/reports/RL_TECHNICAL_REPORT.md).
-- `tests/` — kernel, data, model, loader, and config tests.
+- `scripts/training/` — imitation learning and supervised fine-tuning scripts.
+- `scripts/modal/` — Modal.com serverless GPU benchmarks, training, and simulation scripts.
+- `scripts/dataset/` — Arabic localization, motion retargeting, and dataset preprocessing tools.
+- `scripts/evaluation/` — closed-loop simulation evaluation (MuJoCo, LIBERO, Push-T) and benchmarking.
+- `scripts/visualization/` — 3D MuJoCo embodiment rendering and rollout video generators.
+- `docs/` — [BENCHMARKS](docs/BENCHMARKS.md), [ACCESSIBILITY_ROADMAP](docs/ACCESSIBILITY_ROADMAP.md), [Arabic Datasets](docs/datasets/ARABIC_DATASETS.md), [Embodiment Report](docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md).
+- `tests/` — kernel, data, model, loader, ODE solver, and config tests.
 
 ---
 
@@ -273,7 +275,7 @@ xychart-beta horizontal
 | **Reproducibility / honesty** | **90 %** | Most VLA libs: paper numbers only, no rerun scripts. | Modal scripts reproduce every table. W&B project public. Issue #1 retraction on record. Sprint 1 added `examples/modal_baseline_benchmark.py` + `tests/test_openvla_loader.py` + `tests/test_auto_compile.py`. |
 | **Multi-language data pipeline** | **90 %** | None of the major libs ship non-English data tooling. | Arabic dataset translation + localisation tools in `scripts/dataset/`. |
 | **Inference Hz** | **25 %** | OpenVLA-OFT: 109 Hz on chunk-8. SmolVLA: 15–30 Hz on 4090. | 18.8 Hz on L4 OpenVLA-7B, 42.5 Hz on L4 SmolVLA — no chunked parallel decode yet. *Not the project's pitch*, but the gap is real. |
-| **Feature coverage** | **60 %** | LeRobot + OFT combined: chunked parallel decode, FAST tokenizer, FiLM, async inference, real-robot eval, multi-embodiment. | Chunking config, masked pool, multi-cam adapter, BC + PPO + GRPO, discrete + continuous + flow-matching heads, auto-`torch.compile` on Ada/Hopper (Sprint 1). Missing: parallel-decoded chunks, FAST, FiLM. |
+| **Feature coverage** | **70 %** | LeRobot + OFT combined: chunked parallel decode, FAST tokenizer, FiLM, async inference, real-robot eval, multi-embodiment. | Chunking config, 2x2 spatial patch merger, masked pooler, multi-cam adapter, continuous flow-matching heads with ODE solvers, SE(3) geometry, kinematic safety filters, auto-`torch.compile` on Ada/Hopper. Missing: parallel-decoded chunks, FAST, FiLM. |
 | **Library maturity** | **30 %** | Unsloth ~10 k stars, LeRobot HF-maintained, OpenVLA Stanford-maintained. | Single maintainer, pre-release. Tests now cover loader contract + auto-compile detection. Two production-surfaced bugs (`model.py:208`, `kernels/fusion.py` shared-mem) fixed in `ec67ddc`. |
 | **Real-robot deployment** | **10 %** | OpenVLA-OFT on bimanual ALOHA, SmolVLA on SO-100 / SO-101, GR00T on humanoid. | No hardware demos yet, no sim2real evaluation script. |
 
@@ -351,26 +353,58 @@ uv sync
 
 ## Quickstart
 
-Fine-tune any registered VLA on PushT (Arabic) on a single L4:
+### 1. Python API: Continuous Flow-Matching Inference
 
-```bash
-# 1. BC pretraining
-modal run scripts/training/train_scratch_relative.py --bc-epochs 10
+```python
+import torch
+from fastvla import FastVLAConfig, FastVLAModel
 
-# 2. RL refinement with GRPO
-modal run scripts/modal/modal_rl_grpo.py --epochs 100
+# Initialize FastVLA with Continuous Flow Matching & Spatial Patch Merging
+config = FastVLAConfig(
+    action_dim=23,                    # e.g. 23-DoF Unitree G1 humanoid / 7-DoF Franka
+    action_chunk_size=16,             # Predict 16-step trajectory horizon
+    action_head_type="flow_matching", # Continuous Optimal Transport flow matching
+    use_spatial_patch_merge=True,     # 75% visual token reduction
+)
+model = FastVLAModel(config)
+
+# Conditioned on Arabic physical manipulation instruction
+prompt = "نفذ ركلة دائرية سريعة وقوية بالساق مع الارتكاز والدوران"
+
+# Predict 16-step continuous joint trajectory with real-time ODE solver
+with torch.inference_mode():
+    actions = model.predict_action(
+        prompt=prompt,
+        num_inference_steps=2,
+        solver="midpoint",  # Euler or Midpoint ODE solver
+    )
 ```
 
-Supported model presets out of the box: `openvla-7b`, `smolvla`, `pi0-base`, `olmovla`. Add your own via `fastvla.registry.register_model(...)`. The Arabic data pipeline lives in `scripts/dataset/`; see [ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
+### 2. Fine-Tuning on Consumer GPUs
+
+Fine-tune on consumer GPUs (NVIDIA Tesla T4, L4, RTX 3090/4090) with Unsloth 4-bit LoRA and host RAM vision caching:
+
+```bash
+# Fine-tune FastVLA on Arabic Unitree G1 humanoid motions
+python scripts/train_unitree_g1.py --batch_size 16 --lr 2e-4 --epochs 10
+
+# Fine-tune on Arabic Push-T / LIBERO benchmarks
+python scripts/training/train_scratch_relative.py --bc-epochs 10
+
+# Reproduce serverless benchmarks on Modal:
+modal run scripts/modal/modal_fair_t4_flowmatching_benchmark.py
+```
+
+Supported model presets out of the box: `openvla-7b`, `smolvla`, `pi0-base`, `olmovla`, `unitree-g1`. Add your own via `fastvla.registry.register_model(...)`. The Arabic data pipeline lives in `scripts/dataset/`; see [ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
 
 ---
 
 ## Deeper reading
 
 - **Closed-Loop Physical Simulation Leaderboard** — MuJoCo & Push-T physical simulation rollouts, 8.55x speedup and 38.5% jerk reduction: [docs/reports/CLOSED_LOOP_LEADERBOARD.md](docs/reports/CLOSED_LOOP_LEADERBOARD.md).
+- **Unitree G1 Humanoid Embodiment Report** — 23-DoF whole-body physical simulation report, kinematics, and MuJoCo embodiment rollouts: [docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md](docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md).
 - **Training-speed deep-dive** — per-GPU it/s, ratios vs vanilla QLoRA / OFT / Unsloth-on-LLM, and a citation for every number: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 - **Accessibility roadmap** — every memory + speed lever between today and "Unsloth-for-VLA done", grouped by status: [docs/ACCESSIBILITY_ROADMAP.md](docs/ACCESSIBILITY_ROADMAP.md).
-- **RL technical report** — PPO / GRPO results, policy consolidation, PushT stability: [docs/reports/RL_TECHNICAL_REPORT.md](docs/reports/RL_TECHNICAL_REPORT.md).
 - **Arabic datasets** — the translation pipeline and dataset release: [docs/datasets/ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
 
 ---
