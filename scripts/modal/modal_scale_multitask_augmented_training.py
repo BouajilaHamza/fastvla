@@ -1,7 +1,7 @@
 """
 FastVLA: Scaling Multi-Task Training with Active Multi-Modal Augmentations (Modal T4).
 
-Trains and benchmarks FastVLA Turbo across 30 diverse robotics tasks (LIBERO-10,
+Trains and benchmarks FastVLA across 30 diverse robotics tasks (LIBERO-10,
 LIBERO-Spatial, and LIBERO-Object) on an NVIDIA Tesla T4 GPU.
 
 Head-to-head evaluation:

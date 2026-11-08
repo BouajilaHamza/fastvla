@@ -81,7 +81,7 @@ def validate_published_arabic_vla():
     print(f"  ✅ Components downloaded in {time.time() - t0:.2f}s")
 
     # 2. Reconstruct Model Architecture
-    print("\n[Step 2] Initializing FastVLA Turbo inference engine...")
+    print("\n[Step 2] Initializing FastVLA inference engine...")
     hidden_size = 4096
     trajectory_dim = 16 * 7  # 112
     llama_cfg = AutoConfig.for_model(
@@ -133,7 +133,7 @@ def validate_published_arabic_vla():
 
     torch.cuda.empty_cache()
     static_vram = torch.cuda.memory_allocated() / (1024 ** 3)
-    print(f"  ✅ FastVLA Turbo loaded in {static_vram:.2f} GB VRAM (Full 7B model + dual vision + flow head)")
+    print(f"  ✅ FastVLA loaded in {static_vram:.2f} GB VRAM (Full 7B model + dual vision + flow head)")
 
     # 3. Fetch real test observations from dataset
     print("\n[Step 3] Fetching real camera observations from hamzabouajila/ar-libero-10-image...")

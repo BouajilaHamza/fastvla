@@ -1,8 +1,8 @@
 """
-FastVLA Turbo: NVIDIA Isaac GR00T Fine-Tuning & Verification on Commodity T4 GPU.
+FastVLA: NVIDIA Isaac GR00T Fine-Tuning & Verification on Commodity T4 GPU.
 
 Fine-tunes the GR00T-N1.7 3B Dual-System VLA architecture on Arabic robot manipulation
-using FastVLA Turbo's hardware-efficient stack:
+using FastVLA's hardware-efficient stack:
   1. 4-Bit NF4 Quantization + LoRA (r=16, alpha=32) for the 2B VLM backbone (<4 GB VRAM)
   2. 2x2 SpatialPatchMerger (-75% visual tokens)
   3. Continuous Flow Matching Action Head (16-step chunk, 112 continuous DoF)
@@ -244,7 +244,7 @@ def finetune_and_verify_groot(num_steps: int = 50, batch_size: int = 2):
     print(f"\n📊 Pre-Training VRAM Usage: {vram_init:.2f} GB / 16.0 GB")
 
     # 7. Training Loop
-    print("\n🚀 Starting FastVLA Turbo GR00T Fine-Tuning Steps...")
+    print("\n🚀 Starting FastVLA GR00T Fine-Tuning Steps...")
     step_times = []
     loss_history = []
     start_train_time = time.perf_counter()

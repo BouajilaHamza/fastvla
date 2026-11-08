@@ -1,6 +1,6 @@
 """
 Empirical Apples-to-Apples Side-by-Side Benchmark on NVIDIA Tesla T4 (16GB):
-Standard 4-Bit SOTA (256 uncompressed visual tokens) vs FastVLA Turbo (64 compressed tokens via SpatialPatchMerger).
+Standard 4-Bit SOTA (256 uncompressed visual tokens) vs FastVLA (64 compressed tokens via SpatialPatchMerger).
 
 Trained on identical Arabic Push-T batches from hamzabouajila/ar-pusht-image.
 """
@@ -160,9 +160,9 @@ def run_empirical_side_by_side(num_steps: int = 30, batch_size: int = 2):
     torch.cuda.empty_cache()
 
     # -------------------------------------------------------------
-    # RUN 2: FastVLA Turbo (Compressed 64 Visual Tokens via SpatialPatchMerger)
+    # RUN 2: FastVLA (Compressed 64 Visual Tokens via SpatialPatchMerger)
     # -------------------------------------------------------------
-    print("\n[Run 2/2] Benchmarking FastVLA Turbo (Compressed 64 tokens via 2x2 SpatialPatchMerger)...")
+    print("\n[Run 2/2] Benchmarking FastVLA (Compressed 64 tokens via 2x2 SpatialPatchMerger)...")
     compressor = SpatialPatchMerger(in_dim=1152, out_dim=vlm_dim, merge_factor=2).to(device=device, dtype=torch.float16)
     llm_2 = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-3B", quantization_config=bnb_config, device_map="auto", torch_dtype=torch.float16)
     llm_2 = get_peft_model(llm_2, lora_config)
@@ -195,7 +195,7 @@ def run_empirical_side_by_side(num_steps: int = 30, batch_size: int = 2):
 
     vram_2_gb = torch.cuda.max_memory_allocated() / (1024 ** 3)
     step_ms_2 = float(np.mean(times_2))
-    print(f"  FastVLA Turbo (64 tokens): {step_ms_2:.1f} ms/step | Peak VRAM: {vram_2_gb:.2f} GB")
+    print(f"  FastVLA (64 tokens): {step_ms_2:.1f} ms/step | Peak VRAM: {vram_2_gb:.2f} GB")
 
     speedup = step_ms_1 / step_ms_2
     vram_saved_gb = vram_1_gb - vram_2_gb
@@ -219,7 +219,7 @@ def main():
     print("\n" + "=" * 80)
     print("🏆 EMPIRICAL 100% APPLES-TO-APPLES VERDICT (NVIDIA Tesla T4):")
     print(f"   Standard 4-Bit SOTA (256 tokens): {res['sota_step_ms']:.1f} ms/step | Peak VRAM: {res['sota_vram_gb']:.2f} GB")
-    print(f"   FastVLA Turbo (64 tokens):       {res['fastvla_step_ms']:.1f} ms/step | Peak VRAM: {res['fastvla_vram_gb']:.2f} GB")
+    print(f"   FastVLA (64 tokens):       {res['fastvla_step_ms']:.1f} ms/step | Peak VRAM: {res['fastvla_vram_gb']:.2f} GB")
     print(f"   👉 Measured Speedup:              {res['speedup']:.2f}x FASTER")
     print(f"   👉 Measured VRAM Reduction:       -{res['vram_reduction_pct']:.1f}% (-{res['vram_saved_gb']:.2f} GB)")
     print("=" * 80)

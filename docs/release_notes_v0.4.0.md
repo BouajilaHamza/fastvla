@@ -1,6 +1,6 @@
-## What's New in v0.4.0 — FastVLA Turbo
+## What's New in v0.4.0 — FastVLA
 
-**FastVLA Turbo** brings state-of-the-art physical AI and robotics foundation fine-tuning to commodity 16GB GPUs (NVIDIA Tesla T4). This release solves the root cause of why naive LLM fine-tuning tricks previously underperformed on robotics by addressing the 96.8% sequence bottleneck, eliminating discrete autoregressive drift, and fusing critical kernel paths.
+**FastVLA** brings state-of-the-art physical AI and robotics foundation fine-tuning to commodity 16GB GPUs (NVIDIA Tesla T4). This release solves the root cause of why naive LLM fine-tuning tricks previously underperformed on robotics by addressing the 96.8% sequence bottleneck, eliminating discrete autoregressive drift, and fusing critical kernel paths.
 
 All benchmarks and model weights are empirically measured and live on Hugging Face Hub.
 
@@ -10,7 +10,7 @@ All benchmarks and model weights are empirically measured and live on Hugging Fa
 
 #### 1. Spatial Token Compression (`SpatialPatchMerger`)
 - Standard multi-view robotics feeds $2 \text{ cameras} \times 256 \text{ patches} = 512 \text{ visual tokens}$ directly into the 7B LLM backbone ($96.8\%$ of step compute).
-- FastVLA Turbo introduces a 2D-aware $2 \times 2$ `SpatialPatchMerger` with channel projection, compressing $512 \to 128 \text{ tokens}$ ($-75\%$ tokens).
+- FastVLA introduces a 2D-aware $2 \times 2$ `SpatialPatchMerger` with channel projection, compressing $512 \to 128 \text{ tokens}$ ($-75\%$ tokens).
 - **Latency slashed from $1,755.7\text{ ms} \to 868.3\text{ ms}$ per step ($2.02\times$ faster).**
 - **Peak VRAM reduced from $8.57\text{ GB} \to 5.21\text{ GB}$ ($-39.2\%$).**
 
@@ -44,8 +44,8 @@ All benchmarks and model weights are empirically measured and live on Hugging Fa
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Standard SOTA (SigLIP + 7B LLM)** | 512 | $1,860.5\text{ ms}$ | $0.54\text{ step/s}$ | $8.6\text{ GB}$ (OOM at $B \ge 4$) | Baseline |
 | **Base FastVLA (Cached ViT + 7B LLM)** | 512 | $1,755.7\text{ ms}$ | $0.57\text{ step/s}$ | $8.57\text{ GB}$ | $1.06\times$ |
-| **FastVLA Turbo (2x2 Patch Merger)** | **128** | **$868.3\text{ ms}$** | **$1.15\text{ step/s}$** | **$5.21\text{ GB}$** | **$2.02\times$ faster** |
-| **FastVLA Turbo + Fused SwiGLU** | **128** | **$830.4\text{ ms}$** | **$1.20\text{ step/s}$** | **$4.84\text{ GB}$** | **$2.24\times$ faster** |
+| **FastVLA (2x2 Patch Merger)** | **128** | **$868.3\text{ ms}$** | **$1.15\text{ step/s}$** | **$5.21\text{ GB}$** | **$2.02\times$ faster** |
+| **FastVLA + Fused SwiGLU** | **128** | **$830.4\text{ ms}$** | **$1.20\text{ step/s}$** | **$4.84\text{ GB}$** | **$2.24\times$ faster** |
 
 ---
 

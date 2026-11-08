@@ -91,7 +91,7 @@ def run_robustness_benchmark(num_episodes: int = 5, frames_per_ep: int = 30):
     print(f"  Target validation episodes: {val_episodes}")
 
     # 2. Setup VLA model
-    print("\n[Phase 2] Initializing FastVLA Turbo 4-Bit NF4 Architecture...")
+    print("\n[Phase 2] Initializing FastVLA 4-Bit NF4 Architecture...")
     vlm_dim = 2048
     action_chunk_dim = 16 * 2  # 32 DoF
 

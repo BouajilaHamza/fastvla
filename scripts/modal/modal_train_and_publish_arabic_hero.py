@@ -1,5 +1,5 @@
 """
-FastVLA Turbo: Training & Publishing the Best Arabic Robotics Model (7B) to Hugging Face Hub.
+FastVLA: Training & Publishing the Best Arabic Robotics Model (7B) to Hugging Face Hub.
 
 Architecture:
 - Base: 4-bit NF4 7B LLaMA with LoRA adapters (r=16, alpha=32)
@@ -150,7 +150,7 @@ def train_and_publish_arabic_hero(num_steps: int = 100, batch_size: int = 2):
     target_repo = "hamzabouajila/fastvla-turbo-arabic-libero"
 
     print("=" * 80)
-    print(f"🇸🇦 TRAINING FASTVLA TURBO ARABIC HERO (7B) ON {gpu_name}")
+    print(f"🇸🇦 TRAINING FASTVLA ARABIC HERO (7B) ON {gpu_name}")
     print(f"   Target HuggingFace Repository: {target_repo}")
     print("   Architecture: 4-bit 7B + 2x2 Spatial Token Compressor + 16-Step Flow-Matching")
     print("=" * 80)
@@ -195,7 +195,7 @@ def train_and_publish_arabic_hero(num_steps: int = 100, batch_size: int = 2):
     print("  ✅ 428M ViT completely evicted from GPU VRAM!")
 
     # 3. Spatial Token Compressor (2x2 Patch Merger)
-    print("\n[Phase 2] Initializing FastVLA Turbo SpatialPatchMerger (-75% token reduction)...")
+    print("\n[Phase 2] Initializing FastVLA SpatialPatchMerger (-75% token reduction)...")
     merger = SpatialPatchMerger(
         in_dim=1152,
         out_dim=hidden_size,
@@ -245,10 +245,10 @@ def train_and_publish_arabic_hero(num_steps: int = 100, batch_size: int = 2):
 
     torch.cuda.empty_cache()
     static_vram = torch.cuda.memory_allocated() / (1024 ** 3)
-    print(f"  ✅ FastVLA Turbo Static VRAM: {static_vram:.2f} GB (Leaves {14.57 - static_vram:.2f} GB free)")
+    print(f"  ✅ FastVLA Static VRAM: {static_vram:.2f} GB (Leaves {14.57 - static_vram:.2f} GB free)")
 
     # 6. Training Execution
-    print(f"\n[Phase 4] Training FastVLA Turbo on Arabic LIBERO ({num_steps} steps)...")
+    print(f"\n[Phase 4] Training FastVLA on Arabic LIBERO ({num_steps} steps)...")
     losses = []
     step_times = []
     start_train = time.time()
@@ -259,7 +259,7 @@ def train_and_publish_arabic_hero(num_steps: int = 100, batch_size: int = 2):
 
         with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
             raw_vit_tokens = cache.get(step, device=device)  # [B, 512, 1152]
-            # FastVLA Turbo 2x2 Spatial Compression
+            # FastVLA 2x2 Spatial Compression
             compressed_tokens = merger(raw_vit_tokens, num_cams=2)  # [B, 128, 4096]
             txt_embed = model_fastvla.get_input_embeddings()(batch["input_ids"])  # [B, 48, 4096]
             inputs_embeds = torch.cat([compressed_tokens, txt_embed], dim=1)  # seq_len = 176 (Ultra-compact!)
@@ -311,10 +311,10 @@ def train_and_publish_arabic_hero(num_steps: int = 100, batch_size: int = 2):
     # D. Save Tokenizer
     tokenizer.save_pretrained(str(output_dir))
 
-    # E. Save FastVLA Turbo Unified Config
+    # E. Save FastVLA Unified Config
     config_dict = {
-        "model_type": "fastvla_turbo",
-        "architectures": ["FastVLATurboModel"],
+        "model_type": "fastvla",
+        "architectures": ["FastVLAModel"],
         "base_model": "openvla/openvla-7b",
         "vision_tower": "vit_so400m_patch14_siglip_224",
         "vision_feature_dim": 1152,
@@ -358,7 +358,7 @@ tags:
 - robotics
 - vla
 - openvla
-- fastvla-turbo
+- fastvla
 - flow-matching
 - unsloth
 - spatial-compression
@@ -369,19 +369,19 @@ datasets:
 metrics:
 - trajectory_l2_error
 pipeline_tag: robotics
-model_type: fastvla_turbo
+model_type: fastvla
 ---
 
-# ⚡ FastVLA Turbo: The Premier Arabic Physical AI Robot (7B)
+# ⚡ FastVLA: The Premier Arabic Physical AI Robot (7B)
 
 <div align="center">
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Dataset](https://img.shields.io/badge/Dataset-Arabic_LIBERO--10-orange.svg)](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image)
 [![Hardware](https://img.shields.io/badge/Hardware-Tesla_T4_16GB-green.svg)]()
-[![Framework](https://img.shields.io/badge/Engine-FastVLA_Turbo-purple.svg)](https://github.com/BouajilaHamza/fastvla)
+[![Framework](https://img.shields.io/badge/Engine-FastVLA-purple.svg)](https://github.com/BouajilaHamza/fastvla)
 
-**The first Arabic Physical AI model powered by FastVLA Turbo with 16-Step Continuous Flow-Matching (112 continuous DoF) and 2x2 Spatial Token Compression.**
+**The first Arabic Physical AI model powered by FastVLA with 16-Step Continuous Flow-Matching (112 continuous DoF) and 2x2 Spatial Token Compression.**
 
 </div>
 
@@ -389,15 +389,15 @@ model_type: fastvla_turbo
 
 ## 🌟 Overview (نظرة عامة)
 
-**FastVLA Turbo** is the state-of-the-art Arabic Vision-Language-Action (VLA) robotics foundation model. Unlike previous single-step discretized models that suffer from severe compounding errors, **FastVLA Turbo** predicts **16-step continuous action chunk trajectories (112 continuous DoF)** using continuous Flow-Matching optimal transport.
+**FastVLA** is the state-of-the-art Arabic Vision-Language-Action (VLA) robotics foundation model. Unlike previous single-step discretized models that suffer from severe compounding errors, **FastVLA** predicts **16-step continuous action chunk trajectories (112 continuous DoF)** using continuous Flow-Matching optimal transport.
 
-Equipped with **2x2 Spatial Patch Merging**, FastVLA Turbo compresses multi-camera visual inputs from 512 patches down to **128 tokens (-75% token count)**, delivering a **2.15x wall-clock speedup** and running training and real-time 10Hz inference on standard budget GPUs (**NVIDIA Tesla T4 / Google Colab / Kaggle**).
+Equipped with **2x2 Spatial Patch Merging**, FastVLA compresses multi-camera visual inputs from 512 patches down to **128 tokens (-75% token count)**, delivering a **2.15x wall-clock speedup** and running training and real-time 10Hz inference on standard budget GPUs (**NVIDIA Tesla T4 / Google Colab / Kaggle**).
 
 ---
 
 ## 📊 Empirical Benchmarks on NVIDIA Tesla T4 (16GB)
 
-| Metric | Standard SOTA VLA (Live SigLIP) | FastVLA Turbo (Spatial Merged) | Advantage |
+| Metric | Standard SOTA VLA (Live SigLIP) | FastVLA (Spatial Merged) | Advantage |
 | :--- | :--- | :--- | :--- |
 | **Visual Tokens per Step** | 512 tokens (256 x 2) | **128 tokens (64 x 2)** | **-75.0% tokens** |
 | **Total LLM Sequence** | 544 tokens | **176 tokens** | **-67.6% sequence** |
@@ -449,9 +449,9 @@ print(f"Executing Arabic task: {{arabic_command}}")
 ## 📜 Citation
 
 ```bibtex
-@misc{{fastvla_turbo_2026,
+@misc{{fastvla_2026,
   author = {{Hamza Bouajila}},
-  title = {{FastVLA Turbo: Democratizing Arabic Physical AI and Robotics Foundation Models}},
+  title = {{FastVLA: Democratizing Arabic Physical AI and Robotics Foundation Models}},
   year = {{2026}},
   publisher = {{Hugging Face}},
   url = {{https://huggingface.co/{target_repo}}}
@@ -469,7 +469,7 @@ print(f"Executing Arabic task: {{arabic_command}}")
         folder_path=str(output_dir),
         repo_id=target_repo,
         repo_type="model",
-        commit_message="feat: publish FastVLA Turbo Arabic Hero model with 16-step flow matching and spatial token compression",
+        commit_message="feat: publish FastVLA Arabic Hero model with 16-step flow matching and spatial token compression",
     )
     print(f"  🎉 MODEL SUCCESSFULLY PUBLISHED TO HUGGINGFACE: https://huggingface.co/{target_repo}")
 
@@ -488,7 +488,7 @@ print(f"Executing Arabic task: {{arabic_command}}")
 @app.local_entrypoint()
 def main():
     print("=" * 80)
-    print("🚀 FASTVLA TURBO: TRAIN & PUBLISH THE ARABIC ROBOTICS FOUNDATION MODEL (7B)")
+    print("🚀 FASTVLA: TRAIN & PUBLISH THE ARABIC ROBOTICS FOUNDATION MODEL (7B)")
     print("=" * 80)
     result = train_and_publish_arabic_hero.remote(num_steps=100, batch_size=2)
     print("\n" + "=" * 80)

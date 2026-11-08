@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-Phase 2 scales FastVLA Turbo fine-tuning beyond single-suite demonstrations into a unified 30-task mixture across:
+Phase 2 scales FastVLA fine-tuning beyond single-suite demonstrations into a unified 30-task mixture across:
 - **`LIBERO-10`** (Kitchen & Living Room manipulation)
 - **`LIBERO-Spatial`** (10 spatial relational grounding tasks)
 - **`LIBERO-Object`** (10 fine-grained object retrieval tasks)

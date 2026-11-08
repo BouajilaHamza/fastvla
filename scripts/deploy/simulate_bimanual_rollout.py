@@ -254,7 +254,7 @@ def render_scene(
     cv2.rectangle(canvas, (25, 20), (W - 25, 68), (18, 20, 24), -1)
     cv2.rectangle(canvas, (25, 20), (W - 25, 68), (55, 60, 70), 1)
 
-    cv2.putText(canvas, "FastVLA Turbo", (40, 50), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 220, 255), 2, cv2.LINE_AA)
+    cv2.putText(canvas, "FastVLA", (40, 50), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 220, 255), 2, cv2.LINE_AA)
     cv2.putText(canvas, "Bimanual Humanoid Policy | 14-DoF Dual-Arm | SE(3) x SE(3) Geodesic Flow", (220, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 230), 1, cv2.LINE_AA)
 
     # Real-Time Rate and Guard Status

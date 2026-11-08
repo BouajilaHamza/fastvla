@@ -1,7 +1,7 @@
 """
 Zero-Shot Transfer Probe: Evaluating LIBERO-10 Trained Policy on Unseen LIBERO-90 Suites.
 
-Evaluates FastVLA Turbo policy trained on LIBERO-10 against:
+Evaluates FastVLA policy trained on LIBERO-10 against:
 1. In-Distribution Reference: 'turn on the stove and put the moka pot on it' (from libero_10).
 2. Out-of-Distribution Spatial Probe: 'pick up the black bowl between the plate and the ramekin and place it on the plate' (from libero_spatial).
 3. Out-of-Distribution Object Probe: 'pick up the alphabet soup and place it in the basket' (from libero_object).
@@ -154,8 +154,8 @@ def run_zero_shot_probe(steps_per_demo: int = 50):
             }
             print(f"    -> Extracted {len(steps)} steps from demo '{demos[0]}' (Image key: '{img_key}', Action dim: {actions.shape[-1]})")
 
-    # 2. Initialize FastVLA Turbo Model
-    print("\n[Phase 2] Initializing FastVLA Turbo 4-Bit NF4 Architecture on Tesla T4...")
+    # 2. Initialize FastVLA Model
+    print("\n[Phase 2] Initializing FastVLA 4-Bit NF4 Architecture on Tesla T4...")
     vlm_dim = 2048
     action_chunk_dim = 16 * 7  # 16-step chunk x 7 DoF Franka = 112 DoF
 
@@ -196,7 +196,7 @@ def run_zero_shot_probe(steps_per_demo: int = 50):
         rotation_format="7dof_euler",
     ).to(device=device, dtype=torch.float16).eval()
 
-    print("  ✅ FastVLA Turbo loaded and ready.")
+    print("  ✅ FastVLA loaded and ready.")
 
     # 3. Run Inference Evaluation
     def run_step(img_tensor, instruction_text):

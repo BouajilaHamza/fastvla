@@ -1,5 +1,5 @@
 """
-FastVLA Turbo x NVIDIA Isaac GR00T (3B): Video & Telemetry Validation for Arabic Physical AI.
+FastVLA x NVIDIA Isaac GR00T (3B): Video & Telemetry Validation for Arabic Physical AI.
 
 Validates the fine-tuned 3B GR00T policy on real Franka Panda manipulation episodes
 from the freshly retagged 'hamzabouajila/ar-libero-10-image' dataset.
@@ -254,7 +254,7 @@ def record_groot_policy_video(max_frames: int = 120, target_task_index: int = 3,
 
         # Header Banner
         cv2.rectangle(canvas, (0, 0), (640, 45), (10, 14, 18), -1)
-        cv2.putText(canvas, "FastVLA Turbo x NVIDIA GR00T-3B (Arabic Physical AI)", (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 230, 180), 2, cv2.LINE_AA)
+        cv2.putText(canvas, "FastVLA x NVIDIA GR00T-3B (Arabic Physical AI)", (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 230, 180), 2, cv2.LINE_AA)
         cv2.putText(canvas, f"Frame {f_idx+1}/{len(episode_frames)}", (525, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 160, 170), 1, cv2.LINE_AA)
 
         # Cyan Accent Line

@@ -1,5 +1,5 @@
 """
-FastVLA Turbo: Video & Telemetry Validation for Arabic Push-T Policy.
+FastVLA: Video & Telemetry Validation for Arabic Push-T Policy.
 
 Rolls out the fine-tuned FastVLA 3B policy on a real validation episode
 from 'hamzabouajila/ar-pusht-image' with verified Modern Standard Arabic.
@@ -72,7 +72,7 @@ def record_pusht_policy_video(target_episode: int = 185, max_frames: int = 120):
     gpu_name = torch.cuda.get_device_name(0)
 
     print("=" * 80)
-    print(f"🎬 VALIDATING & RECORDING FASTVLA TURBO ON ARABIC PUSH-T ({gpu_name})")
+    print(f"🎬 VALIDATING & RECORDING FASTVLA ON ARABIC PUSH-T ({gpu_name})")
     print(f"   Target Validation Episode: {target_episode} | Max Frames: {max_frames}")
     print("=" * 80)
 
@@ -126,7 +126,7 @@ def record_pusht_policy_video(target_episode: int = 185, max_frames: int = 120):
         })
 
     # 2. Initialize FastVLA Architecture
-    print("\n[Phase 2] Initializing FastVLA Turbo Architecture with 4-Bit NF4...")
+    print("\n[Phase 2] Initializing FastVLA Architecture with 4-Bit NF4...")
     vlm_dim = 2048
     action_chunk_dim = 16 * 2  # 32 continuous DoF
 
@@ -218,7 +218,7 @@ def record_pusht_policy_video(target_episode: int = 185, max_frames: int = 120):
 
         # Header Banner
         cv2.rectangle(canvas, (0, 0), (720, 48), (10, 14, 18), -1)
-        cv2.putText(canvas, "FastVLA Turbo (3B) - Arabic Push-T Physical Policy", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 230, 180), 2, cv2.LINE_AA)
+        cv2.putText(canvas, "FastVLA (3B) - Arabic Push-T Physical Policy", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 230, 180), 2, cv2.LINE_AA)
         cv2.putText(canvas, f"Frame {f_idx+1}/{len(episode_data)}", (600, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 170, 180), 1, cv2.LINE_AA)
         cv2.rectangle(canvas, (0, 48), (720, 52), (0, 230, 180), -1)  # Cyan accent line
 

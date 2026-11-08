@@ -52,7 +52,7 @@ def benchmark_fused_lora_t4(num_warmup: int = 10, num_iters: int = 50):
     print(f"   Triton Available: {HAS_TRITON}")
     print("=" * 80)
 
-    # Simulation parameters matching 7B VLA (e.g. OpenVLA / FastVLA Turbo)
+    # Simulation parameters matching 7B VLA (e.g. OpenVLA / FastVLA)
     # Batch size B=2, Seq Len S=64 -> M=128
     # In/Out Hidden Dims K=4096, N=4096 (attention) and N=11008 (MLP)
     # LoRA rank r=16, alpha=32 (scaling=2.0)

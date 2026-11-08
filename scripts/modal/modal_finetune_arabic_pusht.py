@@ -1,5 +1,5 @@
 """
-FastVLA Turbo: End-to-End Arabic Push-T Continuous Flow Matching Fine-Tuning & Benchmark.
+FastVLA: End-to-End Arabic Push-T Continuous Flow Matching Fine-Tuning & Benchmark.
 
 Fine-tunes and evaluates continuous Flow Matching on the newly retagged
 'hamzabouajila/ar-pusht-image' dataset using an NVIDIA Tesla T4 (16GB) GPU.

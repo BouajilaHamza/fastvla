@@ -1,13 +1,13 @@
 """
 Modal T4 End-to-End Robotics System Benchmark:
-Fair Apples-to-Apples Comparison: Standard OpenVLA vs OpenVLA-OFT vs FastVLA Turbo.
+Fair Apples-to-Apples Comparison: Standard OpenVLA vs OpenVLA-OFT vs FastVLA.
 
 Evaluates FULL end-to-end vision-to-action pipelines (Camera Image -> ViT -> LLM Backbone -> Action Decode):
 1. Recipe 1: Standard OpenVLA / LeRobot VLA Baseline
    - 4-bit quantized 3B/7B trunk, Live SigLIP ViT (512 visual tokens), Single-Step action prediction.
 2. Recipe 2: OpenVLA-OFT (Parallel Action Chunking)
    - 4-bit quantized trunk, Live SigLIP ViT (512 visual tokens), 16-step parallel action chunk decode.
-3. Recipe 3: FastVLA Turbo (Our Full System)
+3. Recipe 3: FastVLA (Our Full System)
    - 4-bit quantized trunk with Fused SwiGLU, Spatial Token Compression (128 visual tokens), 16-step Midpoint ODE continuous flow matching.
 
 Measures:
@@ -57,7 +57,7 @@ def run_end_to_end_sota_benchmark():
     total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
 
     print("=" * 80)
-    print("END-TO-END ROBOTICS SYSTEM BENCHMARK: FASTVLA TURBO VS OPENVLA & OFT")
+    print("END-TO-END ROBOTICS SYSTEM BENCHMARK: FASTVLA VS OPENVLA & OFT")
     print(f"Target GPU: {gpu_name} (Total Capacity: {total_vram_gb:.2f} GB)")
     print("=" * 80)
 
@@ -82,7 +82,7 @@ def run_end_to_end_sota_benchmark():
             feat = self.conv(x).flatten(2).transpose(1, 2)
             return self.proj(feat)
 
-    # Spatial Patch Compressor (FastVLA Turbo: 512 patches -> 128 patches)
+    # Spatial Patch Compressor (FastVLA: 512 patches -> 128 patches)
     class SpatialCompressor(nn.Module):
         def __init__(self, in_dim=hidden_dim, out_dim=hidden_dim):
             super().__init__()
@@ -137,7 +137,7 @@ def run_end_to_end_sota_benchmark():
         def forward(self, x):
             return self.head(x[:, -1, :]).view(-1, chunk_size, action_dim)
 
-    # 3. FastVLA Turbo: Continuous Flow-Matching Head with 2-step Midpoint ODE
+    # 3. FastVLA: Continuous Flow-Matching Head with 2-step Midpoint ODE
     class FlowMatchingActionHead(nn.Module):
         def __init__(self):
             super().__init__()
@@ -254,9 +254,9 @@ def run_end_to_end_sota_benchmark():
     print(f"  → Peak Working VRAM:    {oft_vram_mb:6.1f} MB")
 
     # -------------------------------------------------------------------------
-    # RECIPE 3: FastVLA Turbo (Our Full Architecture)
+    # RECIPE 3: FastVLA (Our Full Architecture)
     # -------------------------------------------------------------------------
-    print("\n[3/3] Benchmarking Recipe 3: FastVLA Turbo (Our Architecture)...")
+    print("\n[3/3] Benchmarking Recipe 3: FastVLA (Our Architecture)...")
     print("  • Live SigLIP ViT with Spatial Token Compression (512 -> 128 visual tokens)")
     print("  • Fused SwiGLU Transformer Trunk (compressed 128 tokens)")
     print("  • 16-Step Continuous Flow Matching with 2-Step Midpoint ODE Solver")
@@ -297,7 +297,7 @@ def run_end_to_end_sota_benchmark():
     print("\n" + "=" * 80)
     print("🏆 OBJECTIVE SOTA SCORECARD: FAIR APPLES-TO-APPLES VERDICT (NVIDIA T4)")
     print("=" * 80)
-    print(f"{'Metric':<30} | {'OpenVLA / LeRobot':<18} | {'OpenVLA-OFT':<18} | {'FastVLA Turbo (Ours)':<20}")
+    print(f"{'Metric':<30} | {'OpenVLA / LeRobot':<18} | {'OpenVLA-OFT':<18} | {'FastVLA (Ours)':<20}")
     print("-" * 92)
     print(f"{'Visual Tokens in LLM':<30} | {'512 tokens':<18} | {'512 tokens':<18} | {'128 tokens (-75%)':<20}")
     print(f"{'Inference Policy Query':<30} | {f'{openvla_step_ms:6.2f} ms':<18} | {f'{oft_chunk_inference_ms:6.2f} ms':<18} | {f'{turbo_chunk_inference_ms:6.2f} ms':<20}")

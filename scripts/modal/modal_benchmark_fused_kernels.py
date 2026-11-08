@@ -49,10 +49,10 @@ def run_triton_kernel_benchmarks():
     # ─────────────────────────────────────────────────────────────────────────
     # Benchmark 1: Fused SwiGLU Kernel vs Standard PyTorch
     # ─────────────────────────────────────────────────────────────────────────
-    # Dimensions for 7B LLaMA MLP: B=2, Seq=544 (uncompressed) & Seq=160 (Turbo), D=11008
+    # Dimensions for 7B LLaMA MLP: B=2, Seq=544 (uncompressed) & Seq=160 (FastVLA Compressed), D=11008
     bench_configs = [
         ("Base Seq (B=2, S=544, D=11008)", 2, 544, 11008),
-        ("Turbo Seq (B=2, S=160, D=11008)", 2, 160, 11008),
+        ("FastVLA Compressed Seq (B=2, S=160, D=11008)", 2, 160, 11008),
     ]
 
     print("\n[1/3] EVALUATING FUSED SWIGLU KERNEL (SRAM ACTIVATION + ANALYTICAL BACKWARD)...")

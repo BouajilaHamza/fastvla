@@ -83,15 +83,15 @@ Peak Training VRAM               | 9.40 GB                    | 8.58 GB         
 ================================================================================
 ```
 
-## 5. Architectural Breakthrough: FastVLA Turbo (Spatial Token Compression)
+## 5. Architectural Breakthrough: FastVLA (Spatial Token Compression)
 
-To directly conquer the 96.8% runtime bottleneck in the 7B LLM, we implemented and empirically validated **FastVLA Turbo** with `SpatialPatchMerger`:
+To directly conquer the 96.8% runtime bottleneck in the 7B LLM, we implemented and empirically validated **FastVLA** with `SpatialPatchMerger`:
 
 ```
 ================================================================================
 🏆 EMPIRICAL TOKEN COMPRESSION VERDICT (NVIDIA T4 16GB)
 ================================================================================
-Metric                           | Base FastVLA (512 tokens)  | FastVLA Turbo (128 tokens) | Advantage
+Metric                           | Base FastVLA (512 tokens)  | FastVLA (128 tokens)       | Advantage
 --------------------------------------------------------------------------------
 Visual Tokens per Step           | 512 tokens (256x2)         | 128 tokens (64x2)          | -75.0% tokens
 Total LLM Sequence Length        | 544 tokens                 | 160 tokens                 | -70.6% sequence
@@ -105,11 +105,11 @@ Peak VRAM on T4                  | 8.57 GB                    | 5.21 GB         
 ```
 
 ### Cumulative Advantage vs. Standard SOTA Baseline:
-Comparing **FastVLA Turbo** directly against the original **Standard SOTA Baseline (Live SigLIP)**:
+Comparing **FastVLA** directly against the original **Standard SOTA Baseline (Live SigLIP)**:
 - **Step Latency**: Reduced from **$1,868.4\text{ ms}$ down to $868.3 - 993.4\text{ ms}$** (**$1.9\times - 2.15\times$ Speedup**).
 - **Peak Training VRAM**: Reduced from **$9.40\text{ GB}$ down to $5.21 - 6.19\text{ GB}$** (**$-44.6\%$ VRAM Reduction**).
 - **Headroom on Free-Tier T4**: Leaves **$8.38 - 10.8\text{ GB}$ of free VRAM**, enabling batch sizes $B=4$ and $B=8$ on free Google Colab/Kaggle instances where Standard SOTA crashes with CUDA OOM.
-- **Trajectory Convergence**: FastVLA Turbo converges cleanly to **$1.09$ loss**, proving that $2 \times 2$ spatial patch merging preserves the fine-grained visual-motor features needed for 112 continuous DoF trajectory generation.
+- **Trajectory Convergence**: FastVLA converges cleanly to **$1.09$ loss**, proving that $2 \times 2$ spatial patch merging preserves the fine-grained visual-motor features needed for 112 continuous DoF trajectory generation.
 
 ---
 
@@ -152,7 +152,7 @@ Scenario                       | Instruction (Arabic)                           
 
 ---
 
-## 8. End-to-End Robotics System Benchmark: FastVLA Turbo vs OpenVLA & OpenVLA-OFT
+## 8. End-to-End Robotics System Benchmark: FastVLA vs OpenVLA & OpenVLA-OFT
 
 To evaluate true end-to-end robotics deployment on commodity hardware, the full vision-to-action pipeline (dual camera streams @ 224x224 &rarr; SigLIP ViT &rarr; LLM Trunk &rarr; Action Prediction) was benchmarked on an **NVIDIA Tesla T4 (16GB)** under identical 4-bit NF4 quantization via [`scripts/modal/modal_end_to_end_sota_comparison.py`](file:///home/hamza/Documents/BouajilaHamza/fastvla/scripts/modal/modal_end_to_end_sota_comparison.py):
 
@@ -160,7 +160,7 @@ To evaluate true end-to-end robotics deployment on commodity hardware, the full 
 ============================================================================================
 🏆 OBJECTIVE SOTA SCORECARD: FAIR APPLES-TO-APPLES VERDICT (NVIDIA T4)
 ============================================================================================
-Metric                         | OpenVLA / LeRobot  | OpenVLA-OFT        | FastVLA Turbo (Ours)
+Metric                         | OpenVLA / LeRobot  | OpenVLA-OFT        | FastVLA (Ours)      
 --------------------------------------------------------------------------------------------
 Visual Tokens in LLM           | 512 tokens         | 512 tokens         | 128 tokens (-75%)   
 Inference Policy Query         | 208.93 ms          | 208.58 ms          |  67.43 ms           
@@ -176,7 +176,7 @@ Peak Working VRAM              | 6414.1 MB          | 6414.1 MB          | 6383.
 ### Key Technical Insights:
 1. **The 4-bit Baseline is Universal**: Anyone can load OpenVLA or LeRobot in 4-bit NF4 with LoRA and Paged 8-bit AdamW. That is standard tooling, not a proprietary advantage.
 2. **The OpenVLA-OFT Bottleneck**: OpenVLA-OFT parallelized action chunks, boosting the control rate from 4.79 Hz to 76.71 Hz. However, it still passes 512 uncompressed visual tokens through the transformer, keeping policy query latency at ~208 ms.
-3. **The FastVLA Turbo Advantage**: By combining $2\times 2$ Spatial Patch Compression ($512 \to 128$ tokens) with Fused SwiGLU and a 2-step Midpoint ODE Flow Solver, FastVLA Turbo reduces chunk query latency from 208.58 ms to 67.43 ms (**3.09x faster**), sustaining **237.29 Hz** effective control throughput on an NVIDIA Tesla T4.
+3. **The FastVLA Advantage**: By combining $2\times 2$ Spatial Patch Compression ($512 \to 128$ tokens) with Fused SwiGLU and a 2-step Midpoint ODE Flow Solver, FastVLA reduces chunk query latency from 208.58 ms to 67.43 ms (**3.09x faster**), sustaining **237.29 Hz** effective control throughput on an NVIDIA Tesla T4.
 
 
 

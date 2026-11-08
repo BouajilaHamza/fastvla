@@ -1,10 +1,10 @@
 """
-Empirical Benchmark on NVIDIA T4: Spatial Token Compression (FastVLA Turbo).
+Empirical Benchmark on NVIDIA T4: Spatial Token Compression (FastVLA).
 
 Evaluates the direct acceleration of compressing 512 multi-view visual tokens
 down to 128 tokens (75% token reduction via 2x2 SpatialPatchMerger):
 - Base FastVLA: 512 visual tokens (2 cams x 256 patches) -> 7B LLM (seq_len = 544)
-- FastVLA Turbo: 128 visual tokens (2 cams x 64 patches) -> 7B LLM (seq_len = 160)
+- FastVLA: 128 visual tokens (2 cams x 64 patches) -> 7B LLM (seq_len = 160)
 - Task: 16-step continuous Flow-Matching trajectories (112 continuous DoF) on Arabic LIBERO
 """
 
@@ -243,7 +243,7 @@ def benchmark_uncompressed_fastvla(num_steps: int = 50, batch_size: int = 2):
 
 @app.function(gpu="T4", timeout=900, secrets=secrets)
 def benchmark_compressed_fastvla_turbo(num_steps: int = 50, batch_size: int = 2):
-    """Contender 2: FastVLA Turbo with SpatialPatchMerger 2x2 (128 Visual Tokens, seq_len = 160)."""
+    """Contender 2: FastVLA with SpatialPatchMerger 2x2 (128 Visual Tokens, seq_len = 160)."""
     import gc
     import time
     import torch
@@ -259,7 +259,7 @@ def benchmark_compressed_fastvla_turbo(num_steps: int = 50, batch_size: int = 2)
     device = "cuda"
     gpu_name = torch.cuda.get_device_name(0)
     print("=" * 80)
-    print(f"⚡ [2/2] BENCHMARKING FASTVLA TURBO ON {gpu_name} (128 Compressed Tokens)")
+    print(f"⚡ [2/2] BENCHMARKING FASTVLA ON {gpu_name} (128 Compressed Tokens)")
     print("   Architecture: 2x2 SpatialPatchMerger (-75% visual tokens) + 4-bit 7B LLM")
     print("=" * 80)
 
@@ -389,12 +389,12 @@ def benchmark_compressed_fastvla_turbo(num_steps: int = 50, batch_size: int = 2)
 @app.local_entrypoint()
 def main():
     print("=" * 80)
-    print("⚖️ FASTVLA TURBO BENCHMARK: SPATIAL TOKEN COMPRESSION ON NVIDIA T4 (16GB)")
+    print("⚖️ FASTVLA BENCHMARK: SPATIAL TOKEN COMPRESSION ON NVIDIA T4 (16GB)")
     print("   Comparing 512 Visual Tokens (seq_len=544) vs 128 Compressed Tokens (seq_len=160)")
     print("   Dataset: hamzabouajila/ar-libero-10-image | Flow-Matching 16-Step Trajectories")
     print("=" * 80)
 
-    # 1. Run FastVLA Turbo (128 Tokens) First
+    # 1. Run FastVLA (128 Tokens) First
     res_turbo = benchmark_compressed_fastvla_turbo.remote(num_steps=50, batch_size=2)
 
     # 2. Run Base FastVLA (512 Tokens)
@@ -407,7 +407,7 @@ def main():
     print("\n" + "=" * 80)
     print("🏆 EMPIRICAL TOKEN COMPRESSION VERDICT (NVIDIA T4 16GB)")
     print("=" * 80)
-    print(f"{'Metric':<32} | {'Base FastVLA (512 tokens)':<26} | {'FastVLA Turbo (128 tokens)':<26} | {'Advantage'}")
+    print(f"{'Metric':<32} | {'Base FastVLA (512 tokens)':<26} | {'FastVLA (128 tokens)':<26} | {'Advantage'}")
     print("-" * 80)
     print(f"{'Visual Tokens per Step':<32} | {'512 tokens (256x2)':<26} | {'128 tokens (64x2)':<26} | -75.0% tokens")
     print(f"{'Total LLM Sequence Length':<32} | {'544 tokens':<26} | {'160 tokens':<26} | -70.6% sequence")

@@ -17,9 +17,9 @@ datasets:
 pipeline_tag: robotics
 ---
 
-# FastVLA Turbo: High-Throughput Arabic-Instructable Vision-Language-Action Policy
+# FastVLA: High-Throughput Arabic-Instructable Vision-Language-Action Policy
 
-FastVLA Turbo is a compute-efficient, 4-bit NF4 quantized Vision-Language-Action (VLA) policy engineered to train and infer continuous robotic manipulation trajectories on consumer and cloud edge GPUs (NVIDIA Tesla T4, RTX 3090/4090, and L4).
+FastVLA is a compute-efficient, 4-bit NF4 quantized Vision-Language-Action (VLA) policy engineered to train and infer continuous robotic manipulation trajectories on consumer and cloud edge GPUs (NVIDIA Tesla T4, RTX 3090/4090, and L4).
 
 ## Model Architecture
 
@@ -30,7 +30,7 @@ FastVLA Turbo is a compute-efficient, 4-bit NF4 quantized Vision-Language-Action
 
 ## Empirical Performance (Tesla T4 Benchmark)
 
-| Metric | Standard 4-Bit Baseline | FastVLA Turbo | Improvement |
+| Metric | Standard 4-Bit Baseline | FastVLA | Improvement |
 | :--- | :---: | :---: | :---: |
 | **Vision Tokens / View** | 256 tokens | **64 tokens** | **-75%** |
 | **Training Step Time** | 559.0 ms | **312.3 ms** | **-44% latency** |
@@ -56,7 +56,7 @@ import torch
 from fastvla import FastVLAModel
 
 # Initialize in 4-bit NF4 with Flow Matching
-model = FastVLAModel.from_pretrained("fastvla-turbo-3b-arabic", load_in_4bit=True)
+model = FastVLAModel.from_pretrained("fastvla-3b-arabic", load_in_4bit=True)
 model.eval()
 
 # Forward pass: 1 camera view [B, 1, 3, 224, 224]

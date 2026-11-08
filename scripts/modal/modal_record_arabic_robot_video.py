@@ -1,5 +1,5 @@
 """
-FastVLA Turbo: Video & Telemetry Recording for Arabic Physical AI Policy.
+FastVLA: Video & Telemetry Recording for Arabic Physical AI Policy.
 
 Rolls out the trained 7B foundation policy (hamzabouajila/fastvla-turbo-arabic-libero)
 on a full 214-frame episode of the Franka Panda robot manipulating the stove & moka pot
@@ -75,13 +75,13 @@ def record_arabic_policy_video(max_frames: int = 120):
     hf_token = os.environ.get("HF_TOKEN", "")
 
     print("=" * 80)
-    print(f"🎬 RECORDING FASTVLA TURBO PHYSICAL POLICY ROLLOUT")
+    print(f"🎬 RECORDING FASTVLA PHYSICAL POLICY ROLLOUT")
     print(f"   Model: {repo_id}")
     print(f"   Hardware: {torch.cuda.get_device_name(0)}")
     print("=" * 80)
 
     # 1. Download model components
-    print("\n[Phase 1] Loading FastVLA Turbo from Hugging Face...")
+    print("\n[Phase 1] Loading FastVLA from Hugging Face...")
     merger_path = hf_hub_download(repo_id=repo_id, filename="spatial_patch_merger.pt", token=hf_token)
     head_path = hf_hub_download(repo_id=repo_id, filename="flow_matching_action_head.pt", token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(repo_id, token=hf_token)
@@ -223,7 +223,7 @@ def record_arabic_policy_video(max_frames: int = 120):
 
         # Header Banner
         cv2.rectangle(canvas, (0, 0), (640, 45), (10, 14, 20), -1)
-        cv2.putText(canvas, "FastVLA Turbo (7B) - Arabic Physical AI Policy", (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 180), 2, cv2.LINE_AA)
+        cv2.putText(canvas, "FastVLA (7B) - Arabic Physical AI Policy", (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 180), 2, cv2.LINE_AA)
         cv2.putText(canvas, f"Frame {f_idx+1}/{len(episode_frames)}", (520, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 160, 170), 1, cv2.LINE_AA)
 
         # Arabic Task Bar

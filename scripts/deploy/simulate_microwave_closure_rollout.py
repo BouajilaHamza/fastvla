@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simulate and Render FastVLA Turbo Policy Rollout on the Hardest Robotics Task:
+Simulate and Render FastVLA Policy Rollout on the Hardest Robotics Task:
 LIBERO-10 Task 2: "ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه"
 (Put the yellow and white mug in the microwave and close it).
 
@@ -343,7 +343,7 @@ def render_microwave_scene(
     cv2.rectangle(canvas, (25, 20), (W - 25, 68), (16, 18, 22), -1)
     cv2.rectangle(canvas, (25, 20), (W - 25, 68), (50, 55, 65), 1)
 
-    cv2.putText(canvas, "FastVLA Turbo (7B)", (40, 50), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 220, 255), 2, cv2.LINE_AA)
+    cv2.putText(canvas, "FastVLA (7B)", (40, 50), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 220, 255), 2, cv2.LINE_AA)
     cv2.putText(canvas, "Long-Horizon Composite Task | Microwave Mug Insertion & Articulated Door Closure", (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (230, 230, 230), 1, cv2.LINE_AA)
 
     # Rate and Latency

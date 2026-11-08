@@ -29,9 +29,9 @@
 
 ---
 
-## Arabic Physical AI in Action: FastVLA Turbo (7B) & NVIDIA Isaac GR00T (3B)
+## Arabic Physical AI in Action: FastVLA (7B) & NVIDIA Isaac GR00T (3B)
 
-FastVLA Turbo and its NVIDIA Isaac GR00T adaptation are the first robotics foundation models specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
+FastVLA and its NVIDIA Isaac GR00T adaptation are the first robotics foundation models specifically tuned for native **Arabic language manipulation** and multi-camera continuous 3D control. 
 
 ### 1. NVIDIA Isaac GR00T-3B Policy Rollouts (Arabic Physical AI)
 
@@ -53,25 +53,25 @@ Live rollout under the multi-stage contact manipulation command:
   <p><em>Test Case 2: Stove Dial Rotation & Moka Pot Placement (Peak VRAM: 4.01 GB, 23.5 Hz ODE solver, L2 Trajectory Error: 1.2232).</em></p>
 </div>
 
-### 2. FastVLA Turbo (7B) Rollout
-Live rollout of **FastVLA Turbo (7B)** executing real-time Franka Emika Panda control on the Arabic LIBERO benchmark:
+### 2. FastVLA (7B) Rollout
+Live rollout of **FastVLA (7B)** executing real-time Franka Emika Panda control on the Arabic LIBERO benchmark:
 
 <div align="center">
-  <img src="assets/fastvla_turbo_arabic_rollout.gif" width="700" alt="FastVLA Turbo Arabic Policy Rollout" />
+  <img src="assets/fastvla_turbo_arabic_rollout.gif" width="700" alt="FastVLA Arabic Policy Rollout" />
   <p><em>Synchronized multi-camera control (Third-person workspace view + Gripper wrist view) running 16-step continuous Flow-Matching trajectories with real-time HUD telemetry on NVIDIA Tesla T4.</em></p>
 </div>
 
-### 3. FastVLA Turbo (3B) Continuous Flow-Matching on Arabic Push-T
-Live rollout of **FastVLA Turbo (3B)** executing 16-step continuous 2D trajectory generation on the newly retagged Arabic Push-T benchmark under the command:  
+### 3. FastVLA (3B) Continuous Flow-Matching on Arabic Push-T
+Live rollout of **FastVLA (3B)** executing 16-step continuous 2D trajectory generation on the newly retagged Arabic Push-T benchmark under the command:  
 **`"ادفع الكتلة إلى الهدف"`** *(Push the block to the goal)*:
 
 <div align="center">
-  <img src="assets/fastvla_pusht_arabic_rollout.gif" width="700" alt="FastVLA Turbo Arabic Push-T Policy Rollout" />
+  <img src="assets/fastvla_pusht_arabic_rollout.gif" width="700" alt="FastVLA Arabic Push-T Policy Rollout" />
   <p><em>Continuous 16-step Flow-Matching trajectory prediction overlaid on 2D Push-T arena (Peak VRAM: 3.98 GB on T4, 2-Step Midpoint ODE solver, Mean L2 Trajectory Error: 0.9283).</em></p>
 </div>
 
 ### 4. FastVLA 14-DoF Bimanual & Humanoid Policy (ALOHA / Unitree G1)
-Live rollout of **FastVLA Turbo (14-DoF)** executing coordinated dual-arm container lifting and platform transfer under the command:  
+Live rollout of **FastVLA (14-DoF)** executing coordinated dual-arm container lifting and platform transfer under the command:  
 **`"رفع الصندوق بالذراعين وتثبيته على المنصة"`** *(Lift container with both arms and transfer to platform)*:
 
 <div align="center">
@@ -101,14 +101,14 @@ Live rollout under the high-complexity, multi-stage contact manipulation command
 
 ---
 
-## FastVLA Turbo: The Architectural Breakthrough
+## FastVLA: The Architectural Breakthrough
 
 When Standard SOTA VLA models (e.g. OpenVLA, Octo, $\pi_0$) are fine-tuned on budget GPUs (NVIDIA Tesla T4 16GB / Google Colab / Kaggle), they hit severe bottlenecks:
 1. **The 96.8% LLM Bottleneck**: In multi-view robotics (agent view + wrist view = 2 cameras), 512 raw visual tokens flood the 7B LLM. The 32 transformer layers spend 96.8% of their time computing attention and MLP forward/backward passes on visual tokens.
 2. **CUDA Out of Memory Spikes**: Live ViT activations push memory over 14.57 GiB at batch size $B=4$, instantly crashing Standard SOTA.
 3. **Compounding Discretization Errors**: Discretizing continuous robot actions into 256 bins causes jerky, drifting trajectories.
 
-**FastVLA Turbo overcomes these bottlenecks with three innovations**:
+**FastVLA overcomes these bottlenecks with three innovations**:
 - **2x2 Spatial Token Compressor (`SpatialPatchMerger`)**: Spatially groups adjacent patches, condensing 512 patches down to **128 tokens (-75% tokens)**. Total LLM sequence length drops from 544 to 160 tokens.
 - **Zero-Compute Vision Caching**: Pre-extracts 428M SigLIP-So400M features into host RAM, completely evicting the ViT from GPU VRAM during training ($0\text{ MB}$ ViT footprint).
 - **16-Step Continuous Flow Matching**: Predicts smooth velocity vector fields for 16 future steps across 7 DoF ($16 \times 7 = 112$ continuous DoF), eliminating compounding drift.
@@ -117,7 +117,7 @@ When Standard SOTA VLA models (e.g. OpenVLA, Octo, $\pi_0$) are fine-tuned on bu
 
 Rigorous apples-to-apples benchmark on real multi-view data from [`hamzabouajila/ar-libero-10-image`](https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image):
 
-| Metric | Standard SOTA VLA (Live SigLIP) | Base FastVLA (Cached SigLIP) | FastVLA Turbo (Spatial Merged) | Advantage |
+| Metric | Standard SOTA VLA (Live SigLIP) | Base FastVLA (Cached SigLIP) | FastVLA (Spatial Merged) | Advantage |
 | :--- | :--- | :--- | :--- | :--- |
 | **Visual Tokens / Step** | 512 tokens (256 x 2) | 512 tokens (256 x 2) | **128 tokens (64 x 2)** | **-75.0% tokens** |
 | **Total LLM Sequence** | 544 tokens | 544 tokens | **160 tokens** | **-70.6% sequence** |
