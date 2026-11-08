@@ -206,17 +206,51 @@ class UnslothVLACollator:
             if self.language_perturber is not None:
                 texts = [self.language_perturber(t) for t in texts]
             batch["instructions"] = texts  # Keep raw text for trainer-side translation
-            text_inputs = self.tokenizer(
-                texts,
-                padding=self.padding,
-                truncation=True,
-                max_length=self.max_length,
-                return_tensors=self.return_tensors,
-                return_attention_mask=True,
-                return_token_type_ids=False,
-            )
-            batch["input_ids"] = text_inputs["input_ids"]
-            batch["attention_mask"] = text_inputs["attention_mask"]
+
+            # ── Episodic Prompt Cache: Zero-redundancy tokenization ──
+            # In robotics demonstrations, all steps within a batch almost always share
+            # the exact same language instruction string.
+            if not hasattr(self, "_prompt_cache"):
+                self._prompt_cache = {}
+
+            first_text = texts[0]
+            if all(t == first_text for t in texts):
+                if first_text in self._prompt_cache:
+                    cached_ids, cached_mask = self._prompt_cache[first_text]
+                    batch["input_ids"] = cached_ids.expand(len(texts), -1).clone()
+                    batch["attention_mask"] = cached_mask.expand(len(texts), -1).clone()
+                else:
+                    text_inputs = self.tokenizer(
+                        [first_text],
+                        padding=self.padding,
+                        truncation=True,
+                        max_length=self.max_length,
+                        return_tensors=self.return_tensors,
+                        return_attention_mask=True,
+                        return_token_type_ids=False,
+                    )
+                    cached_ids = text_inputs["input_ids"]
+                    cached_mask = text_inputs["attention_mask"]
+                    # Bound cache memory footprint (max 1024 unique instructions)
+                    if len(self._prompt_cache) >= 1024:
+                        self._prompt_cache.clear()
+                    self._prompt_cache[first_text] = (cached_ids, cached_mask)
+
+                    batch["input_ids"] = cached_ids.expand(len(texts), -1).clone()
+                    batch["attention_mask"] = cached_mask.expand(len(texts), -1).clone()
+            else:
+                # Dynamic fallback for heterogeneous instruction batches
+                text_inputs = self.tokenizer(
+                    texts,
+                    padding=self.padding,
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors=self.return_tensors,
+                    return_attention_mask=True,
+                    return_token_type_ids=False,
+                )
+                batch["input_ids"] = text_inputs["input_ids"]
+                batch["attention_mask"] = text_inputs["attention_mask"]
         else:
             # Provide default empty text input if instructions are missing
             # This prevents model crashes when text data is missing

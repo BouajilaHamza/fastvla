@@ -406,7 +406,7 @@ class FastVLATrainer:
 
             self.optimizer.step()
             self.scheduler.step()
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
 
         return {"loss": loss.item(), "lr": self.scheduler.get_last_lr()[0]}
 

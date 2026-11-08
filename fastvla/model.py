@@ -879,7 +879,11 @@ class FastVLAModel(PreTrainedModel):
                     action_preds_for_loss = action_preds
 
                 if self.config.loss_type == "mse":
-                    loss = torch.nn.MSELoss()(action_preds_for_loss, labels)
+                    try:
+                        from .kernels.fused_flow_loss import fused_flow_mse_loss
+                        loss = fused_flow_mse_loss(action_preds_for_loss, labels)
+                    except Exception:
+                        loss = torch.nn.MSELoss()(action_preds_for_loss, labels)
                 else:
                     loss = torch.nn.L1Loss()(action_preds_for_loss, labels)
 
