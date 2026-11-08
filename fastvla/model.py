@@ -765,7 +765,10 @@ class FastVLAModel(PreTrainedModel):
             # FIX 2: Batch all cameras into a single encoder forward pass instead of
             # encoding them one-by-one in a Python loop (pure GPU idle time).
             B, num_cams, C, H, W = pixel_values.shape
-            flat_imgs = pixel_values.view(B * num_cams, C, H, W)
+            v_param = next(self.vision_encoder.parameters(), None)
+            v_device = v_param.device if v_param is not None else get_device()
+            v_dtype = v_param.dtype if (v_param is not None and v_param.is_floating_point()) else torch.float32
+            flat_imgs = pixel_values.view(B * num_cams, C, H, W).to(device=v_device, dtype=v_dtype)
             cam_feats = self.vision_encoder(flat_imgs)
             if hasattr(cam_feats, "last_hidden_state"):
                 cam_feats = cam_feats.last_hidden_state  # [B*num_cams, T_v, D_v]
