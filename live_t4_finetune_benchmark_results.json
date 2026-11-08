@@ -1,0 +1,12 @@
+{
+  "device": "Tesla T4",
+  "total_vram_gb": 14.57080078125,
+  "batch_size": 4,
+  "num_steps": 100,
+  "avg_step_ms": 40.88357596999998,
+  "throughput_its": 24.459699922868573,
+  "samples_per_sec": 97.83879969147429,
+  "peak_alloc_gb": 2.321084499359131,
+  "peak_res_gb": 2.3671875,
+  "cache_hit_rate": 99.0
+}
