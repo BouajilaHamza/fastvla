@@ -162,5 +162,7 @@ class FusedFlowMSELossFunction(torch.autograd.Function):
 
 
 def fused_flow_mse_loss(pred_velocity: torch.Tensor, target_velocity: torch.Tensor) -> torch.Tensor:
-    """Computes MSE flow loss with fused analytical backward pass."""
-    return FusedFlowMSELossFunction.apply(pred_velocity, target_velocity)
+    """Computes MSE flow loss with fused Triton kernel on GPU or native C++ on CPU."""
+    if HAS_TRITON and pred_velocity.is_cuda and target_velocity.is_cuda and pred_velocity.numel() >= 10240:
+        return FusedFlowMSELossFunction.apply(pred_velocity, target_velocity)
+    return F.mse_loss(pred_velocity, target_velocity)
