@@ -196,6 +196,154 @@ class FrankaKitchenDataset(RoboticsDataset):
         return data
 
 
+class UnitreeG1Dataset(RoboticsDataset):
+    """
+    Dataset for Unitree G1 Humanoid 23-DoF robot motions with Arabic instructions.
+    
+    Supports:
+        - Loading from Hugging Face Hub (hamzabouajila/ar-unitree-g1-motions) or local Parquet file/dir.
+        - Continuous 23-DoF whole-body joint actions with multi-step chunking (H=16).
+        - Dynamic Arabic instruction variation sampling during training.
+        - Tail repeat padding for boundary steps.
+    """
+
+    def __init__(
+        self,
+        data_path: str = "hamzabouajila/ar-unitree-g1-motions",
+        split: str = "train",
+        chunk_size: int = 16,
+        language: str = "ar",
+        use_variations: bool = True,
+        image_size: Tuple[int, int] = (224, 224),
+        **kwargs,
+    ):
+        self.split = split
+        self.language = language
+        self.use_variations = use_variations
+        super().__init__(
+            data_path=data_path,
+            chunk_size=chunk_size,
+            image_size=image_size,
+            **kwargs,
+        )
+
+    def _load_data(self):
+        import pandas as pd
+
+        # Resolve local file or Hugging Face Hub dataset
+        if os.path.exists(self.data_path):
+            if os.path.isdir(self.data_path):
+                target = os.path.join(self.data_path, f"{self.split}.parquet")
+                if not os.path.exists(target):
+                    target = os.path.join(self.data_path, "data", f"{self.split}.parquet")
+            else:
+                target = self.data_path
+            df = pd.read_parquet(target)
+        else:
+            from huggingface_hub import hf_hub_download
+            parquet_file = hf_hub_download(
+                repo_id=self.data_path,
+                filename=f"data/{self.split}.parquet",
+                repo_type="dataset",
+                token=self.hf_token,
+            )
+            df = pd.read_parquet(parquet_file)
+
+        episodes = []
+        for ep_id, row in df.iterrows():
+            raw_dof = row["dof_trajectory"]
+            if isinstance(raw_dof, np.ndarray) and raw_dof.ndim == 2:
+                dof = raw_dof.astype(np.float32)
+            else:
+                dof = np.stack([np.asarray(step, dtype=np.float32) for step in raw_dof])
+
+            raw_root = row.get("root_trans_offset")
+            if raw_root is not None:
+                root_trans = raw_root if isinstance(raw_root, np.ndarray) and raw_root.ndim == 2 else np.stack([np.asarray(s, dtype=np.float32) for s in raw_root])
+            else:
+                root_trans = None
+
+            raw_rot = row.get("root_rot")
+            if raw_rot is not None:
+                root_rot = raw_rot if isinstance(raw_rot, np.ndarray) and raw_rot.ndim == 2 else np.stack([np.asarray(s, dtype=np.float32) for s in raw_rot])
+            else:
+                root_rot = None
+
+            raw_contact = row.get("contact_mask")
+            if raw_contact is not None:
+                contact = raw_contact if isinstance(raw_contact, np.ndarray) and raw_contact.ndim == 2 else np.stack([np.asarray(s, dtype=np.float32) for s in raw_contact])
+            else:
+                contact = None
+
+            variations = list(row["variations_ar"]) if "variations_ar" in row and hasattr(row["variations_ar"], "__iter__") else []
+            instr_ar = str(row.get("instruction_ar", ""))
+            instr_en = str(row.get("instruction_en", ""))
+
+            all_variations = [instr_ar] + [v for v in variations if v != instr_ar] if instr_ar else variations
+
+            episodes.append({
+                "ep_id": ep_id,
+                "dof": dof,
+                "root_trans": root_trans,
+                "root_rot": root_rot,
+                "contact": contact,
+                "category": row.get("category", "locomotion"),
+                "instruction_ar": instr_ar,
+                "instruction_en": instr_en,
+                "variations_ar": all_variations,
+            })
+
+        # Precompute step-level index
+        samples = []
+        for ep in episodes:
+            T = ep["dof"].shape[0]
+            for t in range(T):
+                samples.append({"ep": ep, "t": t})
+
+        return samples
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        entry = self.data[idx]
+        ep = entry["ep"]
+        t = entry["t"]
+        dof = ep["dof"]
+        T = dof.shape[0]
+
+        # Current robot state: 23 joint angles
+        state = dof[t]
+
+        # Action chunk: next chunk_size actions starting from t
+        if self.chunk_size > 1:
+            actions = []
+            for step in range(self.chunk_size):
+                lookahead = min(t + step, T - 1)
+                actions.append(dof[lookahead])
+            action_chunk = np.array(actions, dtype=np.float32)
+        else:
+            action_chunk = dof[t]
+
+        # Select language prompt
+        if self.language == "ar":
+            if self.use_variations and ep["variations_ar"]:
+                import random
+                instruction = random.choice(ep["variations_ar"])
+            else:
+                instruction = ep["instruction_ar"]
+        else:
+            instruction = ep["instruction_en"]
+
+        return {
+            "images": {"rgb": torch.zeros((3, self.image_size[0], self.image_size[1]), dtype=torch.float32)},
+            "states": torch.FloatTensor(state),
+            "actions": torch.FloatTensor(action_chunk),
+            "instructions": instruction,
+            "episode_id": ep["ep_id"],
+        }
+
+
 from .lerobot import LeRobotDataset, LeRobotMetadata, load_lerobot_metadata
 
 
@@ -208,6 +356,10 @@ def get_dataset(
         "franka_kitchen": FrankaKitchenDataset,
         "pusht": LeRobotDataset,
         "lerobot/pusht_image": LeRobotDataset,
+        "unitree_g1": UnitreeG1Dataset,
+        "ar_unitree_g1": UnitreeG1Dataset,
+        "ar-unitree-g1-motions": UnitreeG1Dataset,
+        "hamzabouajila/ar-unitree-g1-motions": UnitreeG1Dataset,
     }
 
     name_lower = dataset_name.lower()
@@ -216,6 +368,8 @@ def get_dataset(
     if data_path is None:
         if name_lower in ["pusht", "lerobot/pusht_image"]:
             data_path = "lerobot/pusht_image"
+        elif name_lower in ["unitree_g1", "ar_unitree_g1", "ar-unitree-g1-motions", "hamzabouajila/ar-unitree-g1-motions"]:
+            data_path = "hamzabouajila/ar-unitree-g1-motions"
         elif "/" in dataset_name:  # Treat as direct HF repo ID
             data_path = dataset_name
         else:
