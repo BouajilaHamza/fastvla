@@ -252,7 +252,7 @@ class FastVLAModel(PreTrainedModel):
 
         # Proprioceptive state projection: maps [B, state_dim] → [B, 1, l_hidden]
         # so the robot's joint state can be prepended to the token sequence.
-        state_dim = getattr(config, "state_dim", 7)
+        state_dim = getattr(config, "state_dim", None) or getattr(config, "action_dim", 7)
         self.state_proj = nn.Linear(state_dim, l_hidden).to(llm_device)
 
         out_action_dim = config.action_dim * config.chunk_size
@@ -791,6 +791,10 @@ class FastVLAModel(PreTrainedModel):
 
         # FIX 3: Prepend proprioceptive state embedding to the token sequence.
         if states is not None:
+            if states.shape[-1] != self.state_proj.in_features:
+                self.state_proj = nn.Linear(
+                    states.shape[-1], self.state_proj.out_features
+                ).to(device=llm_device, dtype=self.attn_proj_down.weight.dtype if hasattr(self, "attn_proj_down") else torch.float32)
             state_emb = self.state_proj(states.to(llm_device).float())  # [B, l_hidden]
             state_emb = state_emb.unsqueeze(1)  # [B, 1, l_hidden]
             text_embeds = torch.cat([state_emb, text_embeds], dim=1)  # prepend
@@ -915,6 +919,7 @@ class FastVLAModel(PreTrainedModel):
                     reg_config.projector.llm_dim if reg_config.projector else 128,
                 )
                 kwargs.setdefault("action_dim", reg_config.action_head.action_dim)
+                kwargs.setdefault("state_dim", kwargs.get("action_dim", reg_config.action_head.action_dim))
                 kwargs.setdefault(
                     "action_hidden_dim", reg_config.action_head.hidden_dim
                 )

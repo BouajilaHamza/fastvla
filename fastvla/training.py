@@ -224,10 +224,9 @@ class FastVLATrainer:
         self.warmup_steps = getattr(model.config, "warmup_steps", 1000)
         self.gradient_accumulation_steps = gradient_accumulation_steps
 
-        # DataLoader parallelism. The default single-process loader (num_workers=0)
-        # serializes image decoding/resizing on the main process and starves the
-        # GPU; overlap it with worker processes and pinned host memory.
-        self.num_workers = num_workers
+        # DataLoader parallelism. Automatically bound to system CPU count to avoid warnings/freezing.
+        cpu_count = os.cpu_count() or 2
+        self.num_workers = min(num_workers, max(1, cpu_count))
         self.pin_memory = pin_memory and torch.cuda.is_available()
         
         mixed_precision = None
