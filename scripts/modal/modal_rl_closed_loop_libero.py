@@ -504,26 +504,11 @@ def main(
     grpo_iterations: int = 15,
     group_size: int = 4,
 ):
-    print("🚀 Launching Closed-Loop Online RL (GRPO) Benchmark on Modal...")
-    res = run_closed_loop_rl_benchmark.remote(
-        suite=suite,
-        num_eval_episodes=num_eval_episodes,
-        grpo_iterations=grpo_iterations,
-        group_size=group_size,
+    raise NotImplementedError(
+        "scripts/modal/modal_rl_closed_loop_libero.py previously stepped demonstration-derived "
+        "perturbations rather than learned policy forward passes. "
+        "It is quarantined pending real policy checkpoint implementation."
     )
-    metrics = res["metrics"]
-    video_bytes = res["video_bytes"]
-
-    local_results_path = "closed_loop_rl_libero_results.json"
-    with open(local_results_path, "w") as f:
-        json.dump(metrics, f, indent=2)
-    print(f"\n📁 Saved benchmark results to: {local_results_path}")
-
-    if video_bytes:
-        local_video_path = "assets/fastvla_rl_libero_recovery_rollout.gif"
-        with open(local_video_path, "wb") as f:
-            f.write(video_bytes)
-        print(f"📹 Saved RL recovery rollout to: {local_video_path}")
 
 
 if __name__ == "__main__":

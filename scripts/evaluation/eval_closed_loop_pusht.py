@@ -432,36 +432,12 @@ def run_fair_pusht_benchmark(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fair Closed-Loop Physics Benchmark on Push-T")
-    parser.add_argument("--num-episodes", type=int, default=10, help="Number of benchmark episodes")
-    parser.add_argument("--max-steps", type=int, default=300, help="Max steps per episode")
-    parser.add_argument("--record", action="store_true", help="Record first episode rollout video and GIF")
-    parser.add_argument("--output", type=str, default="closed_loop_pusht_benchmark_results.json")
-
-    args = parser.parse_args()
-
-    results = run_fair_pusht_benchmark(
-        num_episodes=args.num_episodes,
-        max_steps=args.max_steps,
-        record=args.record,
+    raise NotImplementedError(
+        "scripts/evaluation/eval_closed_loop_pusht.py previously evaluated handcrafted "
+        "geometric controllers with simulated sleep delays rather than learned policy checkpoints. "
+        "To protect benchmark integrity, this script is quarantined pending real policy "
+        "checkpoint rollout implementation."
     )
-
-    print("\n" + "=" * 75)
-    print("📊 EMPIRICAL CLOSED-LOOP PUSH-T RIGID-BODY BENCHMARK RESULTS")
-    print("=" * 75)
-    print(f"Benchmark Suite        : {results['benchmark']}")
-    print(f"Physics Engine         : {results['physics_engine']}")
-    print(f"Total Episodes         : {results['num_episodes']}")
-    print("-" * 75)
-    b = results["baseline_openvla_ema"]
-    d = results["baseline_diffusion_policy"]
-    f = results["fastvla"]
-    print(f"1. OpenVLA (Optimized EMA) : Coverage: {b['mean_max_coverage_pct']:.2f}% | Jerk: {b['mean_trajectory_jerk']:.2f} | Rate: {b['mean_control_hz']:.1f} Hz")
-    print(f"2. Diffusion Policy (DDIM) : Coverage: {d['mean_max_coverage_pct']:.2f}% | Jerk: {d['mean_trajectory_jerk']:.2f} | Rate: {d['mean_control_hz']:.1f} Hz")
-    print(f"3. FastVLA Flow Matching   : Coverage: {f['mean_max_coverage_pct']:.2f}% | Jerk: {f['mean_trajectory_jerk']:.2f} | Rate: {f['mean_control_hz']:.1f} Hz")
-    print("-" * 75)
-    print(f"Continuous Flow Speedup vs Multi-Step Diffusion : {results['flow_vs_diffusion_speedup']:.2f}x faster execution loop")
-    print("=" * 75)
 
     with open(args.output, "w", encoding="utf-8") as out_f:
         json.dump(results, out_f, indent=2, ensure_ascii=False)

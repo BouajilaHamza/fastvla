@@ -23,7 +23,7 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/BouajilaHamza/fastvla/blob/main/notebooks/FastVLA_FineTune_Colab.ipynb)
 
-[**Live Project Website**](https://bouajilahamza.github.io/fastvla/) | [**Closed-Loop Leaderboard**](docs/reports/CLOSED_LOOP_LEADERBOARD.md) | [**Arabic Datasets**](docs/datasets/ARABIC_DATASETS.md) | [**SOTA Benchmark Report**](docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md) | [**Unitree G1 Model**](https://huggingface.co/hamzabouajila/fastvla-unitree-g1-ar) | [**Arabic Hero Model (7B)**](https://huggingface.co/hamzabouajila/fastvla-turbo-arabic-libero) | [**Interactive Colab Quickstart**](https://colab.research.google.com/github/BouajilaHamza/fastvla/blob/main/notebooks/FastVLA_FineTune_Colab.ipynb)
+[**Live Project Website**](https://bouajilahamza.github.io/fastvla/) | [**Arabic Datasets**](docs/datasets/ARABIC_DATASETS.md) | [**SOTA Benchmark Report**](docs/reports/SOTA_FAIR_BENCHMARK_REPORT.md) | [**Action Horizon Scaling**](docs/reports/LATENCY_SCALING_REPORT.md) | [**Unitree G1 Model**](https://huggingface.co/hamzabouajila/fastvla-unitree-g1-ar) | [**Interactive Colab Quickstart**](https://colab.research.google.com/github/BouajilaHamza/fastvla/blob/main/notebooks/FastVLA_FineTune_Colab.ipynb)
 
 </div>
 
@@ -401,8 +401,6 @@ Supported model presets out of the box: `openvla-7b`, `smolvla`, `pi0-base`, `ol
 
 ## Deeper reading
 
-- **Closed-Loop Physical Simulation Leaderboard** — MuJoCo & Push-T physical simulation rollouts, 8.55x speedup and 38.5% jerk reduction: [docs/reports/CLOSED_LOOP_LEADERBOARD.md](docs/reports/CLOSED_LOOP_LEADERBOARD.md).
-- **Unitree G1 Humanoid Embodiment Report** — 23-DoF whole-body physical simulation report, kinematics, and MuJoCo embodiment rollouts: [docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md](docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md).
 - **Action Horizon Scaling Benchmark** — Empirical verification of $\mathcal{O}(1)$ constant latency across horizons $H=8$ to $H=64$ on Tesla T4: [docs/reports/LATENCY_SCALING_REPORT.md](docs/reports/LATENCY_SCALING_REPORT.md).
 - **Training-speed deep-dive** — per-GPU it/s, ratios vs vanilla QLoRA / OFT / Unsloth-on-LLM, and a citation for every number: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 - **Accessibility roadmap** — every memory + speed lever between today and "Unsloth-for-VLA done", grouped by status: [docs/ACCESSIBILITY_ROADMAP.md](docs/ACCESSIBILITY_ROADMAP.md).

@@ -253,13 +253,14 @@ class FastVLAModel(PreTrainedModel):
         # Low-rank attention bridge: project to Triton-friendly dim (≤256) for
         # cross-attention, then project back.  Adds ~2×D×256 params (≈2M for
         # D=4096) and makes the Triton kernel fire on every GPU.
-        self.attn_proj_down = nn.Linear(l_hidden, 256, bias=False).to(device=llm_device, dtype=llm_dtype)
-        self.attn_proj_up   = nn.Linear(256, l_hidden, bias=False).to(device=llm_device, dtype=llm_dtype)
+        bridge_dtype = llm_dtype if isinstance(llm_dtype, torch.dtype) else torch.float32
+        self.attn_proj_down = nn.Linear(l_hidden, 256, bias=False).to(device=llm_device, dtype=bridge_dtype)
+        self.attn_proj_up   = nn.Linear(256, l_hidden, bias=False).to(device=llm_device, dtype=bridge_dtype)
 
         # Proprioceptive state projection: maps [B, state_dim] → [B, 1, l_hidden]
         # so the robot's joint state can be prepended to the token sequence.
         state_dim = getattr(config, "state_dim", None) or getattr(config, "action_dim", 7)
-        self.state_proj = nn.Linear(state_dim, l_hidden).to(device=llm_device, dtype=llm_dtype)
+        self.state_proj = nn.Linear(state_dim, l_hidden).to(device=llm_device, dtype=bridge_dtype)
 
         out_action_dim = config.action_dim * config.chunk_size
         head_type = getattr(config, "head_type", "mlp_continuous")
@@ -309,11 +310,9 @@ class FastVLAModel(PreTrainedModel):
             self._stabilize_distributed_hooks()
 
         # 8. Action Dimension Check
-        if config.action_dim != self.action_head.action_dim:
-            logger.warning(
-                f"Config action_dim ({config.action_dim}) != Head action_dim ({self.action_head.action_dim}). Syncing..."
-            )
-            config.action_dim = self.action_head.action_dim
+        # Keep config.action_dim strictly as the per-step action dimensionality.
+        # Track the flattened action head dimensionality separately.
+        self.flat_action_dim = getattr(self.action_head, "action_dim", out_action_dim)
 
         # 9. Episodic Prompt KV Cache for Zero-Compute Online Language Attention
         self._cached_prompt_ids = None
@@ -393,11 +392,22 @@ class FastVLAModel(PreTrainedModel):
         else:
             torch.save(self.llm.state_dict(), save_directory / "llm_model.bin")
 
-        # 3. Save Heads
+        # 3. Save Heads and Bridge Projections
         torch.save(self.vision_proj.state_dict(), save_directory / "vision_proj.bin")
         torch.save(self.action_head.state_dict(), save_directory / "action_head.bin")
         if self.value_head is not None:
             torch.save(self.value_head.state_dict(), save_directory / "value_head.bin")
+
+        # Save trainable cross-attention bridge and proprioceptive projections
+        extra_modules = {}
+        if hasattr(self, "attn_proj_down"):
+            extra_modules["attn_proj_down"] = self.attn_proj_down.state_dict()
+        if hasattr(self, "attn_proj_up"):
+            extra_modules["attn_proj_up"] = self.attn_proj_up.state_dict()
+        if hasattr(self, "state_proj"):
+            extra_modules["state_proj"] = self.state_proj.state_dict()
+        if extra_modules:
+            torch.save(extra_modules, save_directory / "extra_modules.bin")
 
         # 4. Save Vision Encoder if it's dummy
         if not hasattr(self.vision_encoder, "save_pretrained"):
@@ -926,11 +936,42 @@ class FastVLAModel(PreTrainedModel):
                 logger.info(f"Loading custom weights from {state_dict_path}")
                 if state_dict_path.endswith(".safetensors"):
                     from safetensors.torch import load_file
-
                     state_dict = load_file(state_dict_path, device="cpu")
                 else:
                     state_dict = torch.load(state_dict_path, map_location="cpu")
                 model.load_state_dict(state_dict, strict=False)
+
+            # Restore component weights if saved modularly
+            vp_path = os.path.join(model_name_or_path, "vision_proj.bin")
+            if os.path.exists(vp_path) and hasattr(model, "vision_proj"):
+                model.vision_proj.load_state_dict(torch.load(vp_path, map_location="cpu"))
+
+            ah_path = os.path.join(model_name_or_path, "action_head.bin")
+            if os.path.exists(ah_path) and hasattr(model, "action_head"):
+                model.action_head.load_state_dict(torch.load(ah_path, map_location="cpu"))
+
+            extra_path = os.path.join(model_name_or_path, "extra_modules.bin")
+            if os.path.exists(extra_path):
+                extra_sd = torch.load(extra_path, map_location="cpu")
+                if "attn_proj_down" in extra_sd and hasattr(model, "attn_proj_down"):
+                    model.attn_proj_down.load_state_dict(extra_sd["attn_proj_down"])
+                if "attn_proj_up" in extra_sd and hasattr(model, "attn_proj_up"):
+                    model.attn_proj_up.load_state_dict(extra_sd["attn_proj_up"])
+                if "state_proj" in extra_sd and hasattr(model, "state_proj"):
+                    model.state_proj.load_state_dict(extra_sd["state_proj"])
+
+            # Restore PEFT LoRA adapter if present
+            adapter_path = os.path.join(model_name_or_path, "adapter_model.safetensors")
+            if not os.path.exists(adapter_path):
+                adapter_path = os.path.join(model_name_or_path, "adapter_model.bin")
+            if os.path.exists(adapter_path):
+                try:
+                    from peft import PeftModel
+                    model.llm = PeftModel.from_pretrained(model.llm, model_name_or_path)
+                    logger.info(f"Loaded PEFT adapter from {model_name_or_path}")
+                except Exception as e:
+                    logger.warning(f"Could not load PEFT adapter: {e}")
+
             return model
 
         # 2. Standard Registry/HF Load

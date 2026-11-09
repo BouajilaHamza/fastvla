@@ -367,29 +367,8 @@ def run_libero_closed_loop_benchmark(
 
 @app.local_entrypoint()
 def main(suite: str = "libero_spatial", num_episodes: int = 10, max_steps: int = 350):
-    result = run_libero_closed_loop_benchmark.remote(
-        suite=suite,
-        num_episodes=num_episodes,
-        max_steps=max_steps,
-        render_video=True,
+    raise NotImplementedError(
+        "scripts/modal/modal_eval_closed_loop_libero.py previously stepped demonstration-derived "
+        "perturbations with simulated delays rather than learned policy forward passes. "
+        "It is quarantined pending full model checkpoint forward pass implementation."
     )
-    summary = result["summary"]
-    assets = result.get("assets", {})
-
-    output_json = "closed_loop_libero_benchmark_results.json"
-    with open(output_json, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
-    print(f"Empirical benchmark results saved to {output_json}")
-
-    # Save video assets locally
-    if "mp4_bytes" in assets:
-        local_mp4 = "assets/fastvla_libero_closed_loop_rollout.mp4"
-        with open(local_mp4, "wb") as f:
-            f.write(assets["mp4_bytes"])
-        print(f"Saved local rollout video to {local_mp4}")
-
-    if "gif_bytes" in assets:
-        local_gif = "assets/fastvla_libero_closed_loop_rollout.gif"
-        with open(local_gif, "wb") as f:
-            f.write(assets["gif_bytes"])
-        print(f"Saved local rollout GIF to {local_gif}")

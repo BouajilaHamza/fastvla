@@ -56,7 +56,13 @@ class CheckpointManager:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def save(
-        self, step: int, global_step: int, model: nn.Module, accelerator: Accelerator
+        self,
+        step: int,
+        global_step: int,
+        model: nn.Module,
+        accelerator: Accelerator,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        scheduler: Optional[Any] = None,
     ):
         if not accelerator.is_main_process and not getattr(
             model.config, "dummy", False
@@ -78,9 +84,13 @@ class CheckpointManager:
         else:
             torch.save(unwrapped_model.state_dict(), path / "pytorch_model.bin")
 
-        torch.save(
-            {"step": step, "global_step": global_step}, path / "trainer_state.pt"
-        )
+        trainer_state = {
+            "step": step,
+            "global_step": global_step,
+            "optimizer_state_dict": optimizer.state_dict() if optimizer is not None else None,
+            "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+        }
+        torch.save(trainer_state, path / "trainer_state.pt")
         logger.info(f"Checkpoint saved to {path}")
 
     def load(
@@ -88,6 +98,8 @@ class CheckpointManager:
         checkpoint_path: Union[str, Path],
         model: nn.Module,
         accelerator: Accelerator,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        scheduler: Optional[Any] = None,
     ) -> int:
         checkpoint_path = Path(checkpoint_path)
         if not checkpoint_path.exists():
@@ -97,6 +109,7 @@ class CheckpointManager:
 
         unwrapped_model = accelerator.unwrap_model(model)
         weight_files = [
+            "adapter_model.safetensors",
             "model.safetensors",
             "pytorch_model.bin",
             "model.pt",
@@ -115,7 +128,6 @@ class CheckpointManager:
             logger.info(f"Loading weights from {found_file}...")
             if found_file.suffix == ".safetensors":
                 from safetensors.torch import load_file
-
                 state_dict = load_file(found_file, device="cpu")
             else:
                 state_dict = torch.load(found_file, map_location="cpu")
@@ -127,17 +139,37 @@ class CheckpointManager:
                     unwrapped_model.load_adapter(checkpoint_path, "default")
                 else:
                     unwrapped_model.load_state_dict(state_dict, strict=False)
-        else:
-            if hasattr(unwrapped_model, "from_pretrained"):
-                unwrapped_model.from_pretrained(checkpoint_path)
+
+        # Restore component heads and bridges if present
+        for comp_name, file_name in [("vision_proj", "vision_proj.bin"), ("action_head", "action_head.bin")]:
+            comp_path = checkpoint_path / file_name
+            if comp_path.exists() and hasattr(unwrapped_model, comp_name):
+                getattr(unwrapped_model, comp_name).load_state_dict(torch.load(comp_path, map_location="cpu"))
+
+        extra_path = checkpoint_path / "extra_modules.bin"
+        if extra_path.exists():
+            extra_sd = torch.load(extra_path, map_location="cpu")
+            for mod_name in ["attn_proj_down", "attn_proj_up", "state_proj"]:
+                if mod_name in extra_sd and hasattr(unwrapped_model, mod_name):
+                    getattr(unwrapped_model, mod_name).load_state_dict(extra_sd[mod_name])
 
         state_path = checkpoint_path / "trainer_state.pt"
         global_step = 0
         if state_path.exists():
             state = torch.load(state_path)
             global_step = state.get("global_step", 0)
+            if optimizer is not None and state.get("optimizer_state_dict") is not None:
+                try:
+                    optimizer.load_state_dict(state["optimizer_state_dict"])
+                except Exception as e:
+                    logger.warning(f"Could not restore optimizer state: {e}")
+            if scheduler is not None and state.get("scheduler_state_dict") is not None:
+                try:
+                    scheduler.load_state_dict(state["scheduler_state_dict"])
+                except Exception as e:
+                    logger.warning(f"Could not restore scheduler state: {e}")
 
-        logger.info(f"Checkpoint loading complete. Resumed at step {global_step}")
+        logger.info(f"Checkpoint loading complete. Resumed at global step {global_step}")
         return global_step
 
 
@@ -364,6 +396,7 @@ class FastVLATrainer:
             logging_steps,
         )
         self.global_step = 0
+        self.micro_step = 0
         self.training_history = []
 
         # Delegated Concerns (SOLID)
@@ -384,6 +417,7 @@ class FastVLATrainer:
             batch, getattr(self.model, "tokenizer", None), self.accelerator.device
         )
 
+        updated = False
         with self.accelerator.accumulate(self.model):
             _, loss = self.model(
                 pixel_values=batch["pixel_values"],
@@ -403,12 +437,12 @@ class FastVLATrainer:
                     self.accelerator.clip_grad_norm_(
                         self.model.parameters(), self.max_grad_norm
                     )
+                self.optimizer.step()
+                self.scheduler.step()
+                self.optimizer.zero_grad(set_to_none=True)
+                updated = True
 
-            self.optimizer.step()
-            self.scheduler.step()
-            self.optimizer.zero_grad(set_to_none=True)
-
-        return {"loss": loss.item(), "lr": self.scheduler.get_last_lr()[0]}
+        return {"loss": loss.item(), "lr": self.scheduler.get_last_lr()[0], "updated": updated}
 
     def evaluate(self) -> Dict[str, float]:
         if not self.eval_dataloader:
@@ -427,14 +461,23 @@ class FastVLATrainer:
 
     def save_checkpoint(self, step: int):
         self.checkpoint_manager.save(
-            step, self.global_step, self.model, self.accelerator
+            step,
+            self.global_step,
+            self.model,
+            self.accelerator,
+            optimizer=self.optimizer,
+            scheduler=self.scheduler,
         )
         if self.checkpoint_callback is not None:
             self.checkpoint_callback(self.model, step, phase="bc")
 
     def load_checkpoint(self, checkpoint_path: Union[str, Path]):
         self.global_step = self.checkpoint_manager.load(
-            checkpoint_path, self.model, self.accelerator
+            checkpoint_path,
+            self.model,
+            self.accelerator,
+            optimizer=self.optimizer,
+            scheduler=self.scheduler,
         )
 
     def train(self):
@@ -446,14 +489,16 @@ class FastVLATrainer:
                 disable=not self.accelerator.is_main_process,
             )
             for batch in progress_bar:
+                self.micro_step += 1
                 metrics = self.train_step(batch)
-                self.global_step += 1
+                if metrics.get("updated", True):
+                    self.global_step += 1
 
                 if self.global_step % self.logging_steps == 0:
-                    progress_bar.set_postfix(metrics)
+                    progress_bar.set_postfix({k: v for k, v in metrics.items() if k != "updated"})
                     if self.accelerator.is_main_process:
                         self.training_history.append(
-                            {"step": self.global_step, **metrics}
+                            {"step": self.global_step, **{k: v for k, v in metrics.items() if k != "updated"}}
                         )
                         if self.use_wandb:
                             import wandb
@@ -465,7 +510,7 @@ class FastVLATrainer:
                     if self.accelerator.is_main_process:
                         logger.info(f"Step {self.global_step}: {eval_metrics}")
 
-                if self.global_step % self.save_steps == 0:
+                if self.global_step % self.save_steps == 0 and metrics.get("updated", True):
                     self.save_checkpoint(self.global_step)
 
                 if self.max_steps and self.global_step >= self.max_steps:

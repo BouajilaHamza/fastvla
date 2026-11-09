@@ -188,6 +188,7 @@ class FastVLAPolicyRunner:
         ode_steps: int = 2,
         safety_config: Optional[Union[str, RobotSafetyConfig]] = None,
         enable_safety: bool = True,
+        mock_mode: bool = False,
     ):
         self.device = device
         self.dtype = dtype
@@ -196,6 +197,7 @@ class FastVLAPolicyRunner:
         self.image_size = image_size
         self.ode_solver = ode_solver
         self.ode_steps = ode_steps
+        self.mock_mode = mock_mode
 
         self.buffer = ActionChunkBuffer(chunk_size=chunk_size, action_dim=action_dim)
         self.telemetry = EdgeTelemetryHUD()
@@ -308,7 +310,13 @@ class FastVLAPolicyRunner:
         pixel_values = self.preprocess_image(image)
 
         if self.model is None:
-            # Standalone mock generation for edge testing without full weights
+            if not self.mock_mode:
+                raise RuntimeError(
+                    "FastVLAPolicyRunner has no loaded model weights. Silent generation of synthetic "
+                    "sine-wave actions is disabled to protect robotics execution and benchmark integrity. "
+                    "Load a model checkpoint via model_id_or_path, or pass mock_mode=True for unit testing."
+                )
+            # Explicit mock mode for isolated offline unit testing
             chunk = np.zeros((self.chunk_size, self.action_dim), dtype=np.float32)
             for t in range(self.chunk_size):
                 chunk[t, :] = np.sin(0.1 * (t + 1)) * 0.5
@@ -335,7 +343,9 @@ class FastVLAPolicyRunner:
         if isinstance(action_head, FlowMatchingActionHead):
             # Midpoint or Euler continuous flow ODE solve
             pooled_hidden = self.model._encode_sequence(pixel_values, input_ids, attention_mask)
-            chunk = self._solve_flow_ode(action_head, pooled_hidden)
+            batch_size = pooled_hidden.shape[0]
+            flat_actions = action_head(pooled_hidden, solver=self.ode_solver, steps=self.ode_steps)
+            chunk = flat_actions.view(batch_size, self.chunk_size, self.action_dim).detach().cpu().float().numpy()
         else:
             # Fallback to standard model forward call
             action_pred, _ = self.model(pixel_values=pixel_values, input_ids=input_ids)
@@ -347,45 +357,6 @@ class FastVLAPolicyRunner:
         latency_ms = (time.perf_counter() - start_time) * 1000.0
         self.telemetry.record_chunk_inference(latency_ms)
         return chunk
-
-    def _solve_flow_ode(
-        self,
-        action_head: nn.Module,
-        pooled_hidden: torch.Tensor,
-    ) -> np.ndarray:
-        """
-        High-speed Midpoint / Euler ODE integration from t=0 (prior noise) to t=1 (action chunk).
-        """
-        batch_size = pooled_hidden.shape[0]
-        # Initial noise sample x_0 ~ N(0, I)
-        x_t = torch.randn(
-            (batch_size, self.chunk_size, self.action_dim),
-            device=self.device,
-            dtype=self.dtype,
-        )
-
-        dt = 1.0 / self.ode_steps
-        t = 0.0
-
-        for step in range(self.ode_steps):
-            t_tensor = torch.full((batch_size,), t, device=self.device, dtype=self.dtype)
-            v_t = action_head.forward_velocity(x_t, t_tensor, pooled_hidden)
-
-            if self.ode_solver == "midpoint" and step < self.ode_steps:
-                # Midpoint step
-                half_dt = 0.5 * dt
-                x_mid = x_t + half_dt * v_t
-                t_mid = t + half_dt
-                t_mid_tensor = torch.full((batch_size,), t_mid, device=self.device, dtype=self.dtype)
-                v_mid = action_head.forward_velocity(x_mid, t_mid_tensor, pooled_hidden)
-                x_t = x_t + dt * v_mid
-            else:
-                # Standard Euler step
-                x_t = x_t + dt * v_t
-
-            t += dt
-
-        return x_t.detach().cpu().float().numpy()
 
     def reset(self, initial_position: Optional[np.ndarray] = None):
         """Resets action chunk buffer and kinematic safety filter."""

@@ -49,12 +49,8 @@ class UnslothVLACollator:
             target_size = (self.image_size, self.image_size)
 
             if is_dict:
-                # Collect all unique camera keys preserving order
-                camera_keys = []
-                for feature in features:
-                    for cam_key in feature["images"]:
-                        if cam_key not in camera_keys:
-                            camera_keys.append(cam_key)
+                # Collect all unique camera keys in deterministic sorted order (matching inference)
+                camera_keys = sorted(list({k for feature in features for k in feature["images"]}))
 
                 # Stack: [B, num_cams, C, H, W]
                 cam_images = []

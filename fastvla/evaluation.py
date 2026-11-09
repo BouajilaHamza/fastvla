@@ -41,7 +41,13 @@ def record_rollout_video(
     """
     model.eval()
     frames = []
-    obs, _ = env.reset()
+    reset_ret = env.reset()
+    if isinstance(reset_ret, tuple):
+        obs = reset_ret[0]
+        info = reset_ret[1] if len(reset_ret) > 1 else {}
+    else:
+        obs = reset_ret
+        info = {}
     max_coverage = 0.0
 
     # Prepare input IDs
@@ -70,9 +76,7 @@ def record_rollout_video(
                 action_t = outputs
             action = action_t[0].cpu().numpy()
 
-        # Get current state for relative delta logic (PushT specific)
-        # We perform a zero-action step to extract info safely if needed
-        _, _, _, _, info = env.step(np.array([0.0, 0.0]))
+        # Get current state for relative delta logic (PushT specific) from previous transition info
         agent_pos = np.array(info.get("agent_pos", [256, 256]))
 
         # Calculate target position (Relative Delta logic)

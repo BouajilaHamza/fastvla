@@ -107,12 +107,12 @@ class SyntheticKinematicEnv:
 
 # ── 2. Environment Factory ───────────────────────────────────────────────────
 
-def make_eval_env(suite: str, task_id: int = 0, max_steps: int = 500) -> Any:
+def make_eval_env(suite: str, task_id: int = 0, max_steps: int = 500, allow_synthetic: bool = False) -> Tuple[Any, str]:
     """
     Instantiates physical simulation environment:
     1. Attempts native LIBERO gym / robosuite if installed.
     2. Attempts gymnasium Push-T if suite == 'pusht'.
-    3. Seamlessly falls back to SyntheticKinematicEnv with logging.
+    3. Fails closed unless allow_synthetic=True is explicitly passed.
     """
     if suite == "pusht":
         try:
@@ -120,8 +120,13 @@ def make_eval_env(suite: str, task_id: int = 0, max_steps: int = 500) -> Any:
             import gym_pusht
             env = gym.make("gym_pusht/PushT-v0", render_mode="rgb_array", max_episode_steps=max_steps)
             logger.info("Successfully loaded native Gymnasium Push-T environment.")
-            return env
+            return env, "gym_pusht"
         except Exception as e:
+            if not allow_synthetic:
+                raise RuntimeError(
+                    f"Native Gymnasium Push-T environment unavailable ({e}). "
+                    "Failing closed to protect benchmark integrity. Pass --allow-synthetic for mock diagnostics."
+                )
             logger.warning(f"Native gym_pusht not available ({e}). Using kinematic simulation fallback.")
 
     elif suite.startswith("libero"):
@@ -137,12 +142,22 @@ def make_eval_env(suite: str, task_id: int = 0, max_steps: int = 500) -> Any:
             }
             env = libero_envs.OffScreenRenderEnv(**env_args)
             logger.info(f"Successfully loaded native LIBERO environment for {suite} task {task_id}.")
-            return env
+            return env, "native_libero"
         except Exception as e:
-            logger.info(f"Native LIBERO not available locally ({e}). Using high-fidelity synthetic kinematic simulation.")
+            if not allow_synthetic:
+                raise RuntimeError(
+                    f"Native LIBERO simulator unavailable ({e}). "
+                    "Failing closed to protect benchmark integrity. Pass --allow-synthetic for mock diagnostics."
+                )
+            logger.warning(f"Native LIBERO not available locally ({e}). Using synthetic kinematic fallback.")
 
-    # High-fidelity synthetic kinematic fallback
-    return SyntheticKinematicEnv(task_name=f"{suite}_task_{task_id}", max_steps=max_steps)
+    if not allow_synthetic:
+        raise RuntimeError(
+            f"No native simulator available for '{suite}'. "
+            "Pass --allow-synthetic explicitly if you intend to run diagnostic synthetic simulations."
+        )
+
+    return SyntheticKinematicEnv(task_name=f"{suite}_task_{task_id}", max_steps=max_steps), "synthetic"
 
 
 # ── 3. Closed-Loop Evaluation Loop ───────────────────────────────────────────
@@ -248,6 +263,7 @@ def run_closed_loop_benchmark(
     max_steps: int = 500,
     instruction: str = "ضع الكوب الأبيض على الطبق وضع حلوى الشوكولاتة على يمين الطبق",
     record: bool = False,
+    allow_synthetic: bool = False,
 ) -> Dict[str, Any]:
     """
     Runs multi-episode closed-loop physical benchmark suite.
@@ -261,10 +277,12 @@ def run_closed_loop_benchmark(
     all_jerks = []
     all_latencies = []
     saved_frames = []
+    backends_used = set()
 
     for ep in range(num_episodes):
         logger.info(f"--- Running Episode {ep + 1}/{num_episodes} ---")
-        env = make_eval_env(suite=suite, task_id=ep % 4, max_steps=max_steps)
+        env, backend_name = make_eval_env(suite=suite, task_id=ep % 4, max_steps=max_steps, allow_synthetic=allow_synthetic)
+        backends_used.add(backend_name)
         res = evaluate_closed_loop_episode(
             runner=runner,
             env=env,
@@ -301,6 +319,8 @@ def run_closed_loop_benchmark(
 
     summary = {
         "suite": suite,
+        "backend": list(backends_used)[0] if len(backends_used) == 1 else list(backends_used),
+        "synthetic": "synthetic" in backends_used,
         "instruction": instruction,
         "num_episodes": num_episodes,
         "success_rate_pct": success_rate,
@@ -337,10 +357,17 @@ def main():
     parser.add_argument("--instruction", type=str, default="ضع الكوب الأبيض على الطبق وضع حلوى الشوكولاتة على يمين الطبق")
     parser.add_argument("--output", type=str, default="closed_loop_benchmark_results.json")
     parser.add_argument("--record", action="store_true", help="Record first rollout video")
+    parser.add_argument("--allow-synthetic", action="store_true", help="Allow fallback to synthetic kinematic mock environment for diagnostics")
     parser.add_argument("--chunk-size", type=int, default=16)
     parser.add_argument("--action-dim", type=int, default=7)
 
     args = parser.parse_args()
+
+    if not args.model_path and not args.allow_synthetic:
+        raise ValueError(
+            "Evaluation requires an explicit trained checkpoint via --model-path. "
+            "To run a mock diagnostic without a model or simulator, specify --allow-synthetic explicitly."
+        )
 
     # Import Policy Runner
     from fastvla.inference import FastVLAPolicyRunner
@@ -349,6 +376,7 @@ def main():
         model_id_or_path=args.model_path,
         chunk_size=args.chunk_size,
         action_dim=args.action_dim,
+        mock_mode=args.allow_synthetic,
     )
 
     results = run_closed_loop_benchmark(
@@ -358,6 +386,7 @@ def main():
         max_steps=args.max_steps,
         instruction=args.instruction,
         record=args.record,
+        allow_synthetic=args.allow_synthetic,
     )
 
     print("\n" + "=" * 70)

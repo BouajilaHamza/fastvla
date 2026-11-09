@@ -78,6 +78,7 @@ def test_policy_runner_step_mock():
         chunk_size=8,
         action_dim=7,
         ode_solver="midpoint",
+        mock_mode=True,
     )
 
     img = Image.fromarray(np.zeros((100, 100, 3), dtype=np.uint8))

@@ -39,7 +39,7 @@ def test_synthetic_kinematic_env_lifecycle():
 
 def test_closed_loop_episode_execution():
     """Test full single-episode closed-loop rollout with FastVLAPolicyRunner."""
-    runner = FastVLAPolicyRunner(action_dim=7, chunk_size=16)
+    runner = FastVLAPolicyRunner(action_dim=7, chunk_size=16, mock_mode=True)
     env = SyntheticKinematicEnv(max_steps=50)
 
     result = evaluate_closed_loop_episode(
@@ -60,7 +60,7 @@ def test_closed_loop_episode_execution():
 
 def test_closed_loop_benchmark_aggregation():
     """Test benchmark suite aggregation over multiple episodes."""
-    runner = FastVLAPolicyRunner(action_dim=7, chunk_size=16)
+    runner = FastVLAPolicyRunner(action_dim=7, chunk_size=16, mock_mode=True)
 
     benchmark_summary = run_closed_loop_benchmark(
         runner=runner,
@@ -69,6 +69,7 @@ def test_closed_loop_benchmark_aggregation():
         max_steps=40,
         instruction="شغّل الموقد",
         record=False,
+        allow_synthetic=True,
     )
 
     assert benchmark_summary["suite"] == "libero_10"
@@ -79,10 +80,16 @@ def test_closed_loop_benchmark_aggregation():
 
 
 def test_make_eval_env_fallback():
-    """Verify that make_eval_env returns a valid gym/kinematic env without throwing."""
-    env = make_eval_env(suite="libero_spatial", task_id=0, max_steps=50)
+    """Verify that make_eval_env returns a valid gym/kinematic env with allow_synthetic=True."""
+    env, backend = make_eval_env(suite="libero_spatial", task_id=0, max_steps=50, allow_synthetic=True)
     obs, info = env.reset()
     assert obs is not None
 
-    pusht_env = make_eval_env(suite="pusht", task_id=0, max_steps=50)
+    pusht_env, backend = make_eval_env(suite="pusht", task_id=0, max_steps=50, allow_synthetic=True)
     assert pusht_env is not None
+
+
+def test_make_eval_env_fails_closed():
+    """Verify that make_eval_env raises RuntimeError without allow_synthetic when simulator missing."""
+    with pytest.raises(RuntimeError, match="Failing closed to protect benchmark integrity|unavailable"):
+        make_eval_env(suite="libero_spatial", task_id=0, max_steps=50, allow_synthetic=False)

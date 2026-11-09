@@ -357,7 +357,7 @@ class FlowMatchingActionHead(BaseActionHead):
         steps = steps or self.num_inference_steps
 
         x = self.solve_ode(x0, cond, steps=steps, solver=solver)
-        return torch.tanh(x)
+        return torch.clamp(x, -1.0, 1.0)
 
     def predict(
         self,

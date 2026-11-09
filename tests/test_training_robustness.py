@@ -223,8 +223,9 @@ class TestGradientAccumulation:
 
         # Run training
         history = trainer.train()
-        assert len(history) >= 4
-        assert trainer.global_step == 4
+        assert len(history) >= 2
+        assert trainer.micro_step == 4
+        assert trainer.global_step == 2
 
 
 class TestDistributedTrainingSimulation:

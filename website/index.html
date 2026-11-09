@@ -504,8 +504,8 @@
         <a class="btn" href="https://huggingface.co/datasets/hamzabouajila/ar-libero-10-image" target="_blank">
           LIBERO-10 Dataset (HF)
         </a>
-        <a class="btn" href="#closed-loop-leaderboard">
-          Leaderboard
+        <a class="btn" href="#benchmarks">
+          Benchmarks
         </a>
       </div>
     </header>
@@ -517,16 +517,16 @@
         <div class="stat-label">Training Speedup (T4)</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num success">19.2 Hz</div>
-        <div class="stat-label">3D Closed-Loop Control</div>
+        <div class="stat-num success">~1.5 ms</div>
+        <div class="stat-label">O(1) Continuous ODE Solve</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num">&lt; 4 GB</div>
+        <div class="stat-num">&lt; 5.3 GB</div>
         <div class="stat-label">Peak VRAM Footprint</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num success">96.5%</div>
-        <div class="stat-label">Closed-Loop Peak Coverage</div>
+        <div class="stat-num success">-75%</div>
+        <div class="stat-label">Visual Token Reduction</div>
       </div>
     </div>
 
@@ -646,134 +646,82 @@
       </div>
     </section>
 
-    <!-- Section 4: Closed-Loop Physical Simulation Leaderboard -->
-    <section class="section" id="closed-loop-leaderboard">
-      <h2>4. Closed-Loop Physical Simulation Leaderboards</h2>
+    <!-- Section 4: Action Horizon Scaling & Real-Time ODE Solvers -->
+    <section class="section" id="benchmarks">
+      <h2>4. Empirical Action Horizon Scaling Benchmark (Tesla T4)</h2>
       <p>
-        Offline <i>L</i><sub>2</sub> trajectory loss fails to capture compounding drift and contact instabilities. Robotics viability demands true closed-loop physics execution under active contacts. The following benchmarks are executed in official simulators (MuJoCo 2.3.7 &amp; Pymunk 6.11) on NVIDIA Tesla T4:
+        Autoregressive discrete VLA token generation (OpenVLA, RT-2) scales linearly $\mathcal{O}(H \times D)$ with the action chunk horizon, incurring crippling latency at larger lookaheads. FastVLA solves continuous action chunk trajectories via parallel Runge-Kutta continuous Flow Matching ODE fields, achieving hardware-invariant $\mathcal{O}(1)$ latency on budget <strong>NVIDIA Tesla T4</strong> hardware:
       </p>
 
-      <h3>A. Official 3D MuJoCo Physics: LIBERO (Franka Emika Panda 7-DoF on Modal T4)</h3>
-      <p>
-        Evaluated on the official <code>libero_spatial</code> benchmark with BDDL programmatic goal verification (<em>"pick up the black bowl between the plate and the ramekin and place it on the plate"</em>):
-      </p>
       <div class="table-container">
         <table>
           <thead>
             <tr>
-              <th>Policy / Configuration</th>
-              <th>Action Representation &amp; Method</th>
-              <th>Physical Success</th>
-              <th>Control Hz</th>
-              <th>Jerk Norm</th>
-              <th>Mean Steps</th>
+              <th>Action Horizon ($H$)</th>
+              <th>Total Continuous DoF</th>
+              <th>Euler Solver (1 Step)</th>
+              <th>Midpoint Solver (2 Steps)</th>
+              <th>Peak VRAM</th>
+              <th>Autoregressive Latency ($H \times 7$ tokens)</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>OpenVLA Baseline (Optimized)</strong></td>
-              <td>Discrete 256-Bin + EMA Smoothing (&alpha;=0.8)</td>
-              <td>60.0%</td>
-              <td>4.5 Hz (222 ms)</td>
-              <td>0.1066</td>
-              <td>101.8</td>
+              <td><strong>$H = 8$</strong></td>
+              <td>56 DoF</td>
+              <td>0.748 ms (1,336 Hz)</td>
+              <td>1.489 ms (671.7 Hz)</td>
+              <td>13.81 MB</td>
+              <td>~840 ms (1.19 Hz)</td>
             </tr>
             <tr>
-              <td><strong>Diffusion Policy Baseline</strong></td>
-              <td>Continuous 16-Chunk + 8-Step DDIM Denoising</td>
-              <td>60.0%</td>
-              <td>14.9 Hz (67 ms)</td>
-              <td>0.1251</td>
-              <td>101.6</td>
+              <td><strong>$H = 16$</strong></td>
+              <td>112 DoF</td>
+              <td>0.757 ms (1,321 Hz)</td>
+              <td>1.508 ms (663.3 Hz)</td>
+              <td>14.05 MB</td>
+              <td>~1,680 ms (0.60 Hz)</td>
+            </tr>
+            <tr>
+              <td><strong>$H = 32$</strong></td>
+              <td>224 DoF</td>
+              <td>0.758 ms (1,319 Hz)</td>
+              <td>1.508 ms (663.2 Hz)</td>
+              <td>14.53 MB</td>
+              <td>~3,360 ms (0.30 Hz)</td>
             </tr>
             <tr class="highlight-row">
-              <td><strong>FastVLA Continuous Flow</strong></td>
-              <td><strong>Continuous 16-Chunk + 2-Step Midpoint ODE</strong></td>
-              <td><strong>60.0%</strong></td>
-              <td><strong>19.2 Hz (52 ms)</strong></td>
-              <td><strong>0.1136</strong></td>
-              <td><span class="badge-pill-success">4.27&times; Faster Control Loop</span></td>
+              <td><strong>$H = 64$</strong></td>
+              <td>448 DoF</td>
+              <td><strong>0.760 ms (1,315 Hz)</strong></td>
+              <td><strong>1.515 ms (660.1 Hz)</strong></td>
+              <td><strong>15.49 MB</strong></td>
+              <td><span class="badge-pill-success">~6,720 ms (4,436&times; speedup)</span></td>
             </tr>
           </tbody>
         </table>
       </div>
-
-      <div class="media-card">
-        <img src="assets/fastvla_libero_closed_loop_rollout.gif" alt="FastVLA LIBERO 3D MuJoCo Closed-Loop Rollout" style="max-height: 420px;" />
-        <div class="figure-caption">
-          <strong>Figure 1: Official LIBERO 3D MuJoCo Physics Rollout.</strong> Continuous flow matching execution on a 7-DoF Franka Emika Panda robot. The policy grasps the black bowl and successfully transfers it into the target plate at a sustained 19.2 Hz rate.
-        </div>
-      </div>
-
-      <h3>B. Empirical 2D Rigid-Body Physics: Gymnasium Push-T (Pymunk Engine)</h3>
-      <p>
-        Evaluating non-prehensile contact manipulation in true rigid-body dynamics (Pymunk 6.11) with polygon intersection coverage:
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+        * Benchmarked empirically on NVIDIA Tesla T4 via <code>scripts/evaluation/benchmark_horizon_scaling.py</code> ($B=16$, 7-DoF Franka arm). See <a href="docs/reports/LATENCY_SCALING_REPORT.md">LATENCY_SCALING_REPORT.md</a> for full empirical log.
       </p>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Policy / Configuration</th>
-              <th>Action Representation &amp; Method</th>
-              <th>Target Coverage</th>
-              <th>Control Hz</th>
-              <th>Jerk Norm</th>
-              <th>Task Success (&ge; 95%)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>OpenVLA Baseline (Optimized)</strong></td>
-              <td>Discrete 256-Bin + EMA Smoothing (&alpha;=0.8)</td>
-              <td>16.5% (contact slip)</td>
-              <td>31.4 Hz</td>
-              <td>1.66</td>
-              <td>0.0% (Fails)</td>
-            </tr>
-            <tr>
-              <td><strong>Diffusion Policy Baseline</strong></td>
-              <td>Continuous 16-Chunk + 8-Step DDIM Denoising</td>
-              <td>13.3% (open-loop drift)</td>
-              <td>28.4 Hz</td>
-              <td>39.25</td>
-              <td>0.0% (Fails)</td>
-            </tr>
-            <tr class="highlight-row">
-              <td><strong>FastVLA Continuous Flow</strong></td>
-              <td><strong>Continuous 16-Chunk + 2-Step Midpoint ODE</strong></td>
-              <td><strong>91.8% (96.5% Peak)</strong></td>
-              <td><strong>37.0 Hz</strong></td>
-              <td><strong>12.13</strong></td>
-              <td><span class="badge-pill-success">SUCCESS (Object In Place)</span></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="media-card">
-        <img src="assets/fastvla_pusht_closed_loop_rollout.gif" alt="FastVLA Push-T Closed-Loop Physics Rollout" style="max-height: 420px;" />
-        <div class="figure-caption">
-          <strong>Figure 2: Gymnasium Push-T Rigid-Body Dynamics Rollout.</strong> FastVLA guides the end-effector with continuous flow matching, pushing the T-block into complete alignment with the target silhouette (96.5% peak intersection coverage).
-        </div>
-      </div>
     </section>
 
     <!-- Section 5: Complex Manipulation & Humanoid Rollouts -->
     <section class="section">
-      <h2>5. Advanced Manipulation: Articulated Mechanisms &amp; Bimanual Humanoids</h2>
+      <h2>5. Kinematic Safety Filtering: Articulated Mechanisms &amp; Bimanual Shields</h2>
 
       <div class="grid-2">
         <div class="media-card">
           <img src="assets/fastvla_microwave_closure_rollout.gif" alt="FastVLA Microwave Insertion and Closure" style="max-height: 280px;" />
           <div class="figure-caption">
-            <strong>Figure 3: Microwave Chamber Insertion &amp; Door Latch.</strong> Multi-stage precision execution under the Arabic command: <em>&ldquo;ضع الكوب الأصفر والأبيض في الميكروويف وأغلقه&rdquo;</em> (100% mechanical latch, 23.5 Hz ODE solver, 5.21 GB VRAM).
+            <strong>Figure 3: Kinematic Safety Filter Diagnostic.</strong> Articulated mechanism path evaluated against FastVLA's real-time kinematic limits and watchdog emergency brake.
           </div>
         </div>
 
         <div class="media-card">
           <img src="assets/fastvla_bimanual_humanoid_rollout.gif" alt="FastVLA Bimanual Humanoid Rollout" style="max-height: 280px;" />
           <div class="figure-caption">
-            <strong>Figure 4: Coordinated 14-DoF Dual-Arm Manipulation.</strong> Product manifold SE(3) &times; SE(3) geodesic interpolation with active kinematic safety barrier and 500ms watchdog emergency stop.
+            <strong>Figure 4: Coordinated 14-DoF Dual-Arm Safety Shield.</strong> Joint velocity and acceleration clamping for ALOHA bimanual setups via <code>RobotSafetyConfig</code>.
           </div>
         </div>
       </div>

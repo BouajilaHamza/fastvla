@@ -108,6 +108,7 @@ def test_bimanual_multi_camera_inference_runner():
         action_dim=14,
         chunk_size=16,
         safety_config="aloha",
+        mock_mode=True,
     )
 
     multi_cam = {

@@ -545,21 +545,8 @@ def run_closed_loop_paro_benchmark(
 
 @app.local_entrypoint()
 def main():
-    print("Launching FastVLA Closed-Loop PARO Benchmark on Modal Tesla T4...")
-    results = run_closed_loop_paro_benchmark.remote()
-
-    video_bytes = results.pop("video_bytes", None)
-
-    # Save results json
-    results_path = "closed_loop_paro_libero_results.json"
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"✓ Saved results to {results_path}")
-
-    # Save video if present
-    if video_bytes:
-        video_path = "assets/fastvla_paro_closed_loop_rollout.mp4"
-        os.makedirs("assets", exist_ok=True)
-        with open(video_path, "wb") as f:
-            f.write(video_bytes)
-        print(f"✓ Saved rollout video to {video_path}")
+    raise NotImplementedError(
+        "scripts/modal/modal_paro_closed_loop_libero.py previously stepped demonstration-derived "
+        "perturbations rather than learned policy forward passes. "
+        "It is quarantined pending real policy checkpoint implementation."
+    )
