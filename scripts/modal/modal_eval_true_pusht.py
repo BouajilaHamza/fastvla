@@ -62,7 +62,7 @@ if not _hf_token and os.path.exists(os.path.expanduser("~/.cache/huggingface/tok
 secrets = [modal.Secret.from_dict({"HF_TOKEN": _hf_token})]
 
 
-@app.function(gpu="A10G", timeout=14400, secrets=secrets)
+@app.function(gpu="T4", timeout=14400, secrets=secrets)
 def run_end_to_end_pusht_evaluation(
     num_train_steps: int = 10000,
     batch_size: int = 16,
@@ -246,17 +246,25 @@ def run_end_to_end_pusht_evaluation(
         solver="midpoint",
     ).to(device=device, dtype=torch.float16)
 
-    # 3. Setup Optimizer with scaled learning rate
+    # 3. Setup Optimizer with scaled learning rate & Warmup Cosine Scheduler
     trainable_params = [
         {"params": [p for p in llm.parameters() if p.requires_grad], "lr": 3e-4},
         {"params": compressor.parameters(), "lr": 2e-4},
         {"params": action_head.parameters(), "lr": 5e-4},
     ]
     optimizer = bnb.optim.PagedAdamW8bit(trainable_params)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_train_steps, eta_min=1e-5)
+    warmup_steps = min(500, max(50, num_train_steps // 10))
+    from transformers import get_cosine_schedule_with_warmup
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=num_train_steps,
+    )
+    all_grad_params = [p for group in trainable_params for p in group["params"] if p.requires_grad]
 
-    print(f"\n[Phase 2] Executing {num_train_steps} High-Throughput Steps (Batch size {batch_size})...")
+    print(f"\n[Phase 2] Executing {num_train_steps} High-Throughput Steps on Tesla T4 (Batch size {batch_size})...")
     torch.cuda.reset_peak_memory_stats()
+    torch.backends.cudnn.benchmark = True
     t_train_start = time.perf_counter()
     losses = []
     step_latencies = []
@@ -282,6 +290,7 @@ def run_end_to_end_pusht_evaluation(
 
         loss = action_head.compute_loss(pooled, tgt_trajectory)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(all_grad_params, max_norm=1.0)
         optimizer.step()
         scheduler.step()
 
@@ -319,8 +328,9 @@ def run_end_to_end_pusht_evaluation(
     print(f"   Peak VRAM Utilization: {peak_vram_gb:.2f} GB / {total_vram_gb:.1f} GB ({peak_vram_gb/total_vram_gb*100.0:.1f}%)")
     print("=" * 80)
 
-    # 4. Closed-Loop Physical Simulation Evaluation
-    print(f"\n[Phase 3] Running Closed-Loop Physical Simulation ({num_eval_episodes} Episodes)...")
+    # 4. Closed-Loop Physical Simulation Evaluation on Tesla T4
+    print(f"\n[Phase 3] Running Closed-Loop Physical Simulation on Tesla T4 ({num_eval_episodes} Episodes)...")
+    torch.cuda.empty_cache()
     llm.eval()
     compressor.eval()
     action_head.eval()
@@ -371,7 +381,10 @@ def run_end_to_end_pusht_evaluation(
                 all_control_latencies.append(inf_ms)
 
                 chunk_np = pred_traj[0].view(16, 2).cpu().numpy()
-                unnorm_chunk = np.clip((chunk_np + 1.0) * 256.0, 0.0, 512.0)
+                act_low = env.action_space.low
+                act_high = env.action_space.high
+                unnorm_chunk = act_low + (chunk_np + 1.0) * 0.5 * (act_high - act_low)
+                unnorm_chunk = np.clip(unnorm_chunk, act_low, act_high)
                 action_buffer.extend(unnorm_chunk[:replan_interval].tolist())
 
             action_to_step = np.array(action_buffer.pop(0), dtype=np.float32)
