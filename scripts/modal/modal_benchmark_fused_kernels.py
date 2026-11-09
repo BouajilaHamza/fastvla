@@ -38,28 +38,32 @@ app = modal.App("fastvla-fused-kernels-benchmark", image=image)
 def run_triton_kernel_benchmarks():
     import torch
     import torch.nn.functional as F
+    import numpy as np
     from fastvla.kernels.fused_swiglu import fused_swiglu, FusedSwiGLUFunction
     from fastvla.kernels.fused_flow_loss import fused_flow_interpolate, fused_flow_mse_loss
 
-    print("=" * 80)
+    gpu_name = torch.cuda.get_device_name(0)
+    vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    print("=" * 95)
     print("NVIDIA T4 BENCHMARK: FASTVLA TRITON FUSED KERNELS")
-    print(f"Device: {torch.cuda.get_device_name(0)} | VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
-    print("=" * 80)
+    print(f"Device: {gpu_name} | VRAM: {vram_gb:.2f} GB")
+    assert "T4" in gpu_name or "Tesla" in gpu_name, f"Adversarial Guard: Expected Tesla T4, got {gpu_name}"
+    assert vram_gb >= 14.0, f"Adversarial Guard: Expected ~16GB VRAM, got {vram_gb:.2f} GB"
+    print("=" * 95)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Benchmark 1: Fused SwiGLU Kernel vs Standard PyTorch
     # ─────────────────────────────────────────────────────────────────────────
-    # Dimensions for 7B LLaMA MLP: B=2, Seq=544 (uncompressed) & Seq=160 (FastVLA Compressed), D=11008
     bench_configs = [
-        ("Base Seq (B=2, S=544, D=11008)", 2, 544, 11008),
-        ("FastVLA Compressed Seq (B=2, S=160, D=11008)", 2, 160, 11008),
+        ("Base Seq (B=4, S=304, D=6144)", 4, 304, 6144),
+        ("FastVLA Compressed Seq (B=4, S=112, D=6144)", 4, 112, 6144),
     ]
 
-    print("\n[1/3] EVALUATING FUSED SWIGLU KERNEL (SRAM ACTIVATION + ANALYTICAL BACKWARD)...")
+    print("\n[1/2] EVALUATING FUSED SWIGLU KERNEL (SRAM ACTIVATION + ANALYTICAL BACKWARD)...")
     for name, B, S, D in bench_configs:
         print(f"\n--- Configuration: {name} ---")
-        num_warmup = 20
-        num_iters = 100
+        num_warmup = 30
+        num_iters = 150
 
         gate = torch.randn(B, S, D, device="cuda", dtype=torch.float32, requires_grad=True)
         up = torch.randn(B, S, D, device="cuda", dtype=torch.float32, requires_grad=True)
@@ -75,14 +79,17 @@ def run_triton_kernel_benchmarks():
             up.grad = None
         torch.cuda.synchronize()
 
-        start = time.perf_counter()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
         for _ in range(num_iters):
             out_ref = F.silu(gate) * up
             out_ref.backward(grad_out, retain_graph=True)
             gate.grad = None
             up.grad = None
+        end_event.record()
         torch.cuda.synchronize()
-        pt_time_ms = (time.perf_counter() - start) / num_iters * 1000.0
+        pt_time_ms = start_event.elapsed_time(end_event) / num_iters
         pt_mem_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
 
         # 2. Triton Fused SwiGLU
@@ -95,14 +102,17 @@ def run_triton_kernel_benchmarks():
             up.grad = None
         torch.cuda.synchronize()
 
-        start = time.perf_counter()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
         for _ in range(num_iters):
             out_fused = fused_swiglu(gate, up)
             out_fused.backward(grad_out, retain_graph=True)
             gate.grad = None
             up.grad = None
+        end_event.record()
         torch.cuda.synchronize()
-        triton_time_ms = (time.perf_counter() - start) / num_iters * 1000.0
+        triton_time_ms = start_event.elapsed_time(end_event) / num_iters
         triton_mem_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
 
         # Verification
