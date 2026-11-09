@@ -336,20 +336,25 @@ class FastVLAPolicyRunner:
             input_ids = None
             attention_mask = None
 
-        # Check if flow matching action head is available
+        # Predict actions via model
         action_head = getattr(self.model, "action_head", None)
         from .adapters.action_head import FlowMatchingActionHead
 
-        if isinstance(action_head, FlowMatchingActionHead):
-            # Midpoint or Euler continuous flow ODE solve
-            pooled_hidden = self.model._encode_sequence(pixel_values, input_ids, attention_mask)
+        if hasattr(self.model, "encode_pooled"):
+            pooled_hidden = self.model.encode_pooled(
+                pixel_values=pixel_values,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            )
             batch_size = pooled_hidden.shape[0]
-            flat_actions = action_head(pooled_hidden, solver=self.ode_solver, steps=self.ode_steps)
+            if isinstance(action_head, FlowMatchingActionHead):
+                flat_actions = action_head(pooled_hidden, solver=self.ode_solver, steps=self.ode_steps)
+            else:
+                flat_actions = action_head(pooled_hidden)
             chunk = flat_actions.view(batch_size, self.chunk_size, self.action_dim).detach().cpu().float().numpy()
         else:
-            # Fallback to standard model forward call
             action_pred, _ = self.model(pixel_values=pixel_values, input_ids=input_ids)
-            chunk = action_pred.detach().cpu().float().numpy()
+            chunk = action_pred.view(pixel_values.shape[0], self.chunk_size, self.action_dim).detach().cpu().float().numpy()
 
         if chunk.ndim == 3 and chunk.shape[0] == 1:
             chunk = chunk[0]

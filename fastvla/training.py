@@ -376,7 +376,8 @@ class FastVLATrainer:
         self.optimizer = self.accelerator.prepare(base_optimizer)
 
         # Setup Scheduler
-        total_steps = max_steps if max_steps else (len(self.train_dataloader) * num_epochs)
+        steps_per_epoch = max(1, len(self.train_dataloader) // max(1, gradient_accumulation_steps))
+        total_steps = max_steps if max_steps else (steps_per_epoch * num_epochs)
         self.scheduler = self.accelerator.prepare(
             get_cosine_schedule_with_warmup(
                 self.optimizer,
@@ -494,24 +495,24 @@ class FastVLATrainer:
                 if metrics.get("updated", True):
                     self.global_step += 1
 
-                if self.global_step % self.logging_steps == 0:
-                    progress_bar.set_postfix({k: v for k, v in metrics.items() if k != "updated"})
-                    if self.accelerator.is_main_process:
-                        self.training_history.append(
-                            {"step": self.global_step, **{k: v for k, v in metrics.items() if k != "updated"}}
-                        )
-                        if self.use_wandb:
-                            import wandb
+                    if self.global_step % self.logging_steps == 0:
+                        progress_bar.set_postfix({k: v for k, v in metrics.items() if k != "updated"})
+                        if self.accelerator.is_main_process:
+                            self.training_history.append(
+                                {"step": self.global_step, **{k: v for k, v in metrics.items() if k != "updated"}}
+                            )
+                            if self.use_wandb:
+                                import wandb
 
-                            wandb.log(metrics, step=self.global_step)
+                                wandb.log(metrics, step=self.global_step)
 
-                if self.global_step % self.eval_steps == 0:
-                    eval_metrics = self.evaluate()
-                    if self.accelerator.is_main_process:
-                        logger.info(f"Step {self.global_step}: {eval_metrics}")
+                    if self.global_step % self.eval_steps == 0:
+                        eval_metrics = self.evaluate()
+                        if self.accelerator.is_main_process:
+                            logger.info(f"Step {self.global_step}: {eval_metrics}")
 
-                if self.global_step % self.save_steps == 0 and metrics.get("updated", True):
-                    self.save_checkpoint(self.global_step)
+                    if self.global_step % self.save_steps == 0:
+                        self.save_checkpoint(self.global_step)
 
                 if self.max_steps and self.global_step >= self.max_steps:
                     break

@@ -110,6 +110,7 @@ def main():
         ode_solver=args.ode_solver,
         safety_config=safety_config,
         enable_safety=enable_safety,
+        mock_mode=(args.mode == "mock"),
     )
 
     if args.mode == "mock":

@@ -76,8 +76,12 @@ def record_rollout_video(
                 action_t = outputs
             action = action_t[0].cpu().numpy()
 
-        # Get current state for relative delta logic (PushT specific) from previous transition info
-        agent_pos = np.array(info.get("agent_pos", [256, 256]))
+        # Get current state for relative delta logic (PushT specific) from previous transition info / obs
+        if isinstance(obs, dict) and "agent_pos" in obs:
+            raw_pos = obs["agent_pos"]
+        else:
+            raw_pos = info.get("pos_agent", info.get("agent_pos", [256, 256]))
+        agent_pos = np.array(raw_pos)
 
         # Calculate target position (Relative Delta logic)
         delta = action[:2]

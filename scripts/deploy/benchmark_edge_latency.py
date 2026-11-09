@@ -31,6 +31,7 @@ def benchmark_edge_runner(device: str = "cpu", iterations: int = 200, chunk_size
         action_dim=action_dim,
         ode_solver="midpoint",
         ode_steps=2,
+        mock_mode=True,
     )
 
     dummy_img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))

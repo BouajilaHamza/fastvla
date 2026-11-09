@@ -778,16 +778,18 @@ class FastVLAModel(PreTrainedModel):
         """Returns True if an episodic prompt is currently cached."""
         return self._cached_text_embeds is not None
 
-    def forward(self, pixel_values=None, input_ids=None, attention_mask=None, labels=None, states=None, visual_features=None):
-        """Forward pass handles multi-camera inputs and action prediction.
-        
-        Supports pre-computed visual_features to bypass vision encoder forward passes entirely.
-        """
+    def encode_pooled(
+        self,
+        pixel_values: torch.Tensor | None = None,
+        input_ids: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        states: torch.Tensor | None = None,
+        visual_features: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Extracts pooled multimodal representation [B, D] across vision, language, and state."""
         if visual_features is None:
             if pixel_values is None:
-                raise ValueError("Either pixel_values or visual_features must be provided to forward().")
-            # FIX 2: Batch all cameras into a single encoder forward pass instead of
-            # encoding them one-by-one in a Python loop (pure GPU idle time).
+                raise ValueError("Either pixel_values or visual_features must be provided.")
             B, num_cams, C, H, W = pixel_values.shape
             v_param = next(self.vision_encoder.parameters(), None)
             v_device = v_param.device if v_param is not None else get_device()
@@ -795,16 +797,14 @@ class FastVLAModel(PreTrainedModel):
             flat_imgs = pixel_values.view(B * num_cams, C, H, W).to(device=v_device, dtype=v_dtype)
             cam_feats = self.vision_encoder(flat_imgs)
             if hasattr(cam_feats, "last_hidden_state"):
-                cam_feats = cam_feats.last_hidden_state  # [B*num_cams, T_v, D_v]
+                cam_feats = cam_feats.last_hidden_state
             T_v, D_v = cam_feats.shape[1], cam_feats.shape[2]
-            # Reshape back and concatenate cameras along the sequence dimension
-            visual_features = cam_feats.reshape(B, num_cams * T_v, D_v)  # [B, num_cams*T_v, D_v]
+            visual_features = cam_feats.reshape(B, num_cams * T_v, D_v)
         else:
             B = visual_features.shape[0]
 
         llm_device = next(self.llm.parameters()).device
 
-        # Episodic Prompt Cache: Use precomputed embeddings & projections if available
         if input_ids is None and self.has_episodic_prompt:
             text_embeds = self._cached_text_embeds.clone()
             text_lo = self._cached_text_lo.clone()
@@ -812,51 +812,53 @@ class FastVLAModel(PreTrainedModel):
                 attention_mask = self._cached_prompt_mask
         else:
             if input_ids is None:
-                raise ValueError("Either input_ids or a cached episodic prompt (via set_episodic_prompt) must be provided.")
+                raise ValueError("Either input_ids or a cached episodic prompt must be provided.")
             text_embeds = self.llm.get_input_embeddings()(input_ids.to(llm_device))
             text_lo = None
 
-        # FIX 3: Prepend proprioceptive state embedding to the token sequence.
         if states is not None:
             if states.shape[-1] != self.state_proj.in_features:
                 self.state_proj = nn.Linear(
                     states.shape[-1], self.state_proj.out_features
                 ).to(device=llm_device, dtype=self.attn_proj_down.weight.dtype if hasattr(self, "attn_proj_down") else torch.float32)
-            state_emb = self.state_proj(states.to(llm_device).float())  # [B, l_hidden]
-            state_emb = state_emb.unsqueeze(1)  # [B, 1, l_hidden]
-            text_embeds = torch.cat([state_emb, text_embeds], dim=1)  # prepend
-            text_lo = None  # Recompute text_lo if state is prepended
+            state_emb = self.state_proj(states.to(llm_device).float())
+            state_emb = state_emb.unsqueeze(1)
+            text_embeds = torch.cat([state_emb, text_embeds], dim=1)
+            text_lo = None
             if attention_mask is not None:
                 state_mask = torch.ones(B, 1, device=attention_mask.device, dtype=attention_mask.dtype)
                 attention_mask = torch.cat([state_mask, attention_mask], dim=1)
 
-        # Use optimized Cross-Attention Fusion (Text attends to Visual)
         from .kernels import vision_language_cross_attention
-
-        # Project visual to match language dimension
         v_proj_dtype = next(self.vision_proj.parameters()).dtype if (hasattr(self, "vision_proj") and list(self.vision_proj.parameters())) else visual_features.dtype
         visual_features = self.vision_proj(visual_features.to(device=llm_device, dtype=v_proj_dtype))
 
-        # FIX 1: Use low-rank projection bridge so the Triton kernel fires even
-        # for large hidden dims (e.g. D=4096 for 7B models).  Project text and
-        # visual down to 256 for cross-attention, then project back and add as a
-        # residual on top of the original text embeddings.
         bridge_dtype = self.attn_proj_down.weight.dtype if hasattr(self, "attn_proj_down") else text_embeds.dtype
         if text_lo is None:
-            text_lo = self.attn_proj_down(text_embeds.to(dtype=bridge_dtype))   # [B, T_q, 256]
-        visual_lo = self.attn_proj_down(visual_features.to(dtype=bridge_dtype)) # [B, T_kv, 256]
-        fused_lo  = vision_language_cross_attention(text_lo, visual_lo)  # Triton fires
-        # Project back and residual-add with original text embeddings
+            text_lo = self.attn_proj_down(text_embeds.to(dtype=bridge_dtype))
+        visual_lo = self.attn_proj_down(visual_features.to(dtype=bridge_dtype))
+        fused_lo = vision_language_cross_attention(text_lo, visual_lo)
+
         up_dtype = self.attn_proj_up.weight.dtype if hasattr(self, "attn_proj_up") else fused_lo.dtype
         fused_delta = self.attn_proj_up(fused_lo.to(dtype=up_dtype))
         fused_embeds = text_embeds + fused_delta.to(dtype=text_embeds.dtype)
 
         last_hidden = self._encode_sequence(fused_embeds, attention_mask)
-
         head_param = next(self.action_head.parameters(), None)
         head_device = head_param.device if head_param is not None else llm_device
         head_dtype = head_param.dtype if (head_param is not None and head_param.is_floating_point()) else torch.float32
         pooled = self._pool_hidden_states(last_hidden, attention_mask).to(device=head_device, dtype=head_dtype)
+        return pooled
+
+    def forward(self, pixel_values=None, input_ids=None, attention_mask=None, labels=None, states=None, visual_features=None):
+        """Forward pass handles multi-camera inputs and action prediction."""
+        pooled = self.encode_pooled(
+            pixel_values=pixel_values,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            states=states,
+            visual_features=visual_features,
+        )
         action_preds = self.action_head(pooled)
 
         value_preds = None
@@ -865,7 +867,7 @@ class FastVLAModel(PreTrainedModel):
 
         loss = None
         if labels is not None:
-            labels = labels.to(device=head_device, dtype=pooled.dtype)
+            labels = labels.to(device=pooled.device, dtype=pooled.dtype)
 
             # Heads with a bespoke training objective (discrete cross-entropy,
             # flow-matching velocity) compute the loss from the conditioning
