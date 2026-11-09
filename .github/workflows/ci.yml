@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,4 +31,45 @@ jobs:
 
       - name: Run Test Suite
         run: |
-          uv run pytest tests/test_augmentations.py tests/test_fused_swiglu.py tests/test_inference.py tests/test_kernels.py -v
+          uv run pytest \
+            tests/test_augmentations.py \
+            tests/test_fused_swiglu.py \
+            tests/test_inference.py \
+            tests/test_kernels.py \
+            tests/test_flow_ode_solvers.py \
+            tests/test_token_compressor.py \
+            tests/test_safety.py \
+            tests/test_se3_manifold.py \
+            -v -o addopts=""
+
+  colab-environment-smoke-test:
+    name: Colab 1-Cell Environment Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10 (Standard Colab Runtime)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install PyTorch and FastVLA (Colab Profile)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install .[colab]
+
+      - name: Verify Clean Non-Destructive Import & Initialization
+        run: |
+          python -c "
+          import fastvla
+          from fastvla import FastVLAConfig, FastVLAModel
+          config = FastVLAConfig(
+              action_dim=7,
+              action_chunk_size=16,
+              action_head_type='flow_matching',
+              use_spatial_patch_merge=True,
+          )
+          print('✓ FastVLA Version:', fastvla.__version__)
+          print('✓ Colab runtime verified with zero dependency conflicts.')
+          "

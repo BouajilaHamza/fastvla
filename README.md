@@ -403,6 +403,7 @@ Supported model presets out of the box: `openvla-7b`, `smolvla`, `pi0-base`, `ol
 
 - **Closed-Loop Physical Simulation Leaderboard** — MuJoCo & Push-T physical simulation rollouts, 8.55x speedup and 38.5% jerk reduction: [docs/reports/CLOSED_LOOP_LEADERBOARD.md](docs/reports/CLOSED_LOOP_LEADERBOARD.md).
 - **Unitree G1 Humanoid Embodiment Report** — 23-DoF whole-body physical simulation report, kinematics, and MuJoCo embodiment rollouts: [docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md](docs/reports/UNITREE_G1_EMBODIMENT_REPORT.md).
+- **Action Horizon Scaling Benchmark** — Empirical verification of $\mathcal{O}(1)$ constant latency across horizons $H=8$ to $H=64$ on Tesla T4: [docs/reports/LATENCY_SCALING_REPORT.md](docs/reports/LATENCY_SCALING_REPORT.md).
 - **Training-speed deep-dive** — per-GPU it/s, ratios vs vanilla QLoRA / OFT / Unsloth-on-LLM, and a citation for every number: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 - **Accessibility roadmap** — every memory + speed lever between today and "Unsloth-for-VLA done", grouped by status: [docs/ACCESSIBILITY_ROADMAP.md](docs/ACCESSIBILITY_ROADMAP.md).
 - **Arabic datasets** — the translation pipeline and dataset release: [docs/datasets/ARABIC_DATASETS.md](docs/datasets/ARABIC_DATASETS.md).
