@@ -169,6 +169,7 @@ def run_calibrated_pipeline(
                 q = bnb.nn.Linear4bit(lin.in_features, lin.out_features, bias=False, compute_dtype=torch.float16, quant_type="nf4").to("cuda")
                 setattr(layer.mlp, name, q)
 
+        llm.lm_head = nn.Identity()
         llm = llm.eval()
 
         prompt_str = "المهمة: ادفع القطعة نحو الهدف"
@@ -392,6 +393,7 @@ def run_calibrated_pipeline(
             lin = getattr(layer.mlp, name)
             q = bnb.nn.Linear4bit(lin.in_features, lin.out_features, bias=False, compute_dtype=torch.float16, quant_type="nf4").to("cuda")
             setattr(layer.mlp, name, q)
+    llm.lm_head = nn.Identity()
     llm = llm.eval()
 
     tokenizer = AutoTokenizer.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
