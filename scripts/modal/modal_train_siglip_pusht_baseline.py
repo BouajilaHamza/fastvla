@@ -56,7 +56,7 @@ secrets = [modal.Secret.from_dict({"HF_TOKEN": _hf_token})]
 results_volume = modal.Volume.from_name("fastvla-results", create_if_missing=True)
 
 
-@app.function(gpu="T4", timeout=7200, secrets=secrets, volumes={"/results": results_volume})
+@app.function(gpu="T4", cpu=8, timeout=7200, secrets=secrets, volumes={"/results": results_volume})
 def run_siglip_baseline(
     train_head_steps: int = 20000,
     batch_size: int = 256,
@@ -158,43 +158,59 @@ def run_siglip_baseline(
         ep_indices = table["episode_index"].to_pylist()
 
         total_frames = len(images_raw)
-        batch_extract = 64
-        extracted_features = []
         extracted_states = []
         extracted_actions = []
         extracted_episodes = []
 
-        print(f"\n[Phase 1C] Pre-computing SigLIP Features across {total_frames} frames...")
+        for idx in range(total_frames):
+            s = raw_states[idx]
+            extracted_states.append([float(s[0]) / 256.0 - 1.0, float(s[1]) / 256.0 - 1.0])
+            a = raw_actions[idx]
+            extracted_actions.append([float(a[0]) / 256.0 - 1.0, float(a[1]) / 256.0 - 1.0])
+            extracted_episodes.append(ep_indices[idx])
+
+        class ExtractImageDataset(Dataset):
+            def __init__(self, raw_col, tf):
+                self.raw_col = raw_col
+                self.tf = tf
+
+            def __len__(self):
+                return len(self.raw_col)
+
+            def __getitem__(self, i):
+                d = self.raw_col[i].as_py()
+                if isinstance(d, dict) and "bytes" in d and d["bytes"] is not None:
+                    img = Image.open(io.BytesIO(d["bytes"])).convert("RGB")
+                else:
+                    img = Image.new("RGB", (224, 224), color=(128, 128, 128))
+                return self.tf(img)
+
+        extract_ds = ExtractImageDataset(images_raw, transform)
+        extract_loader = DataLoader(
+            extract_ds,
+            batch_size=128,
+            shuffle=False,
+            num_workers=6,
+            pin_memory=True,
+            prefetch_factor=2,
+        )
+
+        print(f"\n[Phase 1C] Pre-computing SigLIP Features across {total_frames} frames (Multi-threaded with 6 workers)...")
         t_start_feat = time.perf_counter()
+        extracted_features = []
+        frames_done = 0
+
         with torch.no_grad():
-            for i in range(0, total_frames, batch_extract):
-                end_i = min(i + batch_extract, total_frames)
-                batch_imgs = []
-                for idx in range(i, end_i):
-                    raw_dict = images_raw[idx].as_py()
-                    if isinstance(raw_dict, dict) and "bytes" in raw_dict and raw_dict["bytes"] is not None:
-                        img = Image.open(io.BytesIO(raw_dict["bytes"])).convert("RGB")
-                    else:
-                        img = Image.new("RGB", (224, 224), color=(128, 128, 128))
-                    batch_imgs.append(transform(img))
-                
-                pv = torch.stack(batch_imgs).to(device=device)
+            for pv in extract_loader:
+                pv = pv.to(device=device, non_blocking=True)
                 feat = vision_encoder(pv).cpu()
                 extracted_features.append(feat)
+                frames_done += pv.shape[0]
 
-                for idx in range(i, end_i):
-                    s = raw_states[idx]
-                    norm_s = [float(s[0]) / 256.0 - 1.0, float(s[1]) / 256.0 - 1.0]
-                    extracted_states.append(norm_s)
-                    a = raw_actions[idx]
-                    norm_a = [float(a[0]) / 256.0 - 1.0, float(a[1]) / 256.0 - 1.0]
-                    extracted_actions.append(norm_a)
-                    extracted_episodes.append(ep_indices[idx])
-
-                if (i // batch_extract) % 100 == 0 or end_i == total_frames:
+                if frames_done % 6400 == 0 or frames_done == total_frames:
                     elapsed = time.perf_counter() - t_start_feat
-                    fps = end_i / max(1e-5, elapsed)
-                    print(f"  Processed {end_i:5d}/{total_frames} frames ({fps:5.1f} frames/s, elapsed: {elapsed/60:.1f}m)")
+                    fps = frames_done / max(1e-5, elapsed)
+                    print(f"  Processed {frames_done:5d}/{total_frames} frames ({fps:5.1f} frames/s, elapsed: {elapsed/60:.1f}m)")
 
         cached_data = {
             "features": torch.cat(extracted_features, dim=0),
