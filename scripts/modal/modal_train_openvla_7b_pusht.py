@@ -385,7 +385,17 @@ def run_openvla_7b_training(
     print(f"   Peak VRAM:        {peak_vram_training:.2f} GB / {total_vram_gb:.1f} GB ({peak_vram_training / total_vram_gb * 100:.1f}%)")
     print("=" * 80)
 
-    # 6. Physical Closed-Loop Simulation in gym_pusht
+    # 6. Save Model Checkpoints to Persistent Volume
+    print("\n[Phase 2.5] Persisting Model Weights to Volume 'fastvla-results'...")
+    ckpt_dir = "/results/checkpoints/latest"
+    os.makedirs(ckpt_dir, exist_ok=True)
+    torch.save(action_head.state_dict(), f"{ckpt_dir}/action_head.pt")
+    torch.save(compressor.state_dict(), f"{ckpt_dir}/compressor.pt")
+    llm.save_pretrained(f"{ckpt_dir}/llm_lora")
+    results_volume.commit()
+    print(f"  💾 Model weights successfully saved and committed to {ckpt_dir}")
+
+    # 7. Physical Closed-Loop Simulation in gym_pusht
     print(f"\n[Phase 3] Executing {num_eval_episodes} Closed-Loop Physical Rollouts in PushT-v0...")
     torch.cuda.empty_cache()
     llm.eval()
@@ -394,38 +404,51 @@ def run_openvla_7b_training(
     env = gym.make("gym_pusht/PushT-v0", obs_type="pixels_agent_pos", render_mode="rgb_array")
     eval_metrics = []
     recorded_frames = []
+    replan_interval = 8  # Receding horizon action execution buffer
+
+    eval_prompt = "المهمة: ادفع القطعة نحو الهدف"
+    tok = tokenizer(
+        eval_prompt,
+        max_length=48,
+        padding="max_length",
+        truncation=True,
+        return_tensors="pt",
+    )
+    input_ids = tok["input_ids"].to(device)
 
     for ep in range(num_eval_episodes):
         obs, info = env.reset(seed=1000 + ep)
         ep_coverages = []
         ep_jerks = []
         prev_act = None
+        action_buffer = []
 
-        for step in range(max_eval_steps):
+        step = 0
+        while step < max_eval_steps:
             if ep == 0:
                 frame = env.render()
                 recorded_frames.append(frame)
 
-            raw_img = Image.fromarray(obs["pixels"]).convert("RGB")
-            pv = transform(raw_img).unsqueeze(0).to(device=device, dtype=torch.float16)
-            prompt = "المهمة: ادفع القطعة نحو الهدف"
-            tok = tokenizer(prompt, return_tensors="pt")
-            input_ids = tok["input_ids"].to(device=device)
+            if len(action_buffer) == 0:
+                raw_img = Image.fromarray(obs["pixels"]).convert("RGB")
+                pv = transform(raw_img).unsqueeze(0).to(device=device, dtype=torch.float16)
 
-            with torch.no_grad():
-                raw_vis = vision_encoder.forward_features(pv)
-                vis_emb = compressor(raw_vis)
-                text_emb = llm.get_input_embeddings()(input_ids).to(device=device, dtype=torch.float16)
-                fused = torch.cat([vis_emb, text_emb], dim=1)
-                out = llm(inputs_embeds=fused, output_hidden_states=True)
-                pooled = out.hidden_states[-1][:, -1, :]
-                pred_chunk = action_head(pooled, solver="midpoint", steps=2)
-                pred_chunk = pred_chunk.squeeze(0).view(16, 2).cpu().float().numpy()
+                with torch.no_grad():
+                    raw_vis = vision_encoder.forward_features(pv)
+                    vis_emb = compressor(raw_vis)
+                    text_emb = llm.get_input_embeddings()(input_ids).to(device=device, dtype=torch.float16)
+                    fused = torch.cat([vis_emb, text_emb], dim=1)
+                    out = llm(inputs_embeds=fused, output_hidden_states=True)
+                    pooled = out.hidden_states[-1][:, -1, :]
+                    pred_chunk = action_head(pooled, solver="midpoint", steps=2)
+                    chunk_np = pred_chunk.squeeze(0).view(16, 2).cpu().float().numpy()
 
-            # Execute first action from chunk
-            act_norm = pred_chunk[0]
-            act = (act_norm + 1.0) * 256.0
-            act = np.clip(act, 0.0, 512.0)
+                # Unnormalize [-1, 1] continuous predictions to Push-T pixel coordinates [0, 512]
+                unnorm_chunk = (chunk_np + 1.0) * 256.0
+                unnorm_chunk = np.clip(unnorm_chunk, 0.0, 512.0)
+                action_buffer.extend(unnorm_chunk[:replan_interval].tolist())
+
+            act = np.array(action_buffer.pop(0), dtype=np.float32)
 
             if prev_act is not None:
                 ep_jerks.append(float(np.linalg.norm(act - prev_act)))
@@ -434,6 +457,7 @@ def run_openvla_7b_training(
             obs, reward, terminated, truncated, info = env.step(act)
             cov = float(info.get("coverage", reward))
             ep_coverages.append(cov)
+            step += 1
 
             if terminated or truncated:
                 break
